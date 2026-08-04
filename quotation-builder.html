@@ -5,6 +5,44 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OakCraft — Pro Forma Quotation Builder</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- CRM ka server session (sid) yahan bhi bhejo. Same origin hai isliye
+     localStorage shared hai. Isse quote numbering bhi authenticated ho
+     jaati hai aur token kabhi URL me nahi jaata. -->
+<script>
+(function(){
+  var _f = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    try{
+      var url = (typeof input === 'string') ? input : (input && input.url) || '';
+      if(url.indexOf('/macros/s/') >= 0){
+        var sid = ''; try{ sid = localStorage.getItem('crm_sid') || ''; }catch(e){}
+        var method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+        if(method === 'GET'){
+          var qi = url.indexOf('?'), base = qi >= 0 ? url.slice(0, qi) : url, p = {};
+          if(qi >= 0) url.slice(qi + 1).split('&').forEach(function(kv){
+            if(!kv) return; var a = kv.split('=');
+            p[decodeURIComponent(a[0])] = decodeURIComponent(String(a[1] || '').replace(/\+/g, ' '));
+          });
+          if(sid) p.sid = sid;
+          return _f(base, { method:'POST', body: JSON.stringify(p), redirect:'follow' });
+        }
+        if(sid && init && typeof init.body === 'string'){
+          try{
+            var o = JSON.parse(init.body);
+            if(o && typeof o === 'object' && !o.sid){
+              o.sid = sid;
+              var ni = {}; for(var k in init) ni[k] = init[k];
+              ni.body = JSON.stringify(o);
+              init = ni;
+            }
+          }catch(e){}
+        }
+      }
+    }catch(e){}
+    return _f(input, init);
+  };
+})();
+</script>
 <style>
 :root{
   --gold:#B4802F; --gold-deep:#9A6C24; --ink:#241A10; --ink-soft:#4A3B28;
