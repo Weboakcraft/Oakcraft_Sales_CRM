@@ -1577,7 +1577,7 @@ function renderLogin(msg){
     <label style="font-size:12px;color:#888">Password</label>
     <input id="lg-pw" type="password" placeholder="Password" style="width:100%;padding:11px;margin:4px 0 12px;border:1px solid #ddd;border-radius:9px;box-sizing:border-box;color:#111" onkeydown="if(event.key==='''Enter''')doLogin()">
     <button onclick="doLogin()" style="width:100%;padding:12px;background:#2a78d6;color:#fff;border:0;border-radius:9px;font-weight:700;cursor:pointer">Continue</button>
-    <div style="font-size:11.5px;color:#aaa;margin-top:14px;line-height:1.5">First time? Enter your email and the password you want to set — your account will be activated. Sessions stay active for 24 hours.</div>
+    <div style="font-size:11.5px;color:#aaa;margin-top:14px;line-height:1.5">First time? Enter your email and the password you want to set — your account will be activated. You will stay signed in on this device until you log out.</div>
   </div>`;
   const em=document.getElementById('lg-email'); if(em) em.focus();
 }
@@ -1748,6 +1748,24 @@ function bindAppEvents(){
    * logs / browser history / referrer me leak ho jaata hai).            *
    * Isliye purane GET ?action=... calls ko chupchaap POST bana dete hain.*
    * ------------------------------------------------------------------ */
+  /* server jab bhi naya session token bheje (sliding window), use turant
+     save kar lo -- isi se "one-time login" chalta hai. */
+  function absorbRenewal(resp){
+    try{
+      resp.clone().text().then(function(txt){
+        if(!txt || txt.indexOf('newSid') < 0) return;
+        try{
+          var o = JSON.parse(txt);
+          if(o && typeof o.newSid === 'string' && o.newSid.indexOf('.') > 0){
+            SRV.set(o.newSid);
+            if(AUTH && typeof AUTH.touch === 'function') AUTH.touch();
+          }
+        }catch(e){}
+      }).catch(function(){});
+    }catch(e){}
+    return resp;
+  }
+
   var _fetch = window.fetch.bind(window);
   window.fetch = function(input, init){
     try{
@@ -1768,7 +1786,7 @@ function bindAppEvents(){
             });
           }
           if(sid) p.sid = sid;
-          return _fetch(base, { method:'POST', body: JSON.stringify(p), redirect:'follow' });
+          return _fetch(base, { method:'POST', body: JSON.stringify(p), redirect:'follow' }).then(absorbRenewal);
         }
 
         if(sid && init && typeof init.body === 'string'){
@@ -1783,6 +1801,10 @@ function bindAppEvents(){
           }catch(e){}
         }
       }
+    }catch(e){}
+    try{
+      var _u2 = (typeof input === 'string') ? input : (input && input.url) || '';
+      if(_u2.indexOf('/macros/s/') >= 0) return _fetch(input, init).then(absorbRenewal);
     }catch(e){}
     return _fetch(input, init);
   };
@@ -1888,6 +1910,153 @@ function bindAppEvents(){
 
   /* Purani (sid-less) session ko chalne nahi dena — warna user bina server
      session ke andar baitha rahega aur scoping bypass ho jaayegi. */
+  /* ================================================================== *
+   * 8. ONE-TIME LOGIN                                                   *
+   * Pehle: local session 24 ghante me expire -> user ko roz login.       *
+   * Ab   : server token 30 din valid hai aur har din chupchaap rotate    *
+   *        ho jaata hai (sliding window). Jab tak banda app use karta    *
+   *        rahega, dobara password nahi maangega.                        *
+   * Sirf 3 cheezein logout karti hain:                                   *
+   *   1) user khud Logout dabaye                                         *
+   *   2) 30 din tak koi activity na ho (security expiry)                 *
+   *   3) server kahe account inactive / token unauthorized hai           *
+   * ================================================================== */
+
+  AUTH.SESSION_MS = 30*24*60*60*1000;    // local session bhi 30 din
+
+  /* token ke andar se email/role/expiry nikaalo. Signature server verify
+     karta hai, ye sirf UI ke liye hai -- security iske bharose nahi hai. */
+  function sidInfo(){
+    try{
+      var s = SRV.get();
+      if(!s || s.indexOf('.') < 0) return null;
+      var b = s.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+      var f = atob(b).split('|');
+      if(f.length < 3) return null;
+      var ex = Number(f[2]);
+      if(!ex) return null;
+      return { email: String(f[0]).toLowerCase(), role: f[1], exp: ex };
+    }catch(e){ return null; }
+  }
+
+  /* activity par local session ki expiry aage badha do (throttled) */
+  var _lastTouch = 0;
+  AUTH.touch = function(){
+    try{
+      if(Date.now() - _lastTouch < 60000) return;
+      var s = AUTH.session && AUTH.session();
+      if(s && s.email){ AUTH.setSession(s.email); _lastTouch = Date.now(); }
+    }catch(e){}
+  };
+
+  /* poora logout: token + cache + local session */
+  function hardLogout(reload){
+    try{ SRV.clear(); }catch(e){}
+    try{ purgeCache(); }catch(e){}
+    try{ localStorage.removeItem(AUTH.SESSION_KEY || 'crm_session'); }catch(e){}
+    if(reload) location.reload();
+  }
+
+  /* ---- BOOT: token zinda hai to bina password seedha andar ---- */
+  try{
+    var _si = sidInfo();
+    if(_si && Date.now() >= _si.exp){
+      hardLogout(false);              // token expire -> saaf, login screen aayega
+    } else if(_si && !(AUTH.session && AUTH.session())){
+      AUTH.setSession(_si.email);     // token zinda, local session lapse -> restore
+    }
+  }catch(e){}
+
+  /* ---- background verify ----
+     Network fail par logout NAHI karte (offline me bhi app chalta rahe),
+     sirf server ke saaf unauthorized/inactive par logout karte hain. */
+  window.verifySession = function(){
+    if(!SRV.get()) return;
+    SRV.call({ action:'whoami' }).then(function(r){
+      if(r && r.ok){
+        if(r.newSid) SRV.set(r.newSid);
+        AUTH.touch();
+        return;
+      }
+      if(r && /unauthorized|inactive|invalid/i.test(String(r.error || ''))){
+        hardLogout(true);
+      }
+    }).catch(function(){ /* offline -> andar hi rehne do */ });
+  };
+  setTimeout(function(){ try{ window.verifySession(); }catch(e){} }, 2000);
+
+  /* ================================================================== *
+   * 9. DELETE SYNC FIX                                                  *
+   * Bug: 'saveMany' server par sirf UPSERT karta hai -- payload me jo    *
+   * record nahi hai use delete nahi karta. Isliye app me record delete   *
+   * karne par sheet ki row zinda reh jaati thi, aur next page load ke    *
+   * pull par record wapas aa jaata tha (ghost record).                   *
+   * Fix: local delete ke saath server ko explicit delete bhi bhejte hain.*
+   * ================================================================== */
+
+  CLOUD.remove = function(coll, id){
+    if(!coll || !id) return Promise.resolve(false);
+    return fetch(CLOUD.url, {
+      method: 'POST', redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      /* dono shapes bhejte hain: naya backend top-level id samajhta hai,
+         purana sirf record.id -- isliye rollback par bhi kaam karega */
+      body: JSON.stringify({ action: 'delete', collection: coll, id: String(id), record: { id: String(id) } })
+    }).then(function(r){ return r.json(); })
+      .then(function(j){ return !!(j && !j.error && (j.done === undefined || j.done > 0)); })
+      .catch(function(){ return false; });
+  };
+
+  function countOf(key){
+    try{ var a = store.get(key, []); return Array.isArray(a) ? a.length : 0; }catch(e){ return 0; }
+  }
+
+  /* delRow: purana function chalne do (confirm + local delete), uske baad
+     agar record local se hat gaya hai to sheet se bhi hata do. */
+  if(typeof delRow === 'function'){
+    var _origDelRow = delRow;
+    delRow = function(key, id){
+      var before = countOf(key);
+      var out = _origDelRow(key, id);
+      if(countOf(key) < before){
+        CLOUD.remove(key, id).then(function(ok){
+          if(!ok) toast('Sheet se delete nahi ho paaya \u2014 internet check kijiye');
+        });
+      }
+      return out;
+    };
+  }
+
+  /* delUser: users sheet me ek hi email ki duplicate rows ho sakti hain,
+     isliye server se list lekar us email ki saari rows delete karte hain. */
+  if(typeof delUser === 'function'){
+    var _origDelUser = delUser;
+    delUser = function(email){
+      var before = countOf('users');
+      var out = _origDelUser(email);
+      if(countOf('users') < before){
+        var want = String(email || '').trim().toLowerCase();
+        SRV.call({ action:'list', collection:'users' }).then(function(j){
+          var rows = (j && j.data) || [];
+          var ids = [];
+          rows.forEach(function(r){
+            var d = (r && r.data) || {};
+            if(String(d.email || '').trim().toLowerCase() === want && r.id) ids.push(r.id);
+          });
+          return Promise.all(ids.map(function(id){ return CLOUD.remove('users', id); }));
+        }).catch(function(){
+          toast('Sheet se user delete nahi ho paaya \u2014 internet check kijiye');
+        });
+      }
+      return out;
+    };
+  }
+
+  /* tab wapas focus me aaye to session touch kar do */
+  document.addEventListener('visibilitychange', function(){
+    if(!document.hidden){ try{ AUTH.touch(); }catch(e){} }
+  });
+
   try{
     if(AUTH.session && AUTH.session() && !SRV.get()){
       localStorage.removeItem(AUTH.SESSION_KEY || 'crm_session');
