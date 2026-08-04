@@ -187,6 +187,7 @@ td .sub{color:var(--muted);font-size:12px}
       <div class="nav-label">Sales Pipeline</div>
       <a data-view="enquiries" data-icon="inbox"><span>Enquiries / Leads</span><span class="badge" id="nb-enq">0</span></a>
       <a data-view="pipeline" data-icon="flow"><span>Pipeline Board</span></a>
+      <a data-view="metaLeads" data-icon="flow"><span>Meta Leads</span></a>
       <a data-view="quotations" data-icon="doc"><span>Quotations</span></a>
       <a data-view="orders" data-icon="cart"><span>Orders</span><span class="badge" id="nb-ord">0</span></a>
       <a data-view="dispatch" data-icon="truck"><span>Dispatch</span><span class="badge" id="nb-dis">0</span></a>
@@ -443,7 +444,7 @@ function setView(v){
   })();
   Object.values(state.charts).forEach(c=>{try{c.destroy()}catch(e){}}); state.charts={};
   ({dashboard:renderDashboard,enquiries:renderEnquiries,pipeline:renderPipeline,quotations:renderQuotations,
-    orders:renderOrders,dispatch:renderDispatch,customers:renderCustomers,products:renderProducts,admin:renderAdmin}[v])();
+    orders:renderOrders,dispatch:renderDispatch,customers:renderCustomers,products:renderProducts,admin:renderAdmin, metaLeads:renderMetaLeads}[v])();
   content.scrollTop=0;
 }
 
@@ -1704,6 +1705,613 @@ function bindAppEvents(){
     const map={enquiries:'enq-body',quotations:'quo-body',orders:'ord-body',dispatch:'dis-body',customers:'cust-body',products:'prod-body'};
     if(state.view==='enquiries')paintEnq(); else if(map[state.view])paintTable(map[state.view]);});
 }
+
+/* ============================================================================
+   OakCraft Sales CRM  —  Phase 2 frontend
+   ---------------------------------------------------------------------------
+   1) Per-user data isolation : server-side session (sid) + fail-closed scope()
+   2) Meta Leads pipeline     : Facebook / Instagram leads ka alag pipeline
+
+   NOTE: ye block jaan-boojh kar init() se THEEK PEHLE rakha gaya hai, taaki
+   saare override app start hone se pehle lag jaayein.
+   ============================================================================ */
+(function(){
+  'use strict';
+
+  var _lc = function(s){ return String(s == null ? '' : s).trim().toLowerCase(); };
+  function meEmail(){ try{ var u = AUTH.current(); return u ? _lc(u.email) : ''; }catch(e){ return ''; } }
+  function meIsAdmin(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+
+  /* ------------------------------------------------------------------ *
+   * 1. SERVER SESSION                                                   *
+   * Login ab server par hota hai. Server ek sid (signed token) deta hai *
+   * jise hum har request ke saath bhejte hain. Server usi ke hisaab se  *
+   * sirf usi user ka data bhejta hai -> asli isolation.                 *
+   * ------------------------------------------------------------------ */
+  var SID_KEY = 'crm_sid';
+  var SRV = {
+    get: function(){ try{ return localStorage.getItem(SID_KEY) || ''; }catch(e){ return window.__sid || ''; } },
+    set: function(v){ window.__sid = v || ''; try{ if(v) localStorage.setItem(SID_KEY, v); else localStorage.removeItem(SID_KEY); }catch(e){} },
+    clear: function(){ SRV.set(''); },
+    call: function(payload){
+      return fetch(CLOUD.url, { method:'POST', body: JSON.stringify(payload || {}) })
+        .then(function(r){ return r.json(); });
+    },
+    login: function(email, hash){ return SRV.call({ action:'login', email:email, hash:hash }); },
+    setPassword: function(email, hash){ return SRV.call({ action:'setPassword', email:email, hash:hash }); }
+  };
+  window.SRV = SRV;
+
+  /* ------------------------------------------------------------------ *
+   * 2. FETCH SHIM                                                       *
+   * sid ko sirf POST body me bhejte hain, URL me kabhi nahi (URL server *
+   * logs / browser history / referrer me leak ho jaata hai).            *
+   * Isliye purane GET ?action=... calls ko chupchaap POST bana dete hain.*
+   * ------------------------------------------------------------------ */
+  var _fetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    try{
+      var url = (typeof input === 'string') ? input : (input && input.url) || '';
+      if(url.indexOf('/macros/s/') >= 0){
+        var sid = SRV.get();
+        var method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+
+        if(method === 'GET'){
+          var qi = url.indexOf('?');
+          var base = qi >= 0 ? url.slice(0, qi) : url;
+          var p = {};
+          if(qi >= 0){
+            url.slice(qi + 1).split('&').forEach(function(kv){
+              if(!kv) return;
+              var a = kv.split('=');
+              p[decodeURIComponent(a[0])] = decodeURIComponent(String(a[1] || '').replace(/\+/g, ' '));
+            });
+          }
+          if(sid) p.sid = sid;
+          return _fetch(base, { method:'POST', body: JSON.stringify(p), redirect:'follow' });
+        }
+
+        if(sid && init && typeof init.body === 'string'){
+          try{
+            var o = JSON.parse(init.body);
+            if(o && typeof o === 'object' && !o.sid){
+              o.sid = sid;
+              var ni = {}; for(var k in init) ni[k] = init[k];
+              ni.body = JSON.stringify(o);
+              init = ni;
+            }
+          }catch(e){}
+        }
+      }
+    }catch(e){}
+    return _fetch(input, init);
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 3. SCOPE — fail CLOSED                                              *
+   * Purana scope() ownerless records sabko dikha deta tha (fail-open).   *
+   * Ab: admin -> sab kuch, warna sirf apne owner wale records.           *
+   * Session hi nahi mila to kuch bhi nahi (safe default).               *
+   * ------------------------------------------------------------------ */
+  window.scope = function(list){
+    if(!Array.isArray(list)) return [];
+    if(meIsAdmin()) return list;
+    var m = meEmail();
+    if(!m) return [];
+    return list.filter(function(r){
+      if(!r) return false;
+      var o = _lc(r.owner || r.ownerEmail || r.createdBy);
+      return o === m;
+    });
+  };
+
+  /* kya ye record current user edit kar sakta hai? */
+  window.canTouch = function(rec){
+    if(meIsAdmin()) return true;
+    var m = meEmail(); if(!m) return false;
+    var o = _lc(rec && (rec.owner || rec.ownerEmail || rec.createdBy));
+    return !o || o === m;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 4. LOGIN — server pehle                                             *
+   * ------------------------------------------------------------------ */
+  window.doLogin = async function(){
+    var emEl = document.getElementById('lg-email');
+    var pwEl = document.getElementById('lg-pw');
+    var msg  = document.getElementById('loginMsg');
+    var email = _lc(emEl ? emEl.value : '');
+    var pw    = String(pwEl ? pwEl.value : '');
+
+    function say(t, bad){
+      if(!msg) return;
+      msg.textContent = t;
+      msg.style.color = bad ? '#c0392b' : '';
+    }
+    if(!email || !pw){ say('Email aur password dono zaroori hain.', true); return; }
+
+    var h;
+    try{ h = await AUTH.hash(pw); }
+    catch(e){ say('Password process nahi ho paaya.', true); return; }
+
+    say('Checking\u2026');
+    try{
+      var res = await SRV.login(email, h);
+
+      /* Pehli baar login: user roster me hai par server par password set nahi
+         hai -> password enrol karo, phir dobara login. */
+      if(res && !res.ok && /invalid credentials/i.test(String(res.error || ''))){
+        var known = null;
+        try{ known = AUTH.find ? AUTH.find(email) : null; }catch(e){}
+        if(known && pw.length >= 6){
+          var en = await SRV.setPassword(email, h);
+          if(en && en.ok) res = await SRV.login(email, h);
+        }
+      }
+
+      if(!res || !res.ok){
+        SRV.clear();
+        say(String((res && res.error) || 'Login fail hua.'), true);
+        return;
+      }
+
+      SRV.set(res.sid || (res.data && res.data.sid) || '');
+      say('Aapka data load ho raha hai\u2026');
+      await CLOUD.pull();
+      AUTH.setSession(email);
+      bootApp();
+    }catch(e){
+      console.error('login failed', e);
+      say('Server se baat nahi ho paayi \u2014 internet check kijiye.', true);
+    }
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 5. LOGOUT — sid + cache dono saaf                                   *
+   * Warna next user ko pichle user ka localStorage cache dikh jaata.    *
+   * ------------------------------------------------------------------ */
+  function purgeCache(){
+    try{
+      (CLOUD.keys || []).forEach(function(k){ localStorage.removeItem(k); });
+      localStorage.removeItem('formfields');
+      localStorage.removeItem('permissions');
+    }catch(e){}
+  }
+  var _oldLogout = (AUTH && typeof AUTH.logout === 'function') ? AUTH.logout.bind(AUTH) : null;
+  AUTH.logout = function(){
+    SRV.clear();
+    purgeCache();
+    if(_oldLogout){ try{ return _oldLogout(); }catch(e){} }
+    try{ localStorage.removeItem(AUTH.SESSION_KEY || 'crm_session'); }catch(e){}
+    location.reload();
+  };
+
+  /* Purani (sid-less) session ko chalne nahi dena — warna user bina server
+     session ke andar baitha rahega aur scoping bypass ho jaayegi. */
+  try{
+    if(AUTH.session && AUTH.session() && !SRV.get()){
+      localStorage.removeItem(AUTH.SESSION_KEY || 'crm_session');
+      purgeCache();
+    }
+  }catch(e){}
+
+  /* ================================================================== *
+   * 6. META LEADS PIPELINE                                             *
+   * Facebook / Instagram (Meta) se aaye leads ka apna alag pipeline.    *
+   * - Admin sab leads dekhta hai aur kisi bhi salesperson ko assign     *
+   *   kar sakta hai.                                                    *
+   * - Salesperson ko sirf apne assign kiye hue leads dikhte hain        *
+   *   (wahi per-user isolation jo baaki modules me hai).                *
+   * - Lead ko ek click me Enquiry banaya ja sakta hai.                  *
+   * ================================================================== */
+  var META_STAGES_DEFAULT = ['New','Contacted','Qualified','Proposal','Won','Lost'];
+
+  function lsGet(k, def){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : def; }catch(e){ return def; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+  function metaCfg(){
+    var ff = lsGet('formfields', {}) || {};
+    var c = ff.__metaPipeline || {};
+    return { stages: (Array.isArray(c.stages) && c.stages.length) ? c.stages.slice() : META_STAGES_DEFAULT.slice() };
+  }
+  function metaCfgSave(cfg){
+    var ff = lsGet('formfields', {}) || {};
+    ff.__metaPipeline = cfg;
+    lsSet('formfields', ff);
+    try{ CLOUD.pushObj('formfields', ff); }catch(e){}
+  }
+
+  function mlAll(){ var a = lsGet('metaLeads', []); return Array.isArray(a) ? a : []; }
+  function mlSave(arr){ try{ store.set('metaLeads', arr); }catch(e){ lsSet('metaLeads', arr); } }
+  function mlId(){ return 'ML-' + Math.random().toString(36).slice(2, 8).toUpperCase(); }
+  function enqId(){ return 'ENQ-' + Math.random().toString(36).slice(2, 8).toUpperCase(); }
+  function isoDate(d){ d = d || new Date(); var m = d.getMonth() + 1, dd = d.getDate(); return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (dd < 10 ? '0' : '') + dd; }
+  function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function roster(){
+    var u = lsGet('users', []);
+    return (Array.isArray(u) ? u : []).filter(function(x){ return x && x.email; });
+  }
+  function nameOf(email){
+    var e = _lc(email), r = roster();
+    for(var i = 0; i < r.length; i++) if(_lc(r[i].email) === e) return r[i].name || email;
+    return email || '\u2014';
+  }
+
+  /* ---- CSV / TSV / JSON import (Meta Lead Ads export) ---- */
+  function splitCsvLine(line, sep){
+    var out = [], cur = '', q = false;
+    for(var i = 0; i < line.length; i++){
+      var ch = line[i];
+      if(q){
+        if(ch === '"'){ if(line[i+1] === '"'){ cur += '"'; i++; } else q = false; }
+        else cur += ch;
+      } else if(ch === '"'){ q = true; }
+      else if(ch === sep){ out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out.map(function(s){ return s.trim(); });
+  }
+  var ML_MAP = {
+    name:      ['full_name','fullname','name','lead_name','full name'],
+    phone:     ['phone_number','phone','mobile','contact','phone number','whatsapp'],
+    email:     ['email','email_address','e-mail'],
+    city:      ['city','town','location','district'],
+    campaign:  ['campaign_name','campaign','ad_name','adset_name','campaign name'],
+    adForm:    ['form_name','form','lead_form','form name'],
+    product:   ['product','interested_in','requirement','product_interest','what_are_you_looking_for'],
+    note:      ['note','notes','message','comments','remarks'],
+    platform:  ['platform','source','channel']
+  };
+  function mlParse(text){
+    text = String(text || '').trim();
+    if(!text) return [];
+    /* JSON? */
+    if(text.charAt(0) === '[' || text.charAt(0) === '{'){
+      try{
+        var j = JSON.parse(text);
+        var arr = Array.isArray(j) ? j : (Array.isArray(j.data) ? j.data : [j]);
+        return arr.map(function(o){ return mlNormalise(o); }).filter(function(x){ return x; });
+      }catch(e){ /* CSV try karo */ }
+    }
+    var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
+    if(lines.length < 2) return [];
+    var sep = (lines[0].indexOf('\t') >= 0) ? '\t' : ((lines[0].split(';').length > lines[0].split(',').length) ? ';' : ',');
+    var head = splitCsvLine(lines[0], sep).map(function(h){ return _lc(h).replace(/\s+/g,'_'); });
+    var out = [];
+    for(var i = 1; i < lines.length; i++){
+      var cells = splitCsvLine(lines[i], sep);
+      var o = {};
+      for(var c = 0; c < head.length; c++) o[head[c]] = cells[c];
+      var n = mlNormalise(o);
+      if(n) out.push(n);
+    }
+    return out;
+  }
+  function pick(o, keys){
+    for(var i = 0; i < keys.length; i++){
+      var k = keys[i];
+      for(var kk in o){
+        if(_lc(kk).replace(/\s+/g,'_') === k && String(o[kk] || '').trim()) return String(o[kk]).trim();
+      }
+    }
+    return '';
+  }
+  function mlNormalise(o){
+    if(!o || typeof o !== 'object') return null;
+    var rec = {};
+    for(var f in ML_MAP) rec[f] = pick(o, ML_MAP[f]);
+    if(!rec.name && !rec.phone && !rec.email) return null;
+    rec.id = mlId();
+    rec.stage = 'New';
+    rec.source = 'Meta';
+    rec.platform = rec.platform || 'Facebook';
+    rec.createdAt = isoDate();
+    rec.owner = '';
+    return rec;
+  }
+
+  /* ---- UI ---- */
+  function mlStyle(){
+    if(document.getElementById('mlStyle')) return;
+    var s = document.createElement('style');
+    s.id = 'mlStyle';
+    s.textContent = '.ml-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}'
+      + '.ml-bar input.ml-s{flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--border,rgba(255,255,255,.12));border-radius:8px;font:inherit;background:var(--bg,#0d0d0d);color:inherit}'
+      + '.ml-kpi{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}'
+      + '.ml-kpi div{background:var(--surface,#1a1a19);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;color:var(--muted,#898781)}'
+      + '.ml-kpi div b{display:block;font-size:18px;color:var(--text,#fff)}'
+      + '.lead-card .lc-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:2px 6px;border-radius:5px;background:rgba(0,0,0,.06);color:var(--muted,#898781);margin-top:6px}'
+      + '.lead-card .lc-act{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}'
+      + '.lead-card .lc-act button{font:inherit;font-size:11px;padding:3px 7px;border:1px solid var(--border,rgba(255,255,255,.12));background:transparent;border-radius:6px;cursor:pointer;color:inherit}'
+      + '.lead-card .lc-act button:hover{background:rgba(0,0,0,.05)}'
+      + '.ml-f{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
+      + '.ml-f label{font-size:11px;font-weight:700;color:var(--muted,#898781);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}'
+      + '.ml-f input,.ml-f select,.ml-f textarea{width:100%;padding:8px 10px;border:1px solid var(--border,rgba(255,255,255,.12));border-radius:8px;font:inherit;box-sizing:border-box;background:var(--bg,#0d0d0d);color:inherit}'
+      + '.ml-f .wide{grid-column:1 / -1}';
+    document.head.appendChild(s);
+  }
+
+  window.renderMetaLeads = function(){
+    mlStyle();
+    var cfg = metaCfg(), admin = meIsAdmin();
+    var visible = scope(mlAll());
+    var q = _lc(window.__mlQ || '');
+    var list = !q ? visible : visible.filter(function(l){
+      return [l.name, l.phone, l.email, l.city, l.campaign, l.product, l.note].join(' ').toLowerCase().indexOf(q) >= 0;
+    });
+    var won = list.filter(function(l){ return l.stage === 'Won'; }).length;
+    var lost = list.filter(function(l){ return l.stage === 'Lost'; }).length;
+    var open = list.length - won - lost;
+
+    var bar = '<div class="ml-bar">'
+      + '<input class="ml-s" id="mlSearch" placeholder="Search naam / phone / city / campaign\u2026" value="' + esc(window.__mlQ || '') + '">'
+      + '<button class="btn" onclick="ML.form()">+ Add Lead</button>'
+      + '<button class="btn" onclick="ML.importBox()">Import from Meta</button>'
+      + (admin ? '<button class="btn" onclick="ML.stageBox()">Stages</button>' : '')
+      + '</div>';
+
+    var kpi = '<div class="ml-kpi">'
+      + '<div>Total<b>' + list.length + '</b></div>'
+      + '<div>Open<b>' + open + '</b></div>'
+      + '<div>Won<b>' + won + '</b></div>'
+      + '<div>Lost<b>' + lost + '</b></div>'
+      + '</div>';
+
+    var board = '<div class="pipeline">' + cfg.stages.map(function(st, si){
+      var items = list.filter(function(l){ return (l.stage || 'New') === st; });
+      var cards = items.slice(0, 40).map(function(l){
+        return '<div class="lead-card">'
+          + '<div class="lc-name">' + esc(l.name || l.phone || l.email || 'Unnamed') + '</div>'
+          + '<div class="lc-meta">' + esc([l.phone, l.city].filter(Boolean).join(' \u00b7 ') || '\u2014') + '</div>'
+          + (l.product ? '<div class="lc-meta">' + esc(l.product) + '</div>' : '')
+          + (l.campaign ? '<span class="lc-tag">' + esc(l.campaign) + '</span>' : '')
+          + (admin ? '<div class="lc-meta" style="margin-top:6px">Owner: ' + esc(l.owner ? nameOf(l.owner) : 'Unassigned') + '</div>' : '')
+          + '<div class="lc-act">'
+          + (si > 0 ? '<button title="Peeche" onclick="ML.move(\'' + l.id + '\',-1)">\u25c0</button>' : '')
+          + (si < cfg.stages.length - 1 ? '<button title="Aage" onclick="ML.move(\'' + l.id + '\',1)">\u25b6</button>' : '')
+          + '<button onclick="ML.form(\'' + l.id + '\')">Edit</button>'
+          + '<button onclick="ML.convert(\'' + l.id + '\')">\u2192 Enquiry</button>'
+          + '</div></div>';
+      }).join('');
+      return '<div class="stage-col"><h4>' + esc(st) + ' <span>' + items.length + '</span></h4>'
+        + '<div class="stage-body">'
+        + (cards || '<div style="color:var(--muted,#898781);font-size:12px;padding:6px 0">Koi lead nahi</div>')
+        + '</div></div>';
+    }).join('') + '</div>';
+
+    var note = visible.length ? '' :
+      '<div style="background:var(--surface,#1a1a19);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:10px;padding:16px;margin-bottom:14px;font-size:13px;color:var(--muted,#898781)">'
+      + 'Abhi koi Meta lead nahi hai. <b>Import from Meta</b> se apna Lead Ads CSV paste kijiye, ya <b>+ Add Lead</b> se manually add kijiye.'
+      + '</div>';
+
+    content.innerHTML = bar + kpi + note + board;
+
+    var si = document.getElementById('mlSearch');
+    if(si){
+      si.oninput = function(){
+        window.__mlQ = si.value;
+        clearTimeout(window.__mlT);
+        window.__mlT = setTimeout(function(){
+          var pos = si.selectionStart;
+          renderMetaLeads();
+          var n = document.getElementById('mlSearch');
+          if(n){ n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} }
+        }, 250);
+      };
+    }
+  };
+
+  var ML = {
+    move: function(id, dir){
+      var cfg = metaCfg(), arr = mlAll();
+      var l = arr.filter(function(x){ return x.id === id; })[0];
+      if(!l) return;
+      if(!canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+      var i = cfg.stages.indexOf(l.stage || 'New');
+      if(i < 0) i = 0;
+      var n = i + dir;
+      if(n < 0 || n >= cfg.stages.length) return;
+      l.stage = cfg.stages[n];
+      l.updatedAt = new Date().toISOString();
+      mlSave(arr);
+      renderMetaLeads();
+    },
+    form: function(id){
+      var arr = mlAll();
+      var l = id ? arr.filter(function(x){ return x.id === id; })[0] : null;
+      if(id && !l) return;
+      if(l && !canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+      var cfg = metaCfg(), admin = meIsAdmin();
+      l = l || { stage: cfg.stages[0], platform: 'Facebook' };
+      var ownSel = admin
+        ? '<div><label>Assign to</label><select id="mlOwner"><option value="">\u2014 Unassigned \u2014</option>'
+          + roster().map(function(u){ return '<option value="' + esc(u.email) + '"' + (_lc(u.email) === _lc(l.owner) ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>'; }).join('')
+          + '</select></div>'
+        : '';
+      openModal(
+        '<h3 style="margin:0 0 14px">' + (id ? 'Edit Meta Lead' : 'New Meta Lead') + '</h3>'
+        + '<div class="ml-f">'
+        + '<div><label>Name</label><input id="mlName" value="' + esc(l.name) + '"></div>'
+        + '<div><label>Phone</label><input id="mlPhone" value="' + esc(l.phone) + '"></div>'
+        + '<div><label>Email</label><input id="mlEmail" value="' + esc(l.email) + '"></div>'
+        + '<div><label>City</label><input id="mlCity" value="' + esc(l.city) + '"></div>'
+        + '<div><label>Product / Interest</label><input id="mlProd" value="' + esc(l.product) + '"></div>'
+        + '<div><label>Platform</label><select id="mlPlat">'
+          + ['Facebook','Instagram','WhatsApp','Messenger','Other'].map(function(p){ return '<option' + (p === l.platform ? ' selected' : '') + '>' + p + '</option>'; }).join('')
+          + '</select></div>'
+        + '<div><label>Campaign</label><input id="mlCamp" value="' + esc(l.campaign) + '"></div>'
+        + '<div><label>Lead form</label><input id="mlForm" value="' + esc(l.adForm) + '"></div>'
+        + '<div><label>Stage</label><select id="mlStage">'
+          + cfg.stages.map(function(s){ return '<option' + (s === (l.stage || cfg.stages[0]) ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
+          + '</select></div>'
+        + ownSel
+        + '<div class="wide"><label>Note</label><textarea id="mlNote" rows="3">' + esc(l.note) + '</textarea></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+        + '<button class="btn" onclick="closeModal()">Cancel</button>'
+        + '<button class="btn" onclick="ML.save(' + (id ? "'" + id + "'" : 'null') + ')">Save</button>'
+        + '</div>'
+      );
+    },
+    save: function(id){
+      var arr = mlAll(), admin = meIsAdmin();
+      var v = function(x){ var e = document.getElementById(x); return e ? String(e.value).trim() : ''; };
+      var rec = id ? arr.filter(function(x){ return x.id === id; })[0] : null;
+      var isNew = !rec;
+      if(isNew){ rec = { id: mlId(), createdAt: isoDate(), source: 'Meta' }; }
+      rec.name = v('mlName'); rec.phone = v('mlPhone'); rec.email = v('mlEmail');
+      rec.city = v('mlCity'); rec.product = v('mlProd'); rec.platform = v('mlPlat');
+      rec.campaign = v('mlCamp'); rec.adForm = v('mlForm'); rec.stage = v('mlStage');
+      rec.note = v('mlNote');
+      rec.updatedAt = new Date().toISOString();
+      if(!rec.name && !rec.phone && !rec.email){ toast('Name, phone ya email me se kuch to daaliye.'); return; }
+      if(admin) rec.owner = v('mlOwner');
+      else if(!rec.owner) rec.owner = meEmail();
+      if(isNew) arr.unshift(rec);
+      mlSave(arr);
+      closeModal();
+      toast(isNew ? 'Lead add ho gaya' : 'Lead update ho gaya');
+      renderMetaLeads();
+    },
+    importBox: function(){
+      openModal(
+        '<h3 style="margin:0 0 6px">Import Meta Leads</h3>'
+        + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted,#898781)">Meta Ads Manager se Lead Ads CSV download kijiye aur yahan paste kar dijiye. Header row rakhna zaroori hai. JSON bhi chalega.</p>'
+        + '<textarea id="mlPaste" rows="10" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border,rgba(255,255,255,.12));border-radius:8px;font:12px/1.5 monospace;background:var(--bg,#0d0d0d);color:inherit" placeholder="full_name,phone_number,email,city,campaign_name"></textarea>'
+        + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
+        + '<button class="btn" onclick="closeModal()">Cancel</button>'
+        + '<button class="btn" onclick="ML.doImport()">Import</button>'
+        + '</div>'
+      );
+    },
+    doImport: function(){
+      var el = document.getElementById('mlPaste');
+      var rows = mlParse(el ? el.value : '');
+      if(!rows.length){ toast('Koi valid lead nahi mila \u2014 header row check kijiye.'); return; }
+      var arr = mlAll(), admin = meIsAdmin(), my = meEmail();
+      var seen = {};
+      arr.forEach(function(l){ var k = _lc(l.phone) || _lc(l.email); if(k) seen[k] = 1; });
+      var added = 0, dup = 0;
+      rows.forEach(function(r){
+        var k = _lc(r.phone) || _lc(r.email);
+        if(k && seen[k]){ dup++; return; }
+        if(k) seen[k] = 1;
+        r.owner = admin ? '' : my;
+        arr.unshift(r);
+        added++;
+      });
+      mlSave(arr);
+      closeModal();
+      toast(added + ' lead import hue' + (dup ? ', ' + dup + ' duplicate chhode' : ''));
+      renderMetaLeads();
+    },
+    stageBox: function(){
+      if(!meIsAdmin()) return;
+      var cfg = metaCfg();
+      openModal(
+        '<h3 style="margin:0 0 6px">Pipeline Stages</h3>'
+        + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted,#898781)">Ek line me ek stage. Order wahi rahega jo aap likhenge.</p>'
+        + '<textarea id="mlStages" rows="8" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border,rgba(255,255,255,.12));border-radius:8px;font:inherit;background:var(--bg,#0d0d0d);color:inherit">' + esc(cfg.stages.join('\n')) + '</textarea>'
+        + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
+        + '<button class="btn" onclick="closeModal()">Cancel</button>'
+        + '<button class="btn" onclick="ML.saveStages()">Save</button>'
+        + '</div>'
+      );
+    },
+    saveStages: function(){
+      var el = document.getElementById('mlStages');
+      var st = String(el ? el.value : '').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
+      if(st.length < 2){ toast('Kam se kam 2 stage chahiye.'); return; }
+      metaCfgSave({ stages: st });
+      closeModal();
+      toast('Stages save ho gaye');
+      renderMetaLeads();
+    },
+    convert: function(id){
+      var arr = mlAll();
+      var l = arr.filter(function(x){ return x.id === id; })[0];
+      if(!l) return;
+      if(!canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+      if(l.enquiryId){ toast('Is lead ki enquiry pehle hi ban chuki hai (' + l.enquiryId + ')'); return; }
+      var owner = l.owner || meEmail();
+      var enq = {
+        id: enqId(),
+        date: isoDate(),
+        customer: l.name || l.phone || l.email || 'Meta Lead',
+        custId: '',
+        product: l.product || '',
+        prodId: '',
+        qty: 1,
+        source: 'Meta Ads',
+        salesperson: nameOf(owner),
+        priority: 'Medium',
+        stage: 'New',
+        note: [l.note, l.campaign ? 'Campaign: ' + l.campaign : '', l.phone ? 'Phone: ' + l.phone : '', l.email ? 'Email: ' + l.email : '', l.city ? 'City: ' + l.city : '']
+              .filter(Boolean).join(' | '),
+        value: 0,
+        owner: owner
+      };
+      var eArr = lsGet('enquiries', []); if(!Array.isArray(eArr)) eArr = [];
+      eArr.unshift(enq);
+      try{ store.set('enquiries', eArr); }catch(e){ lsSet('enquiries', eArr); }
+      l.enquiryId = enq.id;
+      l.stage = 'Qualified';
+      l.updatedAt = new Date().toISOString();
+      mlSave(arr);
+      toast('Enquiry ban gayi: ' + enq.id);
+      renderMetaLeads();
+    }
+  };
+  window.ML = ML;
+
+  /* ---- Admin Panel me Meta Leads ka entry point ---- *
+   * Requirement: "Create a separate pipeline in the Admin Panel for Meta
+   * leads". Pipeline apne view me khulta hai (nav me bhi hai), aur Admin
+   * Panel ke neeche uska card + summary lag jaata hai.                    */
+  var _renderAdmin = window.renderAdmin;
+  if(typeof _renderAdmin === 'function'){
+    window.renderAdmin = function(){
+      _renderAdmin.apply(this, arguments);
+      try{
+        var cfg = metaCfg();
+        var all = scope(mlAll());
+        var un = all.filter(function(l){ return !l.owner; }).length;
+        var rows = cfg.stages.map(function(s){
+          var n = all.filter(function(l){ return (l.stage || 'New') === s; }).length;
+          return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--border,rgba(255,255,255,.10));font-size:12.5px">'
+               + '<span>' + esc(s) + '</span><b>' + n + '</b></div>';
+        }).join('');
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.style.cssText = 'margin-top:18px;padding:18px';
+        card.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'
+          + '<div><h3 style="margin:0 0 4px">Meta Leads Pipeline</h3>'
+          + '<div style="font-size:12.5px;color:var(--muted,#898781)">Facebook / Instagram lead ads ka alag pipeline \u2014 import, assign aur track.</div></div>'
+          + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+          + '<button class="btn" onclick="setView(\'metaLeads\')">Open pipeline</button>'
+          + '<button class="btn" onclick="ML.importBox()">Import leads</button>'
+          + '<button class="btn" onclick="ML.stageBox()">Stages</button>'
+          + '</div></div>'
+          + '<div style="display:flex;gap:10px;margin:14px 0 10px;flex-wrap:wrap">'
+          + '<div style="font-size:12px;color:var(--muted,#898781)">Total leads: <b style="color:var(--text,#fff)">' + all.length + '</b></div>'
+          + '<div style="font-size:12px;color:var(--muted,#898781)">Unassigned: <b style="color:var(--text,#fff)">' + un + '</b></div>'
+          + '</div>'
+          + rows;
+        content.appendChild(card);
+      }catch(e){ console.warn('meta admin card', e); }
+    };
+  }
+
+  /* ---- registration: nav / router / cloud sync ---- */
+  try{ if(typeof PERM_SECTIONS !== 'undefined' && PERM_SECTIONS.indexOf('metaLeads') < 0) PERM_SECTIONS.push('metaLeads'); }catch(e){}
+  try{ if(typeof PAGE_META !== 'undefined' && !PAGE_META.metaLeads) PAGE_META.metaLeads = ['Meta Leads','Facebook / Instagram lead pipeline']; }catch(e){}
+  try{ if(CLOUD.keys.indexOf('metaLeads') < 0) CLOUD.keys.push('metaLeads'); }catch(e){}
+
+})();
+
 init();
 
 </script>
