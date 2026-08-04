@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OakCraft — Pro Forma Quotation Builder</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root{
   --gold:#B4802F; --gold-deep:#9A6C24; --ink:#241A10; --ink-soft:#4A3B28;
@@ -1234,5 +1234,242 @@ window.addEventListener('focus', ()=>{
 })();
 </script>
 
+
+<!-- ================= OakCraft patch: text-selectable (vector) PDF =================
+     Pehle PDF html2canvas se banti thi -> puri page ek image ban jaati thi, isliye
+     text select / copy / search nahi hota tha. Ab hum browser ke actual rendered
+     layout ko naap kar jsPDF me REAL text likhte hain. Result: layout same, lekin
+     PDF ka text select, highlight, copy aur search ho sakta hai.
+================================================================================= -->
+<script>
+(function(){
+  const PDFV = (function(){
+  const PT = 72/96;
+  const FONT_URLS = [
+    'https://cdn.jsdelivr.net/gh/googlefonts/roboto@2.138/src/hinted/Roboto-Regular.ttf',
+    'https://cdn.jsdelivr.net/gh/googlefonts/roboto@main/src/hinted/Roboto-Regular.ttf'
+  ];
+  let fontB64;
+  const ascCache = {};
+  function pc(str){
+    if(!str) return null;
+    const m = str.match(/rgba?\(([^)]+)\)/);
+    if(!m) return null;
+    const p = m[1].split(',').map(s=>parseFloat(s));
+    return {r:p[0]|0, g:p[1]|0, b:p[2]|0, a: p.length>3 ? p[3] : 1};
+  }
+  function metrics(fontShort, fs){
+    const key = fontShort+'|'+fs;
+    if(ascCache[key]) return ascCache[key];
+    const c = document.createElement('canvas').getContext('2d');
+    c.font = fontShort;
+    const m = c.measureText('Hxy');
+    const a = m.fontBoundingBoxAscent || m.actualBoundingBoxAscent || fs*0.9;
+    ascCache[key] = a;
+    return a;
+  }
+  function textLines(node, cs, base, out){
+    const raw = node.nodeValue;
+    if(!raw || !/\S/.test(raw)) return;
+    const fs   = parseFloat(cs.fontSize)||12;
+    const col  = pc(cs.color) || {r:0,g:0,b:0,a:1};
+    const wgt  = cs.fontWeight;
+    const bold = wgt==='bold' || wgt==='bolder' || (parseInt(wgt,10)||400) >= 600;
+    const ital = cs.fontStyle === 'italic';
+    const und  = /underline/.test(cs.textDecorationLine||cs.textDecoration||'');
+    const tt   = cs.textTransform;
+    const TF   = s => tt==='uppercase' ? s.toUpperCase() : tt==='lowercase' ? s.toLowerCase() : tt==='capitalize' ? s.replace(/\b\w/g, c=>c.toUpperCase()) : s;
+    const asc  = metrics(cs.fontStyle+' '+cs.fontWeight+' '+cs.fontSize+' '+cs.fontFamily, fs);
+    const words = [];
+    const re = /\S+/g; let m;
+    while((m = re.exec(raw))) words.push([m.index, m.index+m[0].length, m[0]]);
+    const rng = document.createRange();
+    let cur = null;
+    for(const w of words){
+      rng.setStart(node, w[0]); rng.setEnd(node, w[1]);
+      const rl = rng.getClientRects();
+      if(!rl.length) continue;
+      let b = null;
+      for(let k=0;k<rl.length;k++){ if(rl[k].width>0||rl[k].height>0){ b = rl[k]; break; } }
+      if(!b) continue;
+      if(cur && Math.abs(cur._top - b.top) < 1.2){
+        cur.text += ' ' + TF(w[2]);
+        cur.right = b.right - base.left;
+      } else {
+        if(cur) out.push(cur);
+        cur = { text:TF(w[2]), _top:b.top, x:b.left-base.left, right:b.right-base.left,
+                y:(b.top-base.top)+asc, fs, col, bold, ital, und, al:cs.textAlign };
+      }
+    }
+    if(cur) out.push(cur);
+  }
+  function collect(page){
+    const base = page.getBoundingClientRect();
+    const boxes=[], images=[], lines=[];
+    (function walk(el){
+      const cs = getComputedStyle(el);
+      if(cs.display==='none' || cs.visibility==='hidden' || parseFloat(cs.opacity)===0) return;
+      const r = el.getBoundingClientRect();
+      if(r.width>0.4 && r.height>0.4){
+        const bg = pc(cs.backgroundColor);
+        if(bg && bg.a>0.03) boxes.push({x:r.left-base.left,y:r.top-base.top,w:r.width,h:r.height,c:bg});
+        const SD=['Top','Right','Bottom','Left'];
+        for(const s of SD){
+          const bw = parseFloat(cs['border'+s+'Width'])||0;
+          const st = cs['border'+s+'Style'];
+          if(!(bw>0) || st==='none' || st==='hidden') continue;
+          const c = pc(cs['border'+s+'Color']);
+          if(!c || c.a<=0.03) continue;
+          const x=r.left-base.left, y=r.top-base.top, w=r.width, h=r.height;
+          if(s==='Top')    boxes.push({x,y,w,h:bw,c});
+          if(s==='Bottom') boxes.push({x,y:y+h-bw,w,h:bw,c});
+          if(s==='Left')   boxes.push({x,y,w:bw,h,c});
+          if(s==='Right')  boxes.push({x:x+w-bw,y,w:bw,h,c});
+        }
+        if(el.tagName==='IMG' && el.src) images.push({el,x:r.left-base.left,y:r.top-base.top,w:r.width,h:r.height});
+      }
+      for(const ch of el.childNodes){
+        if(ch.nodeType===1) walk(ch);
+        else if(ch.nodeType===3) textLines(ch, cs, base, lines);
+      }
+    })(page);
+    return {boxes, images, lines};
+  }
+  async function loadFont(){
+    if(fontB64 !== undefined) return fontB64;
+    fontB64 = null;
+    for(const u of FONT_URLS){
+      try{
+        const ctl = new AbortController();
+        const to = setTimeout(()=>ctl.abort(), 12000);
+        const r = await fetch(u, {signal:ctl.signal});
+        clearTimeout(to);
+        if(!r.ok) continue;
+        const b = new Uint8Array(await r.arrayBuffer());
+        if(b.length < 20000) continue;
+        let s=''; const CH=0x8000;
+        for(let i=0;i<b.length;i+=CH) s += String.fromCharCode.apply(null, b.subarray(i,i+CH));
+        fontB64 = btoa(s);
+        break;
+      }catch(e){}
+    }
+    return fontB64;
+  }
+  function drawImg(doc, im){
+    const X=im.x*PT, Y=im.y*PT, W=im.w*PT, H=im.h*PT;
+    let fmt='PNG';
+    const m=/^data:image\/([a-z]+)/i.exec(im.el.currentSrc||im.el.src||'');
+    if(m){ const f=m[1].toLowerCase(); if(f==='jpeg'||f==='jpg') fmt='JPEG'; }
+    try{ doc.addImage(im.el, fmt, X, Y, W, H); return; }catch(e){}
+    try{
+      const cv=document.createElement('canvas');
+      cv.width  = im.el.naturalWidth  || Math.max(1,Math.round(im.w*2));
+      cv.height = im.el.naturalHeight || Math.max(1,Math.round(im.h*2));
+      cv.getContext('2d').drawImage(im.el,0,0,cv.width,cv.height);
+      doc.addImage(cv.toDataURL('image/png'),'PNG',X,Y,W,H);
+    }catch(e){}
+  }
+  async function build(pageEls, opt){
+    opt = opt || {};
+    const J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    const doc = new J({unit:'pt', format:'a4', orientation:'portrait', compress:true});
+    const b64 = opt.noFont ? null : await loadFont();
+    let FAM='helvetica', UNI=false;
+    if(b64){ try{ doc.addFileToVFS('OCS.ttf', b64); doc.addFont('OCS.ttf','OCS','normal'); FAM='OCS'; UNI=true; }catch(e){} }
+    const fix = t => UNI ? t : t.replace(/\u20b9/g,'Rs.').replace(/\u2022/g,'-');
+    for(let i=0;i<pageEls.length;i++){
+      if(i) doc.addPage('a4','portrait');
+      const R = collect(pageEls[i]);
+      for(const b of R.boxes){ doc.setFillColor(b.c.r,b.c.g,b.c.b); doc.rect(b.x*PT,b.y*PT,b.w*PT,b.h*PT,'F'); }
+      for(const im of R.images){ drawImg(doc, im); }
+      for(const L of R.lines){
+        const t = fix(L.text);
+        if(!t) continue;
+        doc.setTextColor(L.col.r,L.col.g,L.col.b);
+        const style = UNI ? 'normal' : (L.bold ? (L.ital?'bolditalic':'bold') : (L.ital?'italic':'normal'));
+        doc.setFont(FAM, style);
+        doc.setFontSize(L.fs*PT);
+        const target = (L.right - L.x) * PT;
+        let nat = 0;
+        try{ nat = doc.getStringUnitWidth(t) * L.fs * PT; }catch(e){ nat = target; }
+        let csp = 0;
+        if(t.length>1 && nat>0 && target>0){
+          csp = (target-nat)/(t.length-1);
+          if(csp>0.32) csp=0.32; if(csp<-0.32) csp=-0.32;
+        }
+        const x=L.x*PT, y=L.y*PT;
+        const topt = {charSpace:csp, baseline:'alphabetic'};
+        if(UNI && L.bold){ doc.setDrawColor(L.col.r,L.col.g,L.col.b); doc.setLineWidth(L.fs*PT*0.026); topt.renderingMode='fillThenStroke'; }
+        if(L.al==='right' || L.al==='end'){ topt.align='right'; doc.text(t, x+target, y, topt); }
+        else if(L.al==='center'){ topt.align='center'; doc.text(t, x+target/2, y, topt); }
+        else doc.text(t,x,y,topt);
+        if(L.und){ doc.setDrawColor(L.col.r,L.col.g,L.col.b); doc.setLineWidth(0.6); doc.line(x,y+1.5,x+target,y+1.5); }
+      }
+    }
+    return doc;
+  }
+    return {build, collect, PT};
+  })();
+
+
+  /* jsPDF ready karo (head me already load hai, ye sirf safety fallback hai) */
+  function ensureJsPDF(){
+    if(window.jspdf && window.jspdf.jsPDF) return Promise.resolve(true);
+    return new Promise(function(res){
+      var s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload=function(){ res(!!(window.jspdf && window.jspdf.jsPDF)); };
+      s.onerror=function(){ res(false); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function pdfError(){
+    var bar=document.getElementById('pdfbar'), msg=document.getElementById('pdfmsg');
+    if(bar && msg){
+      bar.classList.add('show');
+      msg.textContent='Could not build the PDF here \u2014 please use the Print button and choose "Save as PDF".';
+      var o=document.getElementById('pdfOpen'); if(o) o.style.display='none';
+    } else { alert('Could not build the PDF. Use Print and choose "Save as PDF".'); }
+  }
+
+  /* purana downloadPDF override ho jaata hai (button inline onclick use karta hai,
+     jo click ke time resolve hota hai, isliye ye override kaam karta hai) */
+  window.downloadPDF = async function(){
+    if(typeof repMissing === 'function' && repMissing()) return;
+    var btn = document.getElementById('dlBtn');
+    var label = btn ? btn.textContent : '';
+    if(btn){ btn.disabled = true; btn.textContent = 'Preparing PDF\u2026'; }
+    try{
+      if(typeof R === 'function') R();                 // latest data se page dobara render
+      if(document.fonts && document.fonts.ready) { try{ await document.fonts.ready; }catch(e){} }
+      /* saari images load hone do warna PDF me miss ho jaayengi */
+      var imgs = [].slice.call(document.querySelectorAll('#printArea img'));
+      await Promise.all(imgs.map(function(i){
+        return i.complete ? null : new Promise(function(r){ i.onload=i.onerror=r; setTimeout(r,4000); });
+      }));
+      await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
+      var ok = await ensureJsPDF();
+      if(!ok) throw new Error('jspdf-missing');
+      var pageEls = [].slice.call(document.querySelectorAll('#printArea .page'));
+      if(!pageEls.length) throw new Error('no-pages');
+      document.body.classList.add('exporting');
+      var doc;
+      try{ doc = await PDFV.build(pageEls); }
+      finally{ document.body.classList.remove('exporting'); }
+      var qn = (typeof S !== 'undefined' && S && S.qno) ? S.qno : '';
+      var fy = (typeof FY !== 'undefined') ? FY : '';
+      doc.save('OakCraft-ProForma-OAK-' + fy + '-' + qn + '.pdf');
+    }catch(e){
+      console.error('vector pdf failed', e);
+      pdfError();
+    }finally{
+      if(btn){ btn.disabled = false; btn.textContent = label || '\u2913 Download PDF'; }
+    }
+  };
+
+  window.PDFV = PDFV;   // debugging ke liye
+})();
+</script>
 </body>
 </html>
