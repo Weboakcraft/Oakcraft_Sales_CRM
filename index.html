@@ -2602,6 +2602,177 @@ function bindAppEvents(){
 
 })();
 
+/* ================= Orders: Products table in the detail view + capped post-submission editing =================
+   1. Every order detail drawer now shows a "Products" table listing each product row captured while
+      the order form was filled in: image, name, order type, specification, qty, rate, line amount and
+      any additional per-product field stored on the item.
+   2. A submitted order can be reopened and edited, but only MAX_ORDER_EDITS (3) times in total.
+      One successful save counts as one edit of the whole form; after the 3rd save the order locks
+      and neither the Edit button nor saveOrder() will touch it again.                              */
+(function(){
+  const MAX_ORDER_EDITS = 3;
+
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const editsUsed = o => Math.min(MAX_ORDER_EDITS, Math.max(0, +((o||{}).editCount) || 0));
+  const editsLeft = o => MAX_ORDER_EDITS - editsUsed(o);
+  const isLocked  = o => editsLeft(o) <= 0;
+
+  /* item keys that already have their own column */
+  const BASE_KEYS = ['type','prodId','product','manual','spec','image','qty','rate','price','amount','custom'];
+  const nice = k => k.replace(/[_-]+/g,' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/^./, c => c.toUpperCase());
+
+  const TH  = 'text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;padding:8px 10px;background:var(--surface-2);border-bottom:1px solid var(--border);white-space:nowrap';
+  const TD  = 'padding:9px 10px;border-bottom:1px solid var(--border);font-size:12.5px;vertical-align:top';
+  const TDS = TD + ';min-width:170px;white-space:pre-wrap;color:var(--text-2)';
+  const TDF = 'padding:10px;border-top:1px solid var(--border);background:var(--surface-2);font-size:12.5px;font-weight:700';
+
+  /* orders saved before multi-product support only carry the flat product fields */
+  function orderItems(o){
+    o = o || {};
+    if(o.items && o.items.length) return o.items;
+    if(o.product) return [{ type:o.orderType||'', prodId:o.prodId||'', product:o.product, spec:'',
+                            image:o.image||'', qty:o.qty||1,
+                            rate:(+o.qty ? (+o.amount||0)/(+o.qty) : (+o.amount||0)) }];
+    return [];
+  }
+
+  /* any extra per-product field the form captured, including per-item custom fields */
+  function extraKeys(items){
+    const out = [];
+    items.forEach(it => {
+      Object.keys(it||{}).forEach(k => {
+        if(BASE_KEYS.indexOf(k) >= 0 || out.indexOf(k) >= 0) return;
+        const val = it[k];
+        if(val === '' || val == null || typeof val === 'object' || typeof val === 'boolean') return;
+        out.push(k);
+      });
+      Object.keys((it||{}).custom || {}).forEach(k => {
+        if(out.indexOf('custom:'+k) < 0 && it.custom[k] !== '' && it.custom[k] != null) out.push('custom:'+k);
+      });
+    });
+    return out;
+  }
+  const extraVal = (it,k) => k.indexOf('custom:') === 0 ? (((it||{}).custom||{})[k.slice(7)] || '') : ((it||{})[k] || '');
+
+  function productsTableHTML(o){
+    const items = orderItems(o);
+    if(!items.length) return '<div style="color:var(--muted);font-size:13px;padding:6px 0">No products were captured on this order.</div>';
+    const prods  = DB.products();
+    const extras = extraKeys(items);
+    const rateOf = it => +((it.rate != null) ? it.rate : it.price) || 0;
+
+    const rows = items.map((it,i) => {
+      const p = prods.find(x => x.id === it.prodId) || {};
+      const qty = +it.qty || 0, rate = rateOf(it);
+      const img = it.image
+        ? '<img src="'+esc(it.image)+'" alt="'+esc(it.product)+'" style="width:54px;height:54px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block">'
+        : '<div style="width:54px;height:54px;border-radius:8px;border:1px dashed var(--border);display:grid;place-items:center;color:var(--muted);font-size:9px;line-height:1.2;text-align:center">No<br>image</div>';
+      return '<tr>'
+        + '<td class="tabular" style="'+TD+'">'+(i+1)+'</td>'
+        + '<td style="'+TD+'">'+img+'</td>'
+        + '<td style="'+TD+'"><div style="font-weight:650">'+esc(it.product||'—')+'</div>'
+          + (p.name && p.name !== it.product ? '<div style="color:var(--muted);font-size:11px">'+esc(p.name)+'</div>' : '')
+          + (it.manual ? '<div style="color:var(--muted);font-size:11px">manually entered</div>' : '')
+        + '</td>'
+        + '<td style="'+TD+'">'+(it.type ? '<span class="chip c-neutral" style="font-size:10.5px">'+esc(it.type)+'</span>' : '—')+'</td>'
+        + '<td style="'+TDS+'">'+(it.spec ? esc(it.spec) : '—')+'</td>'
+        + '<td class="tabular" style="'+TD+'">'+qty+(p.unit ? ' '+esc(p.unit) : '')+'</td>'
+        + '<td class="tabular" style="'+TD+'">'+(rate ? money(rate) : '—')+'</td>'
+        + '<td class="tabular" style="'+TD+';font-weight:650">'+(rate ? money(rate*qty) : '—')+'</td>'
+        + extras.map(k => '<td style="'+TD+'">'+(esc(extraVal(it,k)) || '—')+'</td>').join('')
+        + '</tr>';
+    }).join('');
+
+    const totQty = items.reduce((s,it) => s + (+it.qty||0), 0);
+    const totAmt = items.reduce((s,it) => s + ((+it.qty||0) * rateOf(it)), 0);
+
+    return '<div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-top:6px">'
+      + '<table style="width:100%;border-collapse:collapse">'
+      + '<thead><tr>'
+        + ['#','Image','Product','Order Type','Specification','Qty','Rate','Amount']
+            .concat(extras.map(k => nice(k.replace('custom:',''))))
+            .map(h => '<th style="'+TH+'">'+esc(h)+'</th>').join('')
+      + '</tr></thead>'
+      + '<tbody>'+rows+'</tbody>'
+      + '<tfoot><tr>'
+        + '<td colspan="5" style="'+TDF+'">Total — '+items.length+' product'+(items.length>1?'s':'')+'</td>'
+        + '<td class="tabular" style="'+TDF+'">'+totQty+'</td>'
+        + '<td style="'+TDF+'"></td>'
+        + '<td class="tabular" style="'+TDF+'">'+money(totAmt)+'</td>'
+        + extras.map(() => '<td style="'+TDF+'"></td>').join('')
+      + '</tr></tfoot>'
+      + '</table></div>';
+  }
+
+  /* ---- order detail: add the Products section + the edit / lock control ---- */
+  const _openOrderDetail = openOrderDetail;
+  window.openOrderDetail = function(id){
+    _openOrderDetail(id);
+    const o = DB.orders().find(x => x.id === id); if(!o) return;
+
+    const body = modal.querySelector('.modal-body');
+    if(body){
+      const sec = document.createElement('div');
+      sec.innerHTML = '<div class="section-title">Products <span style="font-weight:500;color:var(--muted);font-size:11.5px">('+orderItems(o).length+')</span></div>'
+                    + productsTableHTML(o);
+      const titles = Array.prototype.slice.call(body.querySelectorAll('.section-title'));
+      const dispatchTitle = titles.filter(t => /^dispatch$/i.test((t.textContent||'').trim()))[0];
+      if(dispatchTitle) body.insertBefore(sec, dispatchTitle); else body.appendChild(sec);
+      /* the products table needs the wide modal to show every column */
+      if(orderItems(o).length) modal.classList.add('fb-wide');
+    }
+
+    const foot = modal.querySelector('.modal-foot');
+    if(foot){
+      const used = editsUsed(o), left = editsLeft(o);
+      const ctl = document.createElement('div');
+      ctl.style.cssText = 'display:flex;align-items:center;gap:9px;margin-right:auto';
+      ctl.innerHTML = isLocked(o)
+        ? '<span class="chip c-neutral" title="An order form can be edited '+MAX_ORDER_EDITS+' times">Locked — '+used+'/'+MAX_ORDER_EDITS+' edits used</span>'
+        : '<button class="btn" onclick="openOrderModal(\''+o.id+'\')">Edit Order</button>'
+          + '<span style="font-size:11.5px;color:var(--muted)">'+used+'/'+MAX_ORDER_EDITS+' edits used · '+left+' left</span>';
+      foot.insertBefore(ctl, foot.firstChild);
+    }
+  };
+
+  /* ---- reopening a submitted order: refuse when locked, otherwise show the quota ---- */
+  const _openOrderModal = openOrderModal;
+  window.openOrderModal = function(id){
+    const o = id ? DB.orders().find(x => x.id === id) : null;
+    if(o && isLocked(o)){ toast('Order '+id+' is locked — all '+MAX_ORDER_EDITS+' edits have been used'); return; }
+    _openOrderModal(id);
+    if(!o) return;
+    const body = modal.querySelector('.modal-body'); if(!body) return;
+    const note = document.createElement('div');
+    note.style.cssText = 'padding:9px 12px;margin-bottom:12px;border:1px solid var(--border);border-left:3px solid var(--warn);border-radius:9px;background:var(--surface-2);font-size:12.5px;color:var(--text-2)';
+    note.innerHTML = 'Edit <strong>'+(editsUsed(o)+1)+' of '+MAX_ORDER_EDITS+'</strong> — saving counts as one edit of the whole form. After '+MAX_ORDER_EDITS+' edits this order is locked.';
+    body.insertBefore(note, body.firstChild);
+  };
+
+  /* ---- count a successful update against the quota ---- */
+  const _saveOrder = saveOrder;
+  window.saveOrder = function(id){
+    if(id){
+      const o = DB.orders().find(x => x.id === id);
+      if(o && isLocked(o)){ toast('Order form locked — no further changes allowed'); return; }
+    }
+    _saveOrder(id);
+    /* the original closes the modal only when the record was really saved */
+    if(id && !document.getElementById('o-items')){
+      const list = DB.orders(), rec = list.find(x => x.id === id);
+      if(rec){
+        rec.editCount = editsUsed(rec) + 1;
+        rec.lastEditedOn = today();
+        if(rec.editCount >= MAX_ORDER_EDITS) rec.locked = true;
+        DB.save('orders', list);
+        toast(rec.locked
+          ? 'Order updated — form is now locked ('+MAX_ORDER_EDITS+'/'+MAX_ORDER_EDITS+' edits used)'
+          : 'Order updated — '+(MAX_ORDER_EDITS - rec.editCount)+' edit(s) left');
+      }
+    }
+  };
+})();
+
 /* Deferred scripts (Chart.js) always finish before DOMContentLoaded, so waiting for
    that event lets us drop the render-blocking <script> from <head> safely. */
 if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', init, {once:true}); } else { init(); }
