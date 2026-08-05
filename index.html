@@ -163,8 +163,12 @@ td .sub{color:var(--muted);font-size:12px}
 .fb-actions{white-space:nowrap;width:1%}
 .fb-actions .row-actions{display:flex;gap:2px;justify-content:flex-end;flex-wrap:nowrap}
 .fb-actions .row-actions button{flex:0 0 auto}
-.fb-del{color:var(--crit)}
-.fb-del:hover{background:rgba(227,73,72,.12);color:var(--crit);border-color:rgba(227,73,72,.4)}
+/* Edit = green, Delete = red. Selectors are scoped to `.row-actions button` so they
+   outrank the generic grey `.row-actions button` colour rule above. */
+.row-actions button.fb-edit{color:var(--good)}
+.row-actions button.fb-edit:hover{background:rgba(12,163,12,.12);color:var(--good);border-color:rgba(12,163,12,.45)}
+.row-actions button.fb-del{color:var(--crit)}
+.row-actions button.fb-del:hover{background:rgba(208,59,59,.12);color:var(--crit);border-color:rgba(208,59,59,.45)}
 .form-row{margin-bottom:14px}
 .form-row.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .form-row label{display:block;font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:6px}
@@ -1316,7 +1320,7 @@ function openFormBuilder(which){
       '<td class="fb-actions"><div class="row-actions">'+
         '<button onclick="moveFormField(\''+which+'\','+i+','+(i-1)+')" title="Move up"'+(i===0?' disabled style="opacity:.3"':'')+'>↑</button>'+
         '<button onclick="moveFormField(\''+which+'\','+i+','+(i+1)+')" title="Move down"'+(i===fields.length-1?' disabled style="opacity:.3"':'')+'>↓</button>'+
-        '<button onclick="editFormField(\''+which+'\','+i+')" title="Edit question">'+I.edit+'</button>'+
+        '<button class="fb-edit" onclick="editFormField(\''+which+'\','+i+')" title="Edit question">'+I.edit+'</button>'+
         '<button class="fb-del" onclick="delFormField(\''+which+'\','+i+')" title="Delete question">'+I.trash+'</button>'+
       '</div></td></tr>';
   }).join('');
