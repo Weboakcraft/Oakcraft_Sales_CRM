@@ -955,7 +955,9 @@ function recalcExpectedDelivery(){
             eEl=document.getElementById('o-exp'), hEl=document.getElementById('o-exp-hint');
       if(!dEl || !pEl || !eEl) return;
       const pt=pEl.value, od=dEl.value||todayLocal(), n=productTypeTAT(pt);
-      eEl.value = expectedDelivery(pt,od);
+      /* Only overwrite the stored date once a Product Type is known, so reopening an older
+         order that has no Product Type never wipes its saved delivery date. */
+      if(n) eEl.value = expectedDelivery(pt,od);
       if(hEl) hEl.textContent = n
         ? 'Auto-calculated: '+n+' working days after '+od+' (Mon to Sat are working days, Sunday excluded).'
         : 'Choose a Product Type - the expected delivery date is filled in automatically.';
