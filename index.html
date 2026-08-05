@@ -920,13 +920,15 @@ function openOrderModal(id){
   const _ptf=orderProductTypeField();
       const _ptOpts=(_ptf && _ptf.options && _ptf.options.length)?_ptf.options:PRODUCT_TYPES;
       const _ptVal=o.productType||orderProductTypeValue(o)||'';
+      const _odf=orderDateField();
+      const _odVal=o.date||orderDateValue(o)||todayLocal();
       const _F=getForm('order');const _lbl=(id,d)=>{const f=_F.find(x=>x.id===id);return f&&f.label?f.label:d;};const _opt=(id,d)=>{const f=_F.find(x=>x.id===id);return (f&&f.options&&f.options.length)?f.options:d;};const _req=(id)=>{const f=_F.find(x=>x.id===id);return f&&f.required?' required':'';};
   openModal(`<div class="modal-head"><h3>${id?'Edit':'New'} Order</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div class='section-title' style='margin-top:0'>1. Order Information</div>
-      <div class='form-row two'><div><label>${_lbl('o_date','Order Date')} <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-set today, locked)</span></label><input id='o-date' type='date' value='${o.date||todayLocal()}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
+      <div class='form-row two'><div><label>${_odf?_odf.label:_lbl('o_date','Order Date')} <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-set today, locked)</span></label><input id='o-date' type='date' value='${_odVal}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
       <div><label>${_ptf?_ptf.label:_lbl('o_ptype','Product Type')}${(_ptf&&_ptf.required)?` <span style='color:var(--crit)'>*</span>`:''}</label><select id='o-ptype' onchange='recalcExpectedDelivery()'><option value=''>-- Select product type --</option>${_ptOpts.map(s=>`<option ${_ptVal===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
-      <div class='form-row two'><div><label>${_lbl('o_exp','Expected Delivery Date')} <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-calculated, locked)</span></label><input id='o-exp' type='date' value='${expectedDelivery(o.productType,o.date||todayLocal())||o.expDispatch||''}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
+      <div class='form-row two'><div><label>Expected Delivery Date <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-calculated, locked)</span></label><input id='o-exp' type='date' value='${expectedDelivery(_ptVal,_odVal)||o.expDispatch||''}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
       <div><label>${_lbl('o_stat','Status')}</label><select id='o-stat'>${_opt('o_stat',['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']).map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
       <div id='o-exp-hint' style='margin:-2px 0 12px;font-size:11.5px;color:var(--muted)'></div>
       <div class='section-title'>2. Customer and Salesperson</div>
@@ -936,11 +938,14 @@ function openOrderModal(id){
       <div class='form-row'><div id='o-items'></div>
       <button type='button' class='btn ghost sm' style='margin-top:8px' onclick='addOrderItem()'>+ Add Product</button>
       <div class='sub tabular' id='o-total' style='margin-top:6px'></div></div>
-      <div class='section-title'>4. Payment</div>
+      <div class='section-title'>4. Payment and Amounts</div>
       <div class='form-row'><label>${_lbl('o_pay','Payment')}</label><select id='o-pay'${_req('o_pay')}>${_opt('o_pay',['Pending','Partial','Paid']).map(s=>`<option ${o.payment===s?'selected':''}>${s}</option>`).join('')}</select></div>
-      <div class='section-title'>5. Notes and Additional Details</div>
+      ${customFieldsHTML('order', o, 'payment')}
+      <div class='section-title'>5. Dispatch and Documents</div>
+      ${customFieldsHTML('order', o, 'logistics')}
+      <div class='section-title'>6. Notes and Other Details</div>
       <div class='form-row'><label>${_lbl('o_note','Note')}</label><textarea id='o-note' rows='2' placeholder='Order note'>${o.note||''}</textarea></div>
-      ${customFieldsHTML('order', o)}
+      ${customFieldsHTML('order', o, 'other')}
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveOrder('${id||''}')">Save Order</button></div>`);
   renderOrderItems(); recalcExpectedDelivery();
@@ -1031,9 +1036,10 @@ function updateOrderTotal(){
 }
 function readOrderCustom(){
   const c = readCustomFields('order');
-  const pf = orderProductTypeField();
-  const el = document.getElementById('o-ptype');
-  if(pf && el) c[pf.id] = el.value || '';
+  const pf = orderProductTypeField(), pe = document.getElementById('o-ptype');
+  if(pf && pe) c[pf.id] = pe.value || '';
+  const df = orderDateField(), de = document.getElementById('o-date');
+  if(df && de) c[df.id] = de.value || todayLocal();
   return c;
 }
 function saveOrder(id){
@@ -1315,18 +1321,43 @@ function orderProductTypeValue(o){
   const pf = orderProductTypeField();
   return (pf && o && o.custom) ? (o.custom[pf.id]||'') : '';
 }
+/* The Order Date question is also a form-builder field. Section 1 renders it read-only and
+   always stamps it with the current date, so it must not be rendered a second time. */
+function orderDateField(){
+  const fs = getForm('order') || [];
+  return fs.filter(f=> f && f.id === 'o_date')[0]
+      || fs.filter(f=> f && /^\s*order\s*date\s*$/i.test(f.label||''))[0]
+      || null;
+}
+function orderDateValue(o){
+  const df = orderDateField();
+  return (df && o && o.custom) ? (o.custom[df.id]||'') : '';
+}
+/* Which section of the order form each extra question belongs to. 'hidden' questions are
+   the ones section 1 already owns; anything unmatched lands in the last section. */
+const ORDER_FIELD_GROUPS = {
+  hidden:    [/^\s*order\s*date\s*$/i, /product\s*type/i],
+  payment:   [/amount/i, /payment\s*proof/i, /freight/i, /balance/i, /advance/i],
+  logistics: [/transport/i, /courier/i, /invoice/i, /e-?way/i, /packing/i, /lr\s*no/i]
+};
+function orderFieldGroup(f){
+  const l = String((f||{}).label||'');
+  const hit = g => ORDER_FIELD_GROUPS[g].filter(rx=> rx.test(l)).length > 0;
+  if(hit('hidden')) return 'hidden';
+  if(hit('payment')) return 'payment';
+  if(hit('logistics')) return 'logistics';
+  return 'other';
+}
 function customFieldsFor(which){
   const core = CORE_FIELD_IDS[which] || [];
   let list = getForm(which).filter(f=> f && !f.locked && core.indexOf(f.id)===-1);
-  if(which === 'order'){
-    const pt = orderProductTypeField();
-    if(pt) list = list.filter(f=> f.id !== pt.id);
-  }
+  if(which === 'order') list = list.filter(f=> orderFieldGroup(f) !== 'hidden');
   return list;
 }
-function customFieldsHTML(which, rec){
+function customFieldsHTML(which, rec, group){
   rec = rec || {};
-  const cf = customFieldsFor(which);
+  let cf = customFieldsFor(which);
+  if(which === 'order') cf = cf.filter(f=> orderFieldGroup(f) === (group||'other'));
   if(!cf.length) return "";
   const cv = (rec.custom||{});
   return cf.map(function(f){
