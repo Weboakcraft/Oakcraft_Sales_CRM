@@ -5,8 +5,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OakCraft Sales CRM — Enquiry to Dispahtch</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://script.google.com" crossorigin>
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+<!-- Chart.js is deferred so it never blocks HTML parsing. init() runs on DOMContentLoaded,
+     which fires after deferred scripts, so Chart is guaranteed to be ready by then. -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- xlsx (~900KB) is no longer loaded on every page load. ensureXLSX() fetches it
+     on demand, the first time you actually export or import an Excel file. -->
 <style>
 :root{
   color-scheme:light;
@@ -218,7 +224,7 @@ td .sub{color:var(--muted);font-size:12px}
   <!-- MAIN -->
   <div class="main">
     <header class="topbar">
-      <img src="logo.png" alt="OakCraft" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:8px;padding:3px;margin-right:6px;flex:none;">
+      <img src="logo.png" alt="OakCraft" width="40" height="40" decoding="async" fetchpriority="low" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:8px;padding:3px;margin-right:6px;flex:none;">
       <div class="page-title" id="pageTitle">Dashboard<small id="pageSub">Sales performance overview</small></div>
       <div class="search" id="searchBox"><input id="globalSearch" placeholder="Search customers, orders…"></div>
       <button class="icon-btn" id="themeBtn" title="Toggle theme"></button>
@@ -1364,9 +1370,9 @@ async function saveFormField(which, idx){
   } else {
     fields.push({id:'c_'+Date.now().toString(36), label, type, required, options: type==='dropdown'?options:undefined});
   }
-  const ok = await saveForm(which, fields);
-  toast(ok ? 'Question saved \u2014 synced to Google Sheet \u2713' : 'Question saved on this device only');
+  toast('Question saved \u2713');
   openFormBuilder(which);
+  saveForm(which, fields);
 }
 async function delFormField(which, idx){
   const fields = getForm(which);
@@ -1378,10 +1384,9 @@ async function delFormField(which, idx){
     : 'Delete the question "' + name + '"?\n\nIt will be removed from the live form and from the connected Google Sheet. Answers already saved in existing records are not changed.';
   if(!confirm(msg)) return;
   fields.splice(idx, 1);
+  toast('Question deleted \u2713');
   openFormBuilder(which);
-  const ok = await saveForm(which, fields);
-  toast(ok ? 'Question deleted \u2014 synced to Google Sheet \u2713' : 'Question deleted on this device only');
-  openFormBuilder(which);
+  saveForm(which, fields);
 }
 
 /* ---- Permissions ---- */
@@ -1464,6 +1469,28 @@ function resetDemo(){
    EXCEL EXPORT  (SheetJS)
    ============================================================ */
 function xlsxReady(){ return typeof XLSX!=='undefined'; }
+/* Loads the ~900KB Excel library the first time it is actually needed,
+   instead of on every page load. */
+let __xlsxPromise = null;
+function ensureXLSX(){
+  if(xlsxReady()) return Promise.resolve(true);
+  if(!__xlsxPromise){
+    __xlsxPromise = new Promise((resolve, reject)=>{
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = ()=>resolve(true);
+      s.onerror = ()=>{ __xlsxPromise = null; reject(new Error('xlsx load failed')); };
+      document.head.appendChild(s);
+    });
+  }
+  return __xlsxPromise;
+}
+async function awaitXLSX(){
+  if(xlsxReady()) return true;
+  toast('Excel taiyaar ho rahi hai\u2026');
+  try{ await ensureXLSX(); return true; }
+  catch(e){ toast('Excel library load nahi hui \u2014 internet check kijiye'); return false; }
+}
 /* ===== Excel: append custom form-builder answers as extra columns ===== */
 function appendCustomColumns(section, rows){
   const map = { enquiries:{form:"enquiry", src:DB.enquiries()}, orders:{form:"order", src:DB.orders()}, customers:{form:"customer", src:DB.customers()}, products:{form:"product", src:DB.products()} };
@@ -1481,8 +1508,8 @@ function appendCustomColumns(section, rows){
     return Object.assign({}, row, extra);
   });
 }
-function exportExcel(section){
-  if(!xlsxReady()){ toast('Excel library still loading — try again'); return; }
+async function exportExcel(section){
+  if(!await awaitXLSX()) return;
   const q=(document.getElementById('globalSearch')?.value||'').toLowerCase();
   let rows=[], name=section;
   if(section==='enquiries'){ rows=DB.enquiries().map(e=>({'Enquiry ID':e.id,Date:e.date,Customer:e.customer,Product:e.product,Qty:e.qty,Source:e.source,Salesperson:e.salesperson,Value:e.value,Priority:e.priority,Stage:e.stage,Note:e.note})); }
@@ -1507,8 +1534,8 @@ function dlBtn(section){ return `<button class="btn sm" onclick="exportExcel('${
 /* ============================================================
    BULK PRODUCT UPLOAD
    ============================================================ */
-function downloadProductTemplate(){
-  if(!xlsxReady()){ toast('Excel library loading…'); return; }
+async function downloadProductTemplate(){
+  if(!await awaitXLSX()) return;
   const sample=[{Name:'Executive Office Desk',SKU:'OFD-EX-140',Category:'Office Furniture',Price:24500,Stock:42,Unit:'pc'},
     {Name:'Ergonomic Mesh Chair',SKU:'SEAT-ERG-02',Category:'Seating',Price:8900,Stock:120,Unit:'pc'}];
   const ws=XLSX.utils.json_to_sheet(sample); ws['!cols']=[{wch:28},{wch:16},{wch:20},{wch:12},{wch:10},{wch:8}];
@@ -1517,8 +1544,9 @@ function downloadProductTemplate(){
   toast('Template downloaded ✓');
 }
 function triggerBulk(){ document.getElementById('bulkFile').click(); }
-function handleBulk(input){
+async function handleBulk(input){
   const file=input.files[0]; if(!file)return;
+  if(!await awaitXLSX()) return;
   const reader=new FileReader();
   reader.onload=e=>{
     try{
@@ -1728,11 +1756,62 @@ async function fetchByGST(prefix){
   }catch(e){ if(msg){ msg.style.color='#d03b3b'; msg.textContent='Fetch failed: '+e.message+'. Check the GST endpoint in Admin > API Integrations.'; } }
 }
 
+/* ===== Fast start =====
+   The old init() awaited CLOUD.pull() before painting anything, so the whole app sat on
+   a blank screen for as long as the Apps Script round-trip took (measured ~4-6s).
+   Now we paint straight from the localStorage cache and refresh from the Sheet in the
+   background. Note seedUsers() must never run before a successful pull on a device with
+   no cache, otherwise it would invent default users and push them over the real list. */
+function hasLocalCache(){
+  try{ const u = store.get('users', null); return !!(u && u.length); }catch(e){ return false; }
+}
+let __syncing = false;
+function syncPill(on, failed){
+  let el = document.getElementById('syncPill');
+  if(!on){ if(el) el.remove(); return; }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'syncPill';
+    el.setAttribute('style','position:fixed;right:14px;bottom:14px;z-index:90;padding:7px 12px;border-radius:20px;'+
+      'font:600 12px var(--sans);background:var(--surface);color:var(--text-2);border:1px solid var(--border);'+
+      'box-shadow:0 4px 14px rgba(0,0,0,.12);opacity:.95;pointer-events:none');
+    document.body.appendChild(el);
+  }
+  el.textContent = failed ? '\u26a0 Sheet sync failed' : 'Syncing with Google Sheet\u2026';
+}
+function refreshFromCloud(rerender){
+  if(__syncing) return Promise.resolve(false);
+  __syncing = true; syncPill(true);
+  return CLOUD.pull().then(()=>{
+    seedUsers();
+    if(rerender && AUTH.session()){
+      try{ applyUserToSidebar(); }catch(e){}
+      try{ refreshBadges(); }catch(e){}
+      // don't yank the page out from under an open modal
+      const mb = document.getElementById('modalBg');
+      const modalOpen = mb && mb.classList.contains('show');
+      if(!modalOpen){ try{ setView((typeof state!=='undefined' && state.view) || 'dashboard'); }catch(e){} }
+    }
+    syncPill(false);
+    return true;
+  }).catch(e=>{
+    console.warn('cloud pull error', e);
+    syncPill(true, true); setTimeout(()=>syncPill(false), 4000);
+    return false;
+  }).finally(()=>{ __syncing = false; });
+}
 async function init(){
-  injectIcons(); applyTheme();
-  try{ await CLOUD.pull(); }catch(e){ console.warn('cloud pull error', e); }
-  seed(); seedUsers();
-  if(AUTH.session()){ bootApp(); } else { renderLogin(); }
+  injectIcons(); applyTheme(); seed();
+  if(!AUTH.session()){ renderLogin(); return; }   // login screen needs no cloud data
+  if(hasLocalCache()){
+    seedUsers();
+    bootApp();                 // instant paint from cache
+    refreshFromCloud(true);    // fresh Sheet data arrives a moment later
+  } else {
+    await refreshFromCloud(false);  // first ever load on this device: wait once
+    seedUsers();
+    bootApp();
+  }
 }
 function bindAppEvents(){
   if(window.__appBound) return; window.__appBound=true;
@@ -2523,7 +2602,9 @@ function bindAppEvents(){
 
 })();
 
-init();
+/* Deferred scripts (Chart.js) always finish before DOMContentLoaded, so waiting for
+   that event lets us drop the render-blocking <script> from <head> safely. */
+if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', init, {once:true}); } else { init(); }
 
 </script>
 </body>
