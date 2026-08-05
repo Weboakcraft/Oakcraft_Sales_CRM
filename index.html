@@ -356,8 +356,17 @@ const today = () => new Date().toISOString().slice(0,10);
       while(added < n){ d.setDate(d.getDate()+1); if(d.getDay() !== 0) added++; }
       return isoLocal(d);
     }
+    function productTypeTAT(productType){
+      if(PRODUCT_TYPE_TAT[productType]) return PRODUCT_TYPE_TAT[productType];
+      const k = String(productType||'').toLowerCase().replace(/[^a-z]+/g,'');
+      if(!k) return 0;
+      if(k.indexOf('other') >= 0) return 15;
+      if(k.indexOf('nonregular') >= 0) return 8;
+      if(k.indexOf('regular') >= 0) return 3;
+      return 0;
+    }
     function expectedDelivery(productType,orderDate){
-      const n = PRODUCT_TYPE_TAT[productType];
+      const n = productTypeTAT(productType);
       return n ? addWorkDays(orderDate||todayLocal(),n) : '';
     }
 const initials = s => (s||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
@@ -908,12 +917,15 @@ function openOrderModal(id){
     ? o.items.map(it=>({type:it.type||'EXISTING PRODUCT', prodId:it.prodId||'', product:it.product||'', manual:(it.manual!=null?!!it.manual:(!!it.product && !(it.prodId && prods.some(p=>p.id===it.prodId)))), spec:it.spec||'', image:it.image||'', qty:it.qty||1, rate:(it.rate!=null?it.rate:(it.price||0))}))
     : (o.product ? [{type:'EXISTING PRODUCT', prodId:o.prodId||'', product:o.product, manual:!(o.prodId && prods.some(p=>p.id===o.prodId)), spec:'', image:o.image||'', qty:o.qty||1, rate:(o.qty?(o.amount/o.qty):0)}]
               : [{type:'EXISTING PRODUCT', prodId:'', product:'', manual:false, spec:'', image:'', qty:1, rate:0}]);
-  const _F=getForm('order');const _lbl=(id,d)=>{const f=_F.find(x=>x.id===id);return f&&f.label?f.label:d;};const _opt=(id,d)=>{const f=_F.find(x=>x.id===id);return (f&&f.options&&f.options.length)?f.options:d;};const _req=(id)=>{const f=_F.find(x=>x.id===id);return f&&f.required?' required':'';};
+  const _ptf=orderProductTypeField();
+      const _ptOpts=(_ptf && _ptf.options && _ptf.options.length)?_ptf.options:PRODUCT_TYPES;
+      const _ptVal=o.productType||orderProductTypeValue(o)||'';
+      const _F=getForm('order');const _lbl=(id,d)=>{const f=_F.find(x=>x.id===id);return f&&f.label?f.label:d;};const _opt=(id,d)=>{const f=_F.find(x=>x.id===id);return (f&&f.options&&f.options.length)?f.options:d;};const _req=(id)=>{const f=_F.find(x=>x.id===id);return f&&f.required?' required':'';};
   openModal(`<div class="modal-head"><h3>${id?'Edit':'New'} Order</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div class='section-title' style='margin-top:0'>1. Order Information</div>
       <div class='form-row two'><div><label>${_lbl('o_date','Order Date')} <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-set today, locked)</span></label><input id='o-date' type='date' value='${o.date||todayLocal()}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
-      <div><label>${_lbl('o_ptype','Product Type')}</label><select id='o-ptype' onchange='recalcExpectedDelivery()'><option value=''>-- Select product type --</option>${_opt('o_ptype',PRODUCT_TYPES).map(s=>`<option ${(o.productType||'')===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
+      <div><label>${_ptf?_ptf.label:_lbl('o_ptype','Product Type')}${(_ptf&&_ptf.required)?` <span style='color:var(--crit)'>*</span>`:''}</label><select id='o-ptype' onchange='recalcExpectedDelivery()'><option value=''>-- Select product type --</option>${_ptOpts.map(s=>`<option ${_ptVal===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
       <div class='form-row two'><div><label>${_lbl('o_exp','Expected Delivery Date')} <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-calculated, locked)</span></label><input id='o-exp' type='date' value='${expectedDelivery(o.productType,o.date||todayLocal())||o.expDispatch||''}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
       <div><label>${_lbl('o_stat','Status')}</label><select id='o-stat'>${_opt('o_stat',['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']).map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
       <div id='o-exp-hint' style='margin:-2px 0 12px;font-size:11.5px;color:var(--muted)'></div>
@@ -937,7 +949,7 @@ function recalcExpectedDelivery(){
       const dEl=document.getElementById('o-date'), pEl=document.getElementById('o-ptype'),
             eEl=document.getElementById('o-exp'), hEl=document.getElementById('o-exp-hint');
       if(!dEl || !pEl || !eEl) return;
-      const pt=pEl.value, od=dEl.value||todayLocal(), n=PRODUCT_TYPE_TAT[pt];
+      const pt=pEl.value, od=dEl.value||todayLocal(), n=productTypeTAT(pt);
       eEl.value = expectedDelivery(pt,od);
       if(hEl) hEl.textContent = n
         ? 'Auto-calculated: '+n+' working days after '+od+' (Mon to Sat are working days, Sunday excluded).'
@@ -1017,6 +1029,13 @@ function updateOrderTotal(){
   const n=window.__orderItems.filter(it=>it.product).length;
   el.textContent = n+' item'+(n===1?'':'s')+' - Total (excl. GST) '+money(total);
 }
+function readOrderCustom(){
+  const c = readCustomFields('order');
+  const pf = orderProductTypeField();
+  const el = document.getElementById('o-ptype');
+  if(pf && el) c[pf.id] = el.value || '';
+  return c;
+}
 function saveOrder(id){
   readOrderItems();
   const items=window.__orderItems.filter(it=>it.product);
@@ -1039,7 +1058,7 @@ function saveOrder(id){
     productType:(document.getElementById('o-ptype')||{}).value||existing.productType||'',
         expDispatch:expectedDelivery(((document.getElementById('o-ptype')||{}).value||existing.productType||''),((document.getElementById('o-date')||{}).value||existing.date||todayLocal()))||((document.getElementById('o-exp')||{}).value||''),
     note:document.getElementById('o-note').value,
-    custom:readCustomFields('order')
+    custom:readOrderCustom()
   };
   const list=DB.orders();
   if(id){Object.assign(list.find(x=>x.id===id),rec);} else {rec.id=uid('ORD-');rec.date=todayLocal();stampOwner(rec);list.unshift(rec);}
@@ -1283,9 +1302,27 @@ const DEFAULT_FORMS = {
 
 /* ===== Custom (form-builder) question rendering for live forms ===== */
 const CORE_FIELD_IDS = {enquiry:['f_cust','f_prod','f_qty','f_src','f_sales','f_prio','f_note'],order:['o_cust','o_prod','o_qty','o_date','o_ptype','o_exp','o_sales','o_pay','o_stat','o_img','o_note'],customer:['c_name','c_contact','c_city','c_email','c_phone','c_type'],product:['p_name','p_sku','p_cat','p_price','p_stock','p_unit']};
+/* The Product Type question normally lives in the form builder as a custom field. It is the
+   single source of truth for the auto-calculated Expected Delivery Date, and it is rendered
+   only once - inside section 1 of the order form. */
+function orderProductTypeField(){
+  const fs = getForm('order') || [];
+  return fs.filter(f=> f && f.id === 'o_ptype')[0]
+      || fs.filter(f=> f && /product\s*type/i.test(f.label||''))[0]
+      || null;
+}
+function orderProductTypeValue(o){
+  const pf = orderProductTypeField();
+  return (pf && o && o.custom) ? (o.custom[pf.id]||'') : '';
+}
 function customFieldsFor(which){
   const core = CORE_FIELD_IDS[which] || [];
-  return getForm(which).filter(f=> f && !f.locked && core.indexOf(f.id)===-1);
+  let list = getForm(which).filter(f=> f && !f.locked && core.indexOf(f.id)===-1);
+  if(which === 'order'){
+    const pt = orderProductTypeField();
+    if(pt) list = list.filter(f=> f.id !== pt.id);
+  }
+  return list;
 }
 function customFieldsHTML(which, rec){
   rec = rec || {};
@@ -1631,7 +1668,7 @@ function openOrderDetail(id){
       <div class="section-title" style="margin-top:0">Customer</div>
       ${line('Company',o.customer)}${line('Contact',cust.contact||'—')}${line('Phone',cust.phone||'—')}${line('City',cust.city||'—')}
       <div class="section-title">Order</div>
-      ${line('Product',o.product)}${line('Quantity',o.qty+' '+(DB.products().find(p=>p.id===o.prodId)?.unit||'pc'))}${line('Order Value',money(o.amount))}${line('Order Date',o.date)}${line('Product Type',o.productType||'—')}${line('Expected Delivery Date',o.expDispatch||'—')}${line('Salesperson',o.salesperson)}${quote?line('From Quotation',quote.id):''}
+      ${line('Product',o.product)}${line('Quantity',o.qty+' '+(DB.products().find(p=>p.id===o.prodId)?.unit||'pc'))}${line('Order Value',money(o.amount))}${line('Order Date',o.date)}${line('Product Type',o.productType||orderProductTypeValue(o)||'—')}${line('Expected Delivery Date',o.expDispatch||'—')}${line('Salesperson',o.salesperson)}${quote?line('From Quotation',quote.id):''}
       <div class="section-title">Dispatch</div>
       ${disp?`${line('Courier',disp.courier)}${line('Tracking No',disp.tracking)}${line('Dispatched On',disp.dispatchedOn)}${line('ETA',disp.eta)}${line('Delivery Status',disp.status)}`:'<div style="color:var(--muted);font-size:13px;padding:6px 0">Not dispatched yet.</div>'}
       <div class="section-title">Progress</div>
