@@ -157,6 +157,14 @@ td .sub{color:var(--muted);font-size:12px}
 .modal-head h3{font-size:17px;font-weight:700}
 .modal-body{padding:20px 24px}
 .modal-foot{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end}
+/* Form Builder: keep the row actions (edit + delete) always visible */
+.modal.fb-wide{max-width:920px}
+.fb-table{width:100%;min-width:520px}
+.fb-actions{white-space:nowrap;width:1%}
+.fb-actions .row-actions{display:flex;gap:2px;justify-content:flex-end;flex-wrap:nowrap}
+.fb-actions .row-actions button{flex:0 0 auto}
+.fb-del{color:var(--crit)}
+.fb-del:hover{background:rgba(227,73,72,.12);color:var(--crit);border-color:rgba(227,73,72,.4)}
 .form-row{margin-bottom:14px}
 .form-row.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .form-row label{display:block;font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:6px}
@@ -307,10 +315,17 @@ const CLOUD = {
     }, 400);
   },
   // push a single object-shaped collection (e.g. formfields/permissions) as one record
-  pushObj(key, obj){
-    fetch(this.url, {method:'POST', redirect:'follow', keepalive:true, headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'save', collection:key, record:{id:'__config__', data:obj}})})
-    .catch(e=>console.warn('CLOUD pushObj failed', key, e));
+  pushObj(key, obj, tries){
+    const self = this;
+    const payload = JSON.stringify({action:'save', collection:key, record:{id:'__config__', data:obj}});
+    const attempt = (n) => fetch(self.url, {method:'POST', redirect:'follow', keepalive:true, headers:{'Content-Type':'text/plain;charset=utf-8'}, body: payload})
+      .then(r => { if(!r.ok) throw new Error('HTTP '+r.status); return r; })
+      .catch(err => {
+        console.warn('CLOUD pushObj failed', key, err);
+        if(n > 0){ return new Promise(res => setTimeout(res, 1200)).then(() => attempt(n-1)); }
+        throw err;
+      });
+    return attempt(typeof tries === 'number' ? tries : 2);
   }
 };
 const money = n => '₹' + Number(n||0).toLocaleString('en-IN');
@@ -837,7 +852,7 @@ function delRow(key,id){
 const modalBg=document.getElementById('modalBg'), modal=document.getElementById('modal');
 function closeModal(){modalBg.classList.remove('show');}
 modalBg.addEventListener('click',e=>{if(e.target===modalBg)closeModal();});
-function openModal(html){modal.innerHTML=html;modalBg.classList.add('show');}
+function openModal(html){modal.classList.remove('fb-wide');modal.innerHTML=html;modalBg.classList.add('show');}
 
 function openEnqModal(id){
   const e=id?DB.enquiries().find(x=>x.id===id):{};
@@ -1257,21 +1272,30 @@ function getForm(which){
   if(!all[which]){ all[which] = JSON.parse(JSON.stringify(DEFAULT_FORMS[which])); }
   return all[which];
 }
-function saveForm(which, fields){
+async function saveForm(which, fields){
   const all = store.get('formfields', null) || {};
   all[which] = fields;
   // store.set pushes 'formfields' - but CLOUD.keys are arrays; store as wrapped
   store.set('formfields', all);
-  try{ CLOUD.pushObj('formfields', all); }catch(e){}
+  // Live-sync the whole form definition to Google Sheets so edits AND deletes
+  // are reflected in the sheet immediately (the __config__ record is replaced).
+  try{
+    await CLOUD.pushObj('formfields', all);
+    return true;
+  }catch(e){
+    console.warn('formfields sheet sync failed', e);
+    try{ toast('Saved on this device \u2014 Google Sheet sync failed. Check your connection.'); }catch(_){}
+    return false;
+  }
 }
 /* ===== Form Builder: reorder questions (arrows + drag & drop) ===== */
-function moveFormField(which, from, to){
+async function moveFormField(which, from, to){
   const fields = getForm(which);
   if(to<0 || to>=fields.length || from===to) return;
   const item = fields.splice(from,1)[0];
   fields.splice(to,0,item);
-  saveForm(which, fields);
   openFormBuilder(which);
+  await saveForm(which, fields);
 }
 let __fbDragFrom = null;
 function fbDragStart(which, i, ev){ __fbDragFrom = i; try{ ev.dataTransfer.effectAllowed="move"; ev.dataTransfer.setData("text/plain", String(i)); }catch(e){} }
@@ -1284,19 +1308,26 @@ function openFormBuilder(which){
   const rows = fields.map((f,i)=>{
     const locked = f.locked ? ' <span class="chip c-neutral" style="font-size:10px">core</span>' : '';
     const tName = (FIELD_TYPES.find(x=>x.v===f.type)||{}).t || f.type;
-    return '<tr data-i="'+i+'" draggable="true"'+' ondragstart="fbDragStart(\''+which+'\','+i+',event)"'+' ondragover="fbDragOver(event)" ondragleave="fbDragLeave(event)"'+' ondrop="fbDrop(\''+which+'\','+i+',event)">'+'<td style="cursor:grab;color:var(--muted);text-align:center" title="Drag to reorder">\u2630</td>'+'<td><b>'+f.label+'</b>'+locked+'</td><td class="sub">'+tName+(f.options?(' · '+f.options.length+' choices'):'')+'</td><td>'+(f.required?'Required':'Optional')+'</td>'+
-      '<td><div class="row-actions" style="display:flex">'+'<button onclick="moveFormField(\''+which+'\','+i+','+(i-1)+')" title="Move up"'+(i===0?' disabled style="opacity:.3"':'')+'>\u2191</button>'+'<button onclick="moveFormField(\''+which+'\','+i+','+(i+1)+')" title="Move down"'+(i===fields.length-1?' disabled style="opacity:.3"':'')+'>\u2193</button>'+
-      '<button onclick="editFormField(\''+which+'\','+i+')" title="Edit">'+I.edit+'</button>'+
-      (f.locked?'':'<button onclick="delFormField(\''+which+'\','+i+')" title="Remove">'+I.trash+'</button>')+
+    return '<tr data-i="'+i+'" draggable="true"'+' ondragstart="fbDragStart(\''+which+'\','+i+',event)"'+' ondragover="fbDragOver(event)" ondragleave="fbDragLeave(event)"'+' ondrop="fbDrop(\''+which+'\','+i+',event)">'+
+      '<td style="cursor:grab;color:var(--muted);text-align:center" title="Drag to reorder">☰</td>'+
+      '<td><b>'+f.label+'</b>'+locked+'</td>'+
+      '<td class="sub">'+tName+(f.options?(' · '+f.options.length+' choices'):'')+'</td>'+
+      '<td>'+(f.required?'Required':'Optional')+'</td>'+
+      '<td class="fb-actions"><div class="row-actions">'+
+        '<button onclick="moveFormField(\''+which+'\','+i+','+(i-1)+')" title="Move up"'+(i===0?' disabled style="opacity:.3"':'')+'>↑</button>'+
+        '<button onclick="moveFormField(\''+which+'\','+i+','+(i+1)+')" title="Move down"'+(i===fields.length-1?' disabled style="opacity:.3"':'')+'>↓</button>'+
+        '<button onclick="editFormField(\''+which+'\','+i+')" title="Edit question">'+I.edit+'</button>'+
+        '<button class="fb-del" onclick="delFormField(\''+which+'\','+i+')" title="Delete question">'+I.trash+'</button>'+
       '</div></td></tr>';
   }).join('');
-  openModal('<div class="modal-head"><h3>'+title+' Builder</h3><button class="icon-btn" onclick="closeModal()">\u2715</button></div>'+
+  openModal('<div class="modal-head"><h3>'+title+' Builder</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'+
     '<div class="modal-body">'+
-    '<p style="color:var(--text-2);font-size:13px;margin-bottom:10px">Add, edit, or remove questions. Core fields are required by the pipeline and can be edited but not removed. Use the up/down arrows or drag rows to reorder \u2014 the order applies to the live form and Excel export.</p>'+
-    '<div style="overflow-x:auto"><table><thead><tr><th style="width:28px"></th><th>Question</th><th>Answer Type</th><th></th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<p style="color:var(--text-2);font-size:13px;margin-bottom:10px">Add, edit or delete questions — every question now has both an Edit and a Delete button. Core fields are used by the pipeline, so deleting one asks for an extra confirmation. Use the up/down arrows or drag rows to reorder — the order applies to the live form and Excel export. Every change is pushed to the connected Google Sheet right away.</p>'+
+    '<div style="overflow-x:auto"><table class="fb-table"><thead><tr><th style="width:28px"></th><th>Question</th><th>Answer Type</th><th></th><th style="text-align:right">Actions</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
     '<button class="btn primary sm" style="margin-top:12px" onclick="editFormField(\''+which+'\',-1)">'+I.plus+'Add Question</button>'+
     '</div>'+
     '<div class="modal-foot"><button class="btn primary" onclick="closeModal()">Done</button></div>');
+  try{ modal.classList.add('fb-wide'); }catch(e){}
 }
 function editFormField(which, idx){
   const fields = getForm(which);
@@ -1315,7 +1346,7 @@ function ffTypeChange(){
   const t = document.getElementById('ff-type').value;
   document.getElementById('ff-opts-row').style.display = (t==='dropdown')?'block':'none';
 }
-function saveFormField(which, idx){
+async function saveFormField(which, idx){
   const fields = getForm(which);
   const label = (document.getElementById('ff-label').value||'').trim();
   if(!label){ toast('Question name is required'); return; }
@@ -1329,16 +1360,23 @@ function saveFormField(which, idx){
   } else {
     fields.push({id:'c_'+Date.now().toString(36), label, type, required, options: type==='dropdown'?options:undefined});
   }
-  saveForm(which, fields);
-  toast('Question saved \u2713');
+  const ok = await saveForm(which, fields);
+  toast(ok ? 'Question saved \u2014 synced to Google Sheet \u2713' : 'Question saved on this device only');
   openFormBuilder(which);
 }
-function delFormField(which, idx){
+async function delFormField(which, idx){
   const fields = getForm(which);
-  if(fields[idx] && fields[idx].locked){ toast('Core field cannot be removed'); return; }
-  if(!confirm('Remove this question?')) return;
-  fields.splice(idx,1);
-  saveForm(which, fields);
+  const f = fields[idx];
+  if(!f) return;
+  const name = f.label || 'this question';
+  const msg = f.locked
+    ? 'Delete the core question "' + name + '"?\n\nThis field is used by the CRM pipeline, reports and the Excel export. Removing it will take it off the live form for everyone and it will no longer be collected.\n\nDelete it anyway?'
+    : 'Delete the question "' + name + '"?\n\nIt will be removed from the live form and from the connected Google Sheet. Answers already saved in existing records are not changed.';
+  if(!confirm(msg)) return;
+  fields.splice(idx, 1);
+  openFormBuilder(which);
+  const ok = await saveForm(which, fields);
+  toast(ok ? 'Question deleted \u2014 synced to Google Sheet \u2713' : 'Question deleted on this device only');
   openFormBuilder(which);
 }
 
