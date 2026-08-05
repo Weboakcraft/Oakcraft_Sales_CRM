@@ -342,6 +342,24 @@ const money = n => '₹' + Number(n||0).toLocaleString('en-IN');
 const short = n => n>=1e7 ? '₹'+(n/1e7).toFixed(2)+'Cr' : n>=1e5 ? '₹'+(n/1e5).toFixed(2)+'L' : n>=1e3 ? '₹'+(n/1e3).toFixed(1)+'K' : '₹'+n;
 const uid = p => p + Date.now().toString(36).slice(-4).toUpperCase() + Math.floor(Math.random()*90+10);
 const today = () => new Date().toISOString().slice(0,10);
+    /* ---------- Order date + working-day helpers ----------
+       Working week is Monday to Saturday. Sunday is a non-working day and is always skipped. */
+    const isoLocal = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const todayLocal = () => isoLocal(new Date());
+    const PRODUCT_TYPES = ['Regular Products','Non Regular Products','Other\'s Products'];
+    const PRODUCT_TYPE_TAT = {'Regular Products':3,'Non Regular Products':8,'Other\'s Products':15};
+    function addWorkDays(dateStr,n){
+      if(!dateStr || !n) return '';
+      const d = new Date(dateStr+'T00:00:00');
+      if(isNaN(d.getTime())) return '';
+      let added = 0;
+      while(added < n){ d.setDate(d.getDate()+1); if(d.getDay() !== 0) added++; }
+      return isoLocal(d);
+    }
+    function expectedDelivery(productType,orderDate){
+      const n = PRODUCT_TYPE_TAT[productType];
+      return n ? addWorkDays(orderDate||todayLocal(),n) : '';
+    }
 const initials = s => (s||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
 const avColors = ['#2a78d6','#008300','#e87ba4','#eda100','#1baf7a','#eb6834','#4a3aa7','#e34948'];
 const avColor = s => avColors[(s||'').length % avColors.length];
@@ -719,7 +737,7 @@ function renderOrders(){
   content.innerHTML=`<div class="card"><div class="card-head"><h3>Orders <span class="chip c-neutral" style="margin-left:4px">${list.length}</span></h3>
     <div class="tools"><select class="field" id="f-ostat" onchange="paintTable('ord-body')"><option value="">All Status</option>${['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled'].map(s=>`<option>${s}</option>`).join('')}</select>${dlBtn('orders')}</div></div>
     <div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Tip: click any order row to see full details.</div>
-    <div style="overflow-x:auto"><table><thead><tr><th>Order ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Payment</th><th>Exp. Dispatch</th><th>Status</th><th>Advance Stage</th></tr></thead>
+    <div style="overflow-x:auto"><table><thead><tr><th>Order ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Payment</th><th>Exp. Delivery</th><th>Status</th><th>Advance Stage</th></tr></thead>
     <tbody id="ord-body"></tbody></table></div></div>`;
   paintTable('ord-body');
 }
@@ -893,21 +911,39 @@ function openOrderModal(id){
   const _F=getForm('order');const _lbl=(id,d)=>{const f=_F.find(x=>x.id===id);return f&&f.label?f.label:d;};const _opt=(id,d)=>{const f=_F.find(x=>x.id===id);return (f&&f.options&&f.options.length)?f.options:d;};const _req=(id)=>{const f=_F.find(x=>x.id===id);return f&&f.required?' required':'';};
   openModal(`<div class="modal-head"><h3>${id?'Edit':'New'} Order</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
-      <div class="form-row"><label>${_lbl('o_cust','Customer')}</label>${customerSelectHTML("o-cust","ordc", o.custId)}</div>
-      <div class="form-row"><label>Products</label><div id="o-items"></div>
-        <button type="button" class="btn ghost sm" style="margin-top:8px" onclick="addOrderItem()">+ Add Product</button>
-        <div class="sub tabular" id="o-total" style="margin-top:6px"></div></div>
-      <div class="form-row two"><div><label>${_lbl('o_sales','Salesperson')}</label><select id="o-sales">${[''].concat((getForm('enquiry').find(f=>f.label==='Salesperson')?.options||SALES)).map(s=>`<option ${(o.salesperson||'')===s?'selected':''}>${s}</option>`).join('')}</select></div>
-        <div><label>${_lbl('o_pay','Payment')}</label><select id="o-pay"${_req('o_pay')}>${_opt('o_pay',['Pending','Partial','Paid']).map(s=>`<option ${o.payment===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
-      <div class="form-row two"><div><label>${_lbl('o_stat','Status')}</label><select id="o-stat">${_opt('o_stat',['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']).map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-        <div><label>Expected Dispatch</label><input id="o-exp" type="date" value="${o.expDispatch||today()}"></div></div>
-      <div class="form-row"><label>${_lbl('o_note','Note')}</label><textarea id="o-note" rows="2" placeholder="Order note">${o.note||''}</textarea></div>
-    ${customFieldsHTML('order', o)}
+      <div class='section-title' style='margin-top:0'>1. Order Information</div>
+      <div class='form-row two'><div><label>${_lbl('o_date','Order Date')} <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-set today, locked)</span></label><input id='o-date' type='date' value='${o.date||todayLocal()}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
+      <div><label>${_lbl('o_ptype','Product Type')}</label><select id='o-ptype' onchange='recalcExpectedDelivery()'><option value=''>-- Select product type --</option>${_opt('o_ptype',PRODUCT_TYPES).map(s=>`<option ${(o.productType||'')===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
+      <div class='form-row two'><div><label>${_lbl('o_exp','Expected Delivery Date')} <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-calculated, locked)</span></label><input id='o-exp' type='date' value='${expectedDelivery(o.productType,o.date||todayLocal())||o.expDispatch||''}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
+      <div><label>${_lbl('o_stat','Status')}</label><select id='o-stat'>${_opt('o_stat',['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']).map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
+      <div id='o-exp-hint' style='margin:-2px 0 12px;font-size:11.5px;color:var(--muted)'></div>
+      <div class='section-title'>2. Customer and Salesperson</div>
+      <div class='form-row'><label>${_lbl('o_cust','Customer')}</label>${customerSelectHTML('o-cust','ordc', o.custId)}</div>
+      <div class='form-row'><label>${_lbl('o_sales','Salesperson')}</label><select id='o-sales'>${[''].concat((getForm('enquiry').find(f=>f.label==='Salesperson')?.options||SALES)).map(s=>`<option ${(o.salesperson||'')===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class='section-title'>3. Products</div>
+      <div class='form-row'><div id='o-items'></div>
+      <button type='button' class='btn ghost sm' style='margin-top:8px' onclick='addOrderItem()'>+ Add Product</button>
+      <div class='sub tabular' id='o-total' style='margin-top:6px'></div></div>
+      <div class='section-title'>4. Payment</div>
+      <div class='form-row'><label>${_lbl('o_pay','Payment')}</label><select id='o-pay'${_req('o_pay')}>${_opt('o_pay',['Pending','Partial','Paid']).map(s=>`<option ${o.payment===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class='section-title'>5. Notes and Additional Details</div>
+      <div class='form-row'><label>${_lbl('o_note','Note')}</label><textarea id='o-note' rows='2' placeholder='Order note'>${o.note||''}</textarea></div>
+      ${customFieldsHTML('order', o)}
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveOrder('${id||''}')">Save Order</button></div>`);
-  renderOrderItems();
+  renderOrderItems(); recalcExpectedDelivery();
 }
-function orderProdOptions(sel){
+function recalcExpectedDelivery(){
+      const dEl=document.getElementById('o-date'), pEl=document.getElementById('o-ptype'),
+            eEl=document.getElementById('o-exp'), hEl=document.getElementById('o-exp-hint');
+      if(!dEl || !pEl || !eEl) return;
+      const pt=pEl.value, od=dEl.value||todayLocal(), n=PRODUCT_TYPE_TAT[pt];
+      eEl.value = expectedDelivery(pt,od);
+      if(hEl) hEl.textContent = n
+        ? 'Auto-calculated: '+n+' working days after '+od+' (Mon to Sat are working days, Sunday excluded).'
+        : 'Choose a Product Type - the expected delivery date is filled in automatically.';
+    }
+    function orderProdOptions(sel){
   return DB.products().map(p=>`<option ${sel===p.id?'selected':''} data-price="${p.price}" data-id="${p.id}">${p.name}</option>`).join('');
 }
 function renderOrderItems(){
@@ -1000,12 +1036,13 @@ function saveOrder(id){
     salesperson:document.getElementById('o-sales').value,
     payment:document.getElementById('o-pay').value,
     status:document.getElementById('o-stat').value,
-    expDispatch:document.getElementById('o-exp').value,
+    productType:(document.getElementById('o-ptype')||{}).value||existing.productType||'',
+        expDispatch:expectedDelivery(((document.getElementById('o-ptype')||{}).value||existing.productType||''),((document.getElementById('o-date')||{}).value||existing.date||todayLocal()))||((document.getElementById('o-exp')||{}).value||''),
     note:document.getElementById('o-note').value,
     custom:readCustomFields('order')
   };
   const list=DB.orders();
-  if(id){Object.assign(list.find(x=>x.id===id),rec);} else {rec.id=uid('ORD-');rec.date=today();stampOwner(rec);list.unshift(rec);}
+  if(id){Object.assign(list.find(x=>x.id===id),rec);} else {rec.id=uid('ORD-');rec.date=todayLocal();stampOwner(rec);list.unshift(rec);}
   DB.save('orders',list); closeModal(); toast(id?'Order updated':'Order added'); refreshBadges(); setView('orders');
 }
 function saveEnq(id){
@@ -1217,6 +1254,9 @@ const DEFAULT_FORMS = {
     {id:'o_cust', label:'Customer', type:'dropdown', source:'customers', required:true, locked:true},
     {id:'o_prod', label:'Product', type:'dropdown', source:'products', required:true, locked:true},
     {id:'o_qty',  label:'Quantity', type:'number', required:true, locked:true},
+    {id:'o_date', label:'Order Date', type:'date', locked:true},
+    {id:'o_ptype',label:'Product Type', type:'dropdown', options:['Regular Products','Non Regular Products','Other\'s Products'], locked:true},
+    {id:'o_exp',  label:'Expected Delivery Date', type:'date', locked:true},
     {id:'o_sales',label:'Salesperson', type:'text'},
     {id:'o_pay',  label:'Payment', type:'dropdown', options:['Pending','Partial','Paid']},
     {id:'o_stat', label:'Status', type:'dropdown', options:['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']},
@@ -1242,7 +1282,7 @@ const DEFAULT_FORMS = {
 };
 
 /* ===== Custom (form-builder) question rendering for live forms ===== */
-const CORE_FIELD_IDS = {enquiry:['f_cust','f_prod','f_qty','f_src','f_sales','f_prio','f_note'],order:['o_cust','o_prod','o_qty','o_sales','o_pay','o_stat','o_img','o_note'],customer:['c_name','c_contact','c_city','c_email','c_phone','c_type'],product:['p_name','p_sku','p_cat','p_price','p_stock','p_unit']};
+const CORE_FIELD_IDS = {enquiry:['f_cust','f_prod','f_qty','f_src','f_sales','f_prio','f_note'],order:['o_cust','o_prod','o_qty','o_date','o_ptype','o_exp','o_sales','o_pay','o_stat','o_img','o_note'],customer:['c_name','c_contact','c_city','c_email','c_phone','c_type'],product:['p_name','p_sku','p_cat','p_price','p_stock','p_unit']};
 function customFieldsFor(which){
   const core = CORE_FIELD_IDS[which] || [];
   return getForm(which).filter(f=> f && !f.locked && core.indexOf(f.id)===-1);
@@ -1591,7 +1631,7 @@ function openOrderDetail(id){
       <div class="section-title" style="margin-top:0">Customer</div>
       ${line('Company',o.customer)}${line('Contact',cust.contact||'—')}${line('Phone',cust.phone||'—')}${line('City',cust.city||'—')}
       <div class="section-title">Order</div>
-      ${line('Product',o.product)}${line('Quantity',o.qty+' '+(DB.products().find(p=>p.id===o.prodId)?.unit||'pc'))}${line('Order Value',money(o.amount))}${line('Order Date',o.date)}${line('Expected Dispatch',o.expDispatch)}${line('Salesperson',o.salesperson)}${quote?line('From Quotation',quote.id):''}
+      ${line('Product',o.product)}${line('Quantity',o.qty+' '+(DB.products().find(p=>p.id===o.prodId)?.unit||'pc'))}${line('Order Value',money(o.amount))}${line('Order Date',o.date)}${line('Product Type',o.productType||'—')}${line('Expected Delivery Date',o.expDispatch||'—')}${line('Salesperson',o.salesperson)}${quote?line('From Quotation',quote.id):''}
       <div class="section-title">Dispatch</div>
       ${disp?`${line('Courier',disp.courier)}${line('Tracking No',disp.tracking)}${line('Dispatched On',disp.dispatchedOn)}${line('ETA',disp.eta)}${line('Delivery Status',disp.status)}`:'<div style="color:var(--muted);font-size:13px;padding:6px 0">Not dispatched yet.</div>'}
       <div class="section-title">Progress</div>
@@ -2606,11 +2646,11 @@ function bindAppEvents(){
    1. Every order detail drawer now shows a "Products" table listing each product row captured while
       the order form was filled in: image, name, order type, specification, qty, rate, line amount and
       any additional per-product field stored on the item.
-   2. A submitted order can be reopened and edited, but only MAX_ORDER_EDITS (3) times in total.
-      One successful save counts as one edit of the whole form; after the 3rd save the order locks
+   2. A submitted order can be reopened and edited, but only MAX_ORDER_EDITS (7) times in total.
+      One successful save counts as one edit of the whole form; after the 7th save the order locks
       and neither the Edit button nor saveOrder() will touch it again.                              */
 (function(){
-  const MAX_ORDER_EDITS = 3;
+  const MAX_ORDER_EDITS = 7;
 
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const editsUsed = o => Math.min(MAX_ORDER_EDITS, Math.max(0, +((o||{}).editCount) || 0));
