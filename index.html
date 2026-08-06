@@ -3112,6 +3112,169 @@ function bindAppEvents(){
   };
 })();
 
+/* ============================================================================
+   ORDER FORM AUTOMATION
+   1. Total Amount        = Billing Amount + Freight Amount        (read-only)
+   2. Pending Balance Amt = Total - Advance Payment - Full Payment (read-only)
+   3. Full Payment Amount / Full Payment Proof show only when the order status
+      is Dispatched or Delivered (hidden, not removed, so nothing is lost).
+   4. Save Order is blocked until every mandatory (*) field is filled.
+   Fields are matched by their Form Builder label, so renaming/recreating a
+   field keeps working. Nothing else in the UI is touched.
+   ============================================================================ */
+(function(){
+  const NORM = function(s){ return String(s==null?'':s).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); };
+  const RX = {
+    billing:   /^billing( amount| amt| value)?$/,
+    freight:   /^freight( amount| amt| charge| charges)?$/,
+    total:     /^(grand )?total( amount| amt| value)?$/,
+    advance:   /^advance( payment)?( amount| amt)?$/,
+    full:      /^full( payment)?( amount| amt)?$/,
+    fullproof: /^full( payment)?( amount| amt)? proof$/,
+    balance:   /balance/
+  };
+  function oform(){ try{ return getForm('order') || []; }catch(e){ return []; } }
+  function fidOf(kind){
+    const L = oform();
+    for(var i=0;i<L.length;i++){ if(L[i] && RX[kind].test(NORM(L[i].label))) return L[i].id; }
+    return '';
+  }
+  function cfEl(id){ return id ? document.getElementById('cf-order-'+id) : null; }
+  function cfRow(n){ return n && n.closest ? n.closest('.form-row') : null; }
+  function money(v){ var n = parseFloat(String(v==null?'':v).replace(/[^0-9.\-]/g,'')); return isNaN(n) ? 0 : n; }
+  function fmt(n){ return Math.round(n*100)/100; }
+  const LOCKCSS = 'background:var(--surface-2);color:var(--text-2);cursor:not-allowed';
+
+  function lockField(node, hint){
+    if(!node || node.dataset.ocAuto) return;
+    node.dataset.ocAuto = '1';
+    node.readOnly = true;
+    node.tabIndex  = -1;
+    node.style.cssText += ';' + LOCKCSS;
+    const r = cfRow(node), lb = r && r.querySelector('label');
+    if(lb && hint && !lb.querySelector('.oc-auto-hint')){
+      const s = document.createElement('span');
+      s.className = 'oc-auto-hint';
+      s.style.cssText = 'font-weight:500;font-size:10.5px;color:var(--muted);margin-left:6px';
+      s.textContent = hint;
+      lb.appendChild(s);
+    }
+  }
+  function finalStage(){
+    const v = NORM((document.getElementById('o-stat')||{}).value);
+    return v === 'dispatched' || v === 'delivered';
+  }
+  function recalcMoney(){
+    const t  = cfEl(fidOf('total')),   b  = cfEl(fidOf('billing')), f = cfEl(fidOf('freight'));
+    const bl = cfEl(fidOf('balance')), a  = cfEl(fidOf('advance')), u = cfEl(fidOf('full'));
+    const total = money(b && b.value) + money(f && f.value);
+    if(t)  t.value  = fmt(total);
+    if(bl) bl.value = fmt(total - money(a && a.value) - money(u && u.value));
+  }
+  function toggleFullPayment(){
+    const show = finalStage();
+    [fidOf('full'), fidOf('fullproof')].forEach(function(id){
+      const r = cfRow(cfEl(id));
+      if(r) r.style.display = show ? '' : 'none';
+    });
+    recalcMoney();
+  }
+  function initOrderForm(){
+    if(!document.getElementById('o-items')) return;
+    lockField(cfEl(fidOf('total')),   '(auto: Billing + Freight)');
+    lockField(cfEl(fidOf('balance')), '(auto: Total - Advance - Full Payment)');
+    ['billing','freight','advance','full'].forEach(function(k){
+      const n = cfEl(fidOf(k));
+      if(n && !n.dataset.ocBound){ n.dataset.ocBound = '1'; n.addEventListener('input', recalcMoney); n.addEventListener('change', recalcMoney); }
+    });
+    const st = document.getElementById('o-stat');
+    if(st && !st.dataset.ocBound){ st.dataset.ocBound = '1'; st.addEventListener('change', toggleFullPayment); }
+    toggleFullPayment();
+  }
+
+  const _ocOpenOrderModal = window.openOrderModal;
+  window.openOrderModal = function(id){
+    window.__ocOrderEditId = id || '';
+    _ocOpenOrderModal(id);
+    setTimeout(initOrderForm, 0);
+  };
+
+  function prevCustom(){
+    const id = window.__ocOrderEditId;
+    if(!id) return {};
+    const o = (DB.orders()||[]).filter(function(x){ return x && x.id === id; })[0];
+    return (o && o.custom) || {};
+  }
+
+  /* a file input can never be pre-filled, so keep the file that was uploaded earlier */
+  const _ocReadOrderCustom = window.readOrderCustom;
+  window.readOrderCustom = function(){
+    const c = _ocReadOrderCustom(), prev = prevCustom();
+    oform().forEach(function(f){
+      if(!f || f.type !== 'file') return;
+      const n = cfEl(f.id);
+      if(n && !(n.files && n.files.length) && prev[f.id] && !c[f.id]) c[f.id] = prev[f.id];
+    });
+    return c;
+  };
+
+  function missingFields(){
+    const miss = [], F = oform(), byId = {};
+    F.forEach(function(f){ if(f) byId[f.id] = f; });
+    [['o_cust','o-cust','Customer'],['o_sales','o-sales','Salesperson'],['o_pay','o-pay','Payment'],['o_stat','o-stat','Status']].forEach(function(t){
+      const f = byId[t[0]];
+      if(f && !f.required) return;
+      const n = document.getElementById(t[1]);
+      if(n && !String(n.value||'').trim()) miss.push({ label:(f && f.label) || t[2], node:n });
+    });
+    const ptf = (typeof orderProductTypeField === 'function') ? orderProductTypeField() : null;
+    if(ptf && ptf.required){
+      const pe = document.getElementById('o-ptype');
+      if(pe && !String(pe.value||'').trim()) miss.push({ label: ptf.label || 'Product Type', node: pe });
+    }
+    const prev = prevCustom();
+    F.forEach(function(f){
+      if(!f || !f.required || f.type === 'checkbox') return;
+      const n = cfEl(f.id);
+      if(!n) return;
+      const r = cfRow(n);
+      if(r && r.style.display === 'none') return;
+      if(f.type === 'file'){
+        const has = (n.files && n.files.length) || String(prev[f.id]||'').trim();
+        if(!has) miss.push({ label:f.label, node:n });
+        return;
+      }
+      if(!String(n.value==null?'':n.value).trim()) miss.push({ label:f.label, node:n });
+    });
+    return miss;
+  }
+  window.__ocMissingOrderFields = missingFields;
+
+  const _ocSaveOrder = window.saveOrder;
+  window.saveOrder = function(id){
+    if(document.getElementById('o-items')){
+      recalcMoney();
+      const miss = missingFields();
+      if(miss.length){
+        miss.forEach(function(m){
+          if(!m.node) return;
+          m.node.style.borderColor = 'var(--crit)';
+          if(!m.node.dataset.ocClr){
+            m.node.dataset.ocClr = '1';
+            const clr = function(){ m.node.style.borderColor = ''; };
+            m.node.addEventListener('input', clr); m.node.addEventListener('change', clr);
+          }
+        });
+        const names = miss.map(function(m){ return m.label; });
+        toast('Please fill the required field' + (names.length>1?'s':'') + ': ' + names.slice(0,4).join(', ') + (names.length>4 ? ' +' + (names.length-4) + ' more' : ''));
+        try{ miss[0].node.scrollIntoView({block:'center', behavior:'smooth'}); miss[0].node.focus({preventScroll:true}); }catch(e){}
+        return;
+      }
+    }
+    _ocSaveOrder(id);
+  };
+})();
+
 /* Deferred scripts (Chart.js) always finish before DOMContentLoaded, so waiting for
    that event lets us drop the render-blocking <script> from <head> safely. */
 if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', init, {once:true}); } else { init(); }
