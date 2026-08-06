@@ -2997,6 +2997,48 @@ function bindAppEvents(){
       + '</table></div>';
   }
 
+  /* ---- Orders: Edit (green) / Delete (red) button styles ------------------
+     Delete Order ka access sirf Administrator ko hai -- galti se bhara hua
+     order hi hataana hota hai, isliye confirm me poori detail dikhati hai
+     aur delete local + Google Sheet dono se hota hai. ---------------------- */
+  var ORDER_EDIT_STYLE = 'color:var(--good);border-color:rgba(12,163,12,.45);background:rgba(12,163,12,.08)';
+  var ORDER_DEL_STYLE  = 'color:var(--crit);border-color:rgba(208,59,59,.45);background:rgba(208,59,59,.08)';
+
+  function isAdminNow(){
+    try{ if(typeof AUTH !== 'undefined' && typeof AUTH.isAdmin === 'function') return !!AUTH.isAdmin(); }catch(e){}
+    try{ return String((window.meRole && window.meRole()) || '').toLowerCase() === 'administrator'; }catch(e){}
+    return false;
+  }
+
+  window.deleteOrderAdmin = function(id){
+    if(!isAdminNow()){ toast('Sirf Administrator order delete kar sakta hai'); return; }
+    var o = DB.orders().find(function(x){ return x.id === id; });
+    if(!o){ toast('Order not found'); return; }
+    var disp = DB.dispatch().find(function(d){ return d.orderId === o.id; });
+    var msg = 'Ye order permanently delete karna hai?\n\n'
+            + 'Order ID: ' + o.id + '\n'
+            + 'Customer: ' + (o.customer || '-') + '\n'
+            + 'Product : ' + (o.product || '-') + '\n'
+            + 'Value   : ' + money(o.amount) + '\n'
+            + 'Status  : ' + (o.status || '-') + '\n\n'
+            + (disp ? 'Note: is order ki Dispatch entry (' + disp.id + ') apne aap nahi hategi -- use Dispatch section se alag delete kijiye.\n\n' : '')
+            + 'Ye action undo nahi ho sakta.';
+    if(!confirm(msg)) return;
+    DB.save('orders', DB.orders().filter(function(x){ return x.id !== o.id; }));
+    try{ refreshBadges(); }catch(e){}
+    closeModal();
+    toast('Order ' + o.id + ' deleted');
+    try{ setView('orders'); }catch(e){}
+    /* sheet se bhi hata do (CLOUD.remove delete-sync fix se aata hai) */
+    try{
+      if(typeof CLOUD !== 'undefined' && typeof CLOUD.remove === 'function'){
+        CLOUD.remove('orders', o.id).then(function(ok){
+          if(!ok) toast('Sheet se delete nahi ho paaya \u2014 internet check kijiye');
+        });
+      }
+    }catch(e){}
+  };
+
   /* ---- order detail: add the Products section + the edit / lock control ---- */
   const _openOrderDetail = openOrderDetail;
   window.openOrderDetail = function(id){
@@ -3020,10 +3062,14 @@ function bindAppEvents(){
       const used = editsUsed(o), left = editsLeft(o);
       const ctl = document.createElement('div');
       ctl.style.cssText = 'display:flex;align-items:center;gap:9px;margin-right:auto';
-      ctl.innerHTML = isLocked(o)
+      ctl.innerHTML = (isLocked(o)
         ? '<span class="chip c-neutral" title="An order form can be edited '+MAX_ORDER_EDITS+' times">Locked — '+used+'/'+MAX_ORDER_EDITS+' edits used</span>'
-        : '<button class="btn" onclick="openOrderModal(\''+o.id+'\')">Edit Order</button>'
-          + '<span style="font-size:11.5px;color:var(--muted)">'+used+'/'+MAX_ORDER_EDITS+' edits used · '+left+' left</span>';
+        : '<button class="btn" style="'+ORDER_EDIT_STYLE+'" onclick="openOrderModal(\''+o.id+'\')">'+I.edit+'Edit Order</button>'
+          + '<span style="font-size:11.5px;color:var(--muted)">'+used+'/'+MAX_ORDER_EDITS+' edits used · '+left+' left</span>')
+        /* Delete Order -- sirf Administrator, locked order par bhi available */
+        + (isAdminNow()
+            ? '<button class="btn" style="'+ORDER_DEL_STYLE+'" title="Delete this order permanently (admin only)" onclick="deleteOrderAdmin(\''+o.id+'\')">'+I.trash+'Delete Order</button>'
+            : '');
       foot.insertBefore(ctl, foot.firstChild);
     }
   };
