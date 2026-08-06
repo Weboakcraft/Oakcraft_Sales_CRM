@@ -263,6 +263,7 @@ const I = {
   download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>',
   upload:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>',
   eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  whatsapp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.6a8.5 8.5 0 0 1-12.4 7.5L3.5 20.5l1.4-4.6A8.5 8.5 0 1 1 20.5 11.6z"/><path d="M9.3 8.4c-.3.7-.2 1.6.4 2.6.6 1 1.5 1.9 2.6 2.4.9.4 1.7.4 2.3.1l1.4.9-.6 1.4c-1.4.4-3.1-.2-4.6-1.2a10 10 0 0 1-3-3.4c-.7-1.3-.9-2.7-.4-3.7l1.5-.5z"/></svg>',
 };
 </script>
 <script>
@@ -746,7 +747,7 @@ function renderOrders(){
   content.innerHTML=`<div class="card"><div class="card-head"><h3>Orders <span class="chip c-neutral" style="margin-left:4px">${list.length}</span></h3>
     <div class="tools"><select class="field" id="f-ostat" onchange="paintTable('ord-body')"><option value="">All Status</option>${['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled'].map(s=>`<option>${s}</option>`).join('')}</select>${dlBtn('orders')}</div></div>
     <div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Tip: click any order row to see full details.</div>
-    <div style="overflow-x:auto"><table><thead><tr><th>Order ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Payment</th><th>Exp. Delivery</th><th>Status</th><th>Advance Stage</th></tr></thead>
+    <div style="overflow-x:auto"><table><thead><tr><th>Order ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Payment</th><th>Exp. Delivery</th><th>Status</th><th>Advance Stage</th><th>WhatsApp</th></tr></thead>
     <tbody id="ord-body"></tbody></table></div></div>`;
   paintTable('ord-body');
 }
@@ -808,7 +809,7 @@ function paintTable(bodyId){
     html=rows.map(o=>`<tr style="cursor:pointer" onclick="openOrderDetail('${o.id}')"><td class="strong tabular">${o.id}</td><td class="sub tabular">${o.date}</td><td>${userCell(o.customer)}</td>
       <td>${o.product} <span class="sub">×${o.qty}</span></td><td class="strong tabular">${money(o.amount)}</td><td>${payChip(o.payment)}</td>
       <td class="sub tabular">${o.expDispatch}</td><td>${orderChip(o.status)}</td>
-      <td onclick="event.stopPropagation()">${nextStageBtn(o)}</td></tr>`).join('')||emptyRow(9);
+      <td onclick="event.stopPropagation()">${nextStageBtn(o)}</td><td onclick="event.stopPropagation()">${waBtn(o)}</td></tr>`).join('')||emptyRow(10);
   } else if(bodyId==='dis-body'){
     let rows=scope(DB.dispatch()).filter(d=>!q||[d.id,d.customer,d.tracking,d.orderId].join(' ').toLowerCase().includes(q)).sort((a,b)=>b.dispatchedOn.localeCompare(a.dispatchedOn));
     html=rows.map(d=>`<tr><td class="strong tabular">${d.id}</td><td class="tabular">${d.orderId}</td><td>${userCell(d.customer)}</td>
@@ -1721,6 +1722,67 @@ async function handleBulk(input){
 /* ============================================================
    ORDER DETAILS
    ============================================================ */
+/* ============================================================
+   WHATSAPP — one click order update (wa.me click-to-chat)
+   Koi API / token nahi chahiye: hum sirf wa.me link kholte hain
+   jisme message pehle se bhara hota hai. User ko bas Send dabana hai.
+   ============================================================ */
+function waNumber(raw){
+  var d = String(raw == null ? '' : raw).replace(/[^0-9]/g, '');
+  if(!d) return '';
+  d = d.replace(/^0+/, '');
+  if(d.length === 10) d = '91' + d;          /* default country code: India */
+  return (d.length >= 11 && d.length <= 15) ? d : (d.length ? d : '');
+}
+function orderWaText(o){
+  var cust = DB.customers().find(function(c){ return c.id === o.custId; }) || {};
+  var disp = DB.dispatch().find(function(d){ return d.orderId === o.id; });
+  var unit = (DB.products().find(function(p){ return p.id === o.prodId; }) || {}).unit || 'pc';
+  var L = [];
+  L.push('Namaste ' + (cust.contact || o.customer || 'Sir/Madam') + ',');
+  L.push('');
+  L.push('OakCraft se aapke order ki update:');
+  L.push('');
+  L.push('Order ID: ' + o.id);
+  L.push('Order Date: ' + (o.date || '-'));
+  L.push('Product: ' + (o.product || '-') + ' x ' + (o.qty || 0) + ' ' + unit);
+  L.push('Order Value: ' + money(o.amount));
+  if(o.payment) L.push('Payment: ' + o.payment);
+  L.push('Current Status: ' + (o.status || '-'));
+  L.push('Expected Delivery: ' + (o.expDispatch || '-'));
+  if(disp){
+    L.push('');
+    L.push('Dispatch Details:');
+    L.push('Courier: ' + (disp.courier || '-'));
+    L.push('Tracking No: ' + (disp.tracking || '-'));
+    L.push('Dispatched On: ' + (disp.dispatchedOn || '-'));
+    L.push('ETA: ' + (disp.eta || '-'));
+    L.push('Delivery Status: ' + (disp.status || '-'));
+  }
+  L.push('');
+  L.push('Kisi bhi jaankari ke liye isi number par reply kijiye.');
+  L.push('Team OakCraft');
+  return L.join('\n');
+}
+function waOrder(id, ev){
+  if(ev && ev.stopPropagation) ev.stopPropagation();
+  var o = DB.orders().find(function(x){ return x.id === id; });
+  if(!o){ toast('Order not found'); return; }
+  var cust = DB.customers().find(function(c){ return c.id === o.custId; }) || {};
+  var num = waNumber(cust.phone);
+  if(!num){
+    var typed = prompt('Is customer ka WhatsApp number save nahi hai.\nNumber likhiye (10 digit ya +91...):', '');
+    if(typed === null) return;
+    num = waNumber(typed);
+    if(!num){ toast('Valid WhatsApp number daaliye'); return; }
+  }
+  window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(orderWaText(o)), '_blank', 'noopener');
+}
+function waBtn(o, label){
+  return '<button class="btn sm" title="Send this order update on WhatsApp" onclick="waOrder(\'' + o.id + '\', event)"'
+    + ' style="color:#0f8f4c;border-color:rgba(15,143,76,.35)">' + I.whatsapp + (label || 'WhatsApp') + '</button>';
+}
+
 function openOrderDetail(id){
   const o=DB.orders().find(x=>x.id===id); if(!o)return;
   const cust=DB.customers().find(c=>c.id===o.custId)||{};
@@ -1748,6 +1810,7 @@ function openOrderDetail(id){
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal()">Close</button>
+      ${waBtn(o, 'WhatsApp Update')}
       ${o.status!=='Delivered'&&o.status!=='Cancelled'?`<button class="btn primary" onclick="advanceOrder('${o.id}');closeModal();openOrderDetail('${o.id}')">${I.arrow}Advance to ${ORDER_FLOW[flowIdx+1]}</button>`:''}
     </div>`);
 }
@@ -2008,6 +2071,25 @@ function bindAppEvents(){
   var _lc = function(s){ return String(s == null ? '' : s).trim().toLowerCase(); };
   function meEmail(){ try{ var u = AUTH.current(); return u ? _lc(u.email) : ''; }catch(e){ return ''; } }
   function meIsAdmin(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+  /* ---------------------------------------------------------------- *
+   * ROLE VISIBILITY                                                  *
+   * Sales Manager poori team ka data dekh sakta hai (orders etc.),   *
+   * Sales Executive sirf apne owner wale records.                    *
+   * Role pehle roster se, na mile to session token se padhte hain.   *
+   * ---------------------------------------------------------------- */
+  var FULL_DATA_ROLES = ['administrator', 'sales manager'];
+  function meRole(){
+    var r = '';
+    try{ var u = AUTH.current(); r = _lc(u && u.role); }catch(e){}
+    if(!r){ try{ var s = sidInfo(); r = _lc(s && s.role); }catch(e){} }
+    return r;
+  }
+  function meSeesAll(){
+    if(meIsAdmin()) return true;
+    return FULL_DATA_ROLES.indexOf(meRole()) >= 0;
+  }
+  window.meRole = meRole;
+  window.meSeesAll = meSeesAll;
 
   /* ------------------------------------------------------------------ *
    * 1. SERVER SESSION                                                   *
@@ -2104,7 +2186,7 @@ function bindAppEvents(){
    * ------------------------------------------------------------------ */
   window.scope = function(list){
     if(!Array.isArray(list)) return [];
-    if(meIsAdmin()) return list;
+    if(meSeesAll()) return list;   /* admin + sales manager */
     var m = meEmail();
     if(!m) return [];
     return list.filter(function(r){
@@ -2116,7 +2198,7 @@ function bindAppEvents(){
 
   /* kya ye record current user edit kar sakta hai? */
   window.canTouch = function(rec){
-    if(meIsAdmin()) return true;
+    if(meSeesAll()) return true;   /* admin + sales manager */
     var m = meEmail(); if(!m) return false;
     var o = _lc(rec && (rec.owner || rec.ownerEmail || rec.createdBy));
     return !o || o === m;
