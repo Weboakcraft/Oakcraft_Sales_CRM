@@ -890,7 +890,14 @@ function delRow(key,id){
 /* ---------- MODALS ---------- */
 const modalBg=document.getElementById('modalBg'), modal=document.getElementById('modal');
 function closeModal(){modalBg.classList.remove('show');}
-modalBg.addEventListener('click',e=>{if(e.target===modalBg)closeModal();});
+/* An outside (backdrop) click must NOT close the form - everything typed would be lost.
+   Only the X button / Cancel close it; clicking outside just nudges the modal. */
+modalBg.addEventListener('click',e=>{
+  if(e.target!==modalBg) return;
+  if(modal && modal.animate) modal.animate(
+    [{transform:'translateX(0)'},{transform:'translateX(-6px)'},{transform:'translateX(6px)'},{transform:'translateX(0)'}],
+    {duration:220, easing:'ease'});
+});
 function openModal(html){modal.classList.remove('fb-wide');modal.innerHTML=html;modalBg.classList.add('show');}
 
 function openEnqModal(id){
@@ -3278,6 +3285,112 @@ function bindAppEvents(){
 
 /* Deferred scripts (Chart.js) always finish before DOMContentLoaded, so waiting for
    that event lets us drop the render-blocking <script> from <head> safely. */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   ORDER FORM AUTOMATION - PART 2
+   1. "Freight Charge Proof" shows only when Freight Amount is greater than 0.
+   2. "Tax Invoice" shows only when Status is Dispatched or Delivered.
+   3. "Billing Amount" is auto-filled with the Products table total (qty x rate)
+      and is read-only. Fields are matched by their Form Builder label.
+   ════════════════════════════════════════════════════════════════════════════ */
+(function(){
+  const NORM = function(s){ return String(s==null?'':s).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); };
+  const RX = {
+    billing:      /^billing( amount| amt| value)?$/,
+    freight:      /^freight( amount| amt| charge| charges)?$/,
+    freightproof: /^freight( amount| amt| charge| charges)? proof$/,
+    taxinvoice:   /^tax ?invoice( proof| copy| upload| document)?$/
+  };
+  function oform(){ try{ return getForm('order') || []; }catch(e){ return []; } }
+  function fidOf(kind){
+    const L = oform();
+    for(var i=0;i<L.length;i++){ if(L[i] && RX[kind].test(NORM(L[i].label))) return L[i].id; }
+    return '';
+  }
+  function cfEl(id){ return id ? document.getElementById('cf-order-'+id) : null; }
+  function cfRow(n){ return n && n.closest ? n.closest('.form-row') : null; }
+  function money(v){ var n = parseFloat(String(v==null?'':v).replace(/[^0-9.\-]/g,'')); return isNaN(n) ? 0 : n; }
+  function show(node, on){ const r = cfRow(node); if(r) r.style.display = on ? '' : 'none'; }
+  function finalStage(){
+    const v = NORM((document.getElementById('o-stat')||{}).value);
+    return v === 'dispatched' || v === 'delivered';
+  }
+  function itemsTotal(){
+    const list = window.__orderItems || [];
+    return list.reduce(function(s,it){ return s + ((+it.rate||0) * (+it.qty||0)); }, 0);
+  }
+  function syncBilling(){
+    const b = cfEl(fidOf('billing'));
+    if(!b) return;
+    const v = Math.round(itemsTotal()*100)/100;
+    if(String(b.value) !== String(v)){
+      b.value = v;
+      b.dispatchEvent(new Event('input',  {bubbles:true}));
+      b.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+  }
+  function lockBilling(){
+    const b = cfEl(fidOf('billing'));
+    if(!b || b.dataset.ocBillLock) return;
+    b.dataset.ocBillLock = '1';
+    b.readOnly = true; b.tabIndex = -1;
+    b.style.cssText += ';background:var(--surface-2);color:var(--text-2);cursor:not-allowed';
+    const r = cfRow(b), lb = r && r.querySelector('label');
+    if(lb && !lb.querySelector('.oc-bill-hint')){
+      const s = document.createElement('span');
+      s.className = 'oc-bill-hint';
+      s.style.cssText = 'font-weight:500;font-size:10.5px;color:var(--muted);margin-left:6px';
+      s.textContent = '(auto: total of all products)';
+      lb.appendChild(s);
+    }
+  }
+  function toggleFreightProof(){
+    const f = cfEl(fidOf('freight'));
+    show(cfEl(fidOf('freightproof')), money(f && f.value) > 0);
+  }
+  function toggleTaxInvoice(){ show(cfEl(fidOf('taxinvoice')), finalStage()); }
+
+  const _ocUpdateOrderTotal = window.updateOrderTotal;
+  window.updateOrderTotal = function(){
+    if(typeof _ocUpdateOrderTotal === 'function') _ocUpdateOrderTotal.apply(this, arguments);
+    syncBilling(); toggleFreightProof();
+  };
+
+  function initOrderFormExtra(){
+    if(!document.getElementById('o-items')) return;
+    lockBilling();
+    const f = cfEl(fidOf('freight'));
+    if(f && !f.dataset.ocFpBound){
+      f.dataset.ocFpBound = '1';
+      f.addEventListener('input',  toggleFreightProof);
+      f.addEventListener('change', toggleFreightProof);
+    }
+    const st = document.getElementById('o-stat');
+    if(st && !st.dataset.ocTiBound){
+      st.dataset.ocTiBound = '1';
+      st.addEventListener('change', toggleTaxInvoice);
+    }
+    const box = document.getElementById('o-items');
+    if(box && !box.dataset.ocLiveBound){
+      box.dataset.ocLiveBound = '1';
+      box.addEventListener('input', function(e){
+        const t = e.target;
+        if(t && t.classList && (t.classList.contains('oi-qty') || t.classList.contains('oi-rate'))){
+          if(typeof readOrderItems === 'function') readOrderItems();
+          if(typeof updateOrderTotal === 'function') updateOrderTotal();
+        }
+      });
+    }
+    syncBilling(); toggleFreightProof(); toggleTaxInvoice();
+  }
+
+  const _ocOpenOrderModal2 = window.openOrderModal;
+  window.openOrderModal = function(id){
+    _ocOpenOrderModal2.apply(this, arguments);
+    setTimeout(initOrderFormExtra, 0);
+  };
+})();
+
 if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', init, {once:true}); } else { init(); }
 
 
