@@ -3308,7 +3308,7 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
       try{
         (customFieldsFor(which) || []).forEach(function(f){
           if(!f || f.type !== 'file') return;
-          var el = document.getElementById(which + '-' + f.id);
+          var el = document.getElementById('cf-' + which + '-' + f.id) || document.getElementById(which + '-' + f.id);
           if(!el) return;
           if(el.__ocData) out[f.id] = el.__ocData;
           else if(typeof out[f.id] === 'string' && out[f.id].indexOf('fakepath') > -1) out[f.id] = '';
