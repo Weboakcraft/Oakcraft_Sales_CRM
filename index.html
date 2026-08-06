@@ -1177,7 +1177,9 @@ async function saveUser(email){
     try{
       const h = await AUTH.hash(pass);
       await pushUsersNow(users);
-      const en = await SRV.setPassword(mail, h);
+      let en = await SRV.setPassword(mail, h);
+      /* naya account: server anonymous setPassword allow karta hai (pehli baar) */
+      if(!en || !en.ok) en = await ocAnonPost({ action:'setPassword', email:mail, hash:h });
       if(!en || !en.ok){
         toast('User saved, but password not set: ' + ((en && en.error) || 'server error'));
       }
@@ -1186,6 +1188,20 @@ async function saveUser(email){
   closeModal(); toast(email?'User updated ✓':'User login created ✓'); setView('admin');
 }
 /* users collection ko turant (bina debounce) sheet par bhejta hai */
+/* Server ko bilkul anonymous POST. window.fetch shim har request me maujooda
+   sid jod deta hai; activation ke liye hum ye nahi chahte, warna kisi doosre
+   logged-in user ka token call ko elevate kar sakta hai. */
+function ocAnonPost(payload){
+  return new Promise(function(resolve){
+    try{
+      var x = new XMLHttpRequest();
+      x.open('POST', CLOUD.url, true);
+      x.onload = function(){ var j = null; try{ j = JSON.parse(x.responseText); }catch(err){} resolve(j || {}); };
+      x.onerror = function(){ resolve({}); };
+      x.send(JSON.stringify(payload || {}));
+    }catch(err){ resolve({}); }
+  });
+}
 function pushUsersNow(list){
   const records=(list||[]).map(o=>({ id:(o&&o.id)||('USR-'+String((o&&o.email)||'').toLowerCase().replace(/[^a-z0-9]/g,'-')), data:o }));
   return fetch(CLOUD.url,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -2109,31 +2125,6 @@ function bindAppEvents(){
   /* ------------------------------------------------------------------ *
    * 4. LOGIN — server pehle                                             *
    * ------------------------------------------------------------------ */
-  /* Roster (users list) ko seedha server se poochte hain.
-     Login screen naye device par localStorage cache ke bina render hota hai,
-     isliye yahan cache par bharosa nahi kiya ja sakta. sid ko khaali bhejte
-     hain taaki fetch shim koi purana token na jode. */
-  function rosterLookup(email){
-    var e = _lc(email);
-    return fetch(CLOUD.url, { method:'POST', body: JSON.stringify({ action:'getAll', sid:'' }) })
-      .then(function(r){ return r.json(); })
-      .then(function(j){
-        var rows = ((j && (j.data || j)) || {}).users || [];
-        var hit = null;
-        rows.forEach(function(x){
-          var d = (x && x.data !== undefined) ? x.data : x;
-          if(!d || _lc(d.email) !== e) return;
-          /* sheet me ek hi email ki do rows ho sakti hain -- jis row ka
-             password set hai wahi jeetegi */
-          if(!hit || (!hit.pwdSet && d.pwdSet)) hit = d;
-        });
-        return hit;
-      })
-      .catch(function(){
-        try{ return (AUTH.find && AUTH.find(e)) || null; }catch(e2){ return null; }
-      });
-  }
-
   window.doLogin = async function(){
     var emEl = document.getElementById('lg-email');
     var pwEl = document.getElementById('lg-pw');
@@ -2159,48 +2150,52 @@ function bindAppEvents(){
       /* Pehli baar login: user roster me hai par server par password set nahi
          hai -> password enrol karo, phir dobara login. */
       if(res && !res.ok && /invalid credentials/i.test(String(res.error || ''))){
-        /* FIX (naya user login nahi kar pa raha tha):
-             - Pehle first-time activation sirf tab chalti thi jab email
-               localStorage ke users cache me mil jaaye (AUTH.find). Naye user ke
-               device par login screen se pehle koi cloud pull nahi hota, isliye
-               cache khaali rehta tha, activation skip ho jaati thi aur server ka
-               "invalid credentials" seedha screen par dikh jaata tha.
-             - Ab roster server se check hota hai, aur activation sirf un accounts
-               par hoti hai jinka password abhi set nahi hai (pwdSet false).
-               Isse galat password kisi ke pehle se set password ko overwrite
-               nahi kar sakta. */
-          var acc = await rosterLookup(email);
-          if(!acc){
-            SRV.clear();
-            say('No account for this email. Ask your admin to add you.', true);
-            return;
-          }
-          if(acc.status && acc.status !== 'Active'){
-            SRV.clear();
-            say('This account is inactive. Please contact your admin.', true);
-            return;
-          }
-          if(acc.pwdSet){
-            SRV.clear();
-            say('Incorrect password. Please try again.', true);
-            return;
-          }
+        /* FIX -- naya user login nahi kar pa raha tha ("Invalid Credentials").
+
+             Kaaran:
+             1) Admin panel se user banane par password kahin save hi nahi hota tha
+                (saveUser me pass padha jaata tha, use hota nahi tha), isliye account
+                server par bina password banta tha.
+             2) Pehli-baar activation ka fallback localStorage ke users cache par
+                depend karta tha (AUTH.find). Naye device par login screen kisi bhi
+                cloud pull se pehle render hota hai, to cache khaali -> activation
+                skip -> server ka "invalid credentials" seedha screen par.
+
+             Roster ko yahan check nahi kiya ja sakta: getAll ke liye valid session
+             chahiye ("unauthorized"), aur login screen par session hota hi nahi.
+             Anonymous sirf 2 actions allowed hain -- login aur setPassword. Aur
+             server khud guard karta hai: jis account ka password pehle se set hai
+             uske liye anonymous setPassword "login required" return karta hai.
+             Isliye activation ka faisla server ke jawab se lete hain: */
           if(pw.length < 6){
             say('First time sign-in: choose a password of at least 6 characters.', true);
             return;
           }
-          var en = await SRV.setPassword(email, h);
-          if(!en || !en.ok){
+          var en = await ocAnonPost({ action:'setPassword', email:email, hash:h });
+          var enErr = _lc(en && en.error);
+          if(en && en.ok){
+            /* pehli baar: password activate ho gaya -> dobara login */
+            try{
+              var lu = AUTH.users();
+              var lr = lu.find(function(x){ return x && _lc(x.email) === email; });
+              if(lr){ lr.pwdSet = true; AUTH.saveUsers(lu); }
+            }catch(err){}
+            res = await SRV.login(email, h);
+          } else if(/no account|not found|unknown user/.test(enErr)){
             SRV.clear();
-            say(String((en && en.error) || 'Password set nahi ho paaya.'), true);
+            say('No account for this email. Ask your admin to add you.', true);
+            return;
+          } else if(/inactive|disabled|blocked/.test(enErr)){
+            SRV.clear();
+            say('This account is inactive. Please contact your admin.', true);
+            return;
+          } else {
+            /* "login required" = account ka password pehle se set hai,
+               matlab sirf password galat tha. */
+            SRV.clear();
+            say('Incorrect password. Please try again.', true);
             return;
           }
-          try{
-            var lu = AUTH.users();
-            var lr = lu.find(function(x){ return x && String(x.email || '').toLowerCase() === email; });
-            if(lr){ lr.pwdSet = true; AUTH.saveUsers(lu); }
-          }catch(e){}
-          res = await SRV.login(email, h);
       }
 
       if(!res || !res.ok){
