@@ -3279,6 +3279,45 @@ function bindAppEvents(){
    that event lets us drop the render-blocking <script> from <head> safely. */
 if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', init, {once:true}); } else { init(); }
 
+
+/* ===== Drive uploads: read a chosen file into a data URL so the backend can store it in Drive ===== */
+(function(){
+  var MAXB = 10 * 1024 * 1024;
+  function grab(el){
+    var f = el.files && el.files[0];
+    if(!f){ el.__ocData = ''; return; }
+    if(f.size > MAXB){ el.value = ''; el.__ocData = ''; try{ toast('File too large (max 10 MB): ' + f.name); }catch(e){} return; }
+    var rd = new FileReader();
+    el.__ocBusy = 1;
+    rd.onload = function(e){
+      var s = String(e.target.result || ''), i = s.indexOf(';base64,');
+      if(i > 0) s = s.slice(0,i) + ';name=' + encodeURIComponent(f.name) + s.slice(i);
+      el.__ocData = s; el.__ocBusy = 0;
+    };
+    rd.onerror = function(){ el.__ocData = ''; el.__ocBusy = 0; };
+    rd.readAsDataURL(f);
+  }
+  document.addEventListener('change', function(ev){
+    var el = ev.target;
+    if(el && el.tagName === 'INPUT' && el.type === 'file' && el.id !== 'bulkFile') grab(el);
+  }, true);
+  var base = window.readCustomFields;
+  if(typeof base === 'function'){
+    window.readCustomFields = function(which){
+      var out = base.apply(this, arguments);
+      try{
+        (customFieldsFor(which) || []).forEach(function(f){
+          if(!f || f.type !== 'file') return;
+          var el = document.getElementById(which + '-' + f.id);
+          if(!el) return;
+          if(el.__ocData) out[f.id] = el.__ocData;
+          else if(typeof out[f.id] === 'string' && out[f.id].indexOf('fakepath') > -1) out[f.id] = '';
+        });
+      }catch(e){}
+      return out;
+    };
+  }
+})();
 </script>
 </body>
 </html>
