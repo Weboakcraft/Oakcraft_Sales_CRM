@@ -805,7 +805,7 @@ function paintTable(bodyId){
   let html='';
   if(bodyId==='ord-body'){
     const f=document.getElementById('f-ostat')?.value||'';
-    let rows=scope(DB.orders()).filter(o=>(!f||o.status===f)&&(!q||[o.id,o.customer,o.product].join(' ').toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
+    let rows=scope(DB.orders(), 'orders').filter(o=>(!f||o.status===f)&&(!q||[o.id,o.customer,o.product].join(' ').toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
     html=rows.map(o=>`<tr style="cursor:pointer" onclick="openOrderDetail('${o.id}')"><td class="strong tabular">${o.id}</td><td class="sub tabular">${o.date}</td><td>${userCell(o.customer)}</td>
       <td>${o.product} <span class="sub">×${o.qty}</span></td><td class="strong tabular">${money(o.amount)}</td><td>${payChip(o.payment)}</td>
       <td class="sub tabular">${o.expDispatch}</td><td>${orderChip(o.status)}</td>
@@ -1739,7 +1739,7 @@ function orderWaText(o){
   var disp = DB.dispatch().find(function(d){ return d.orderId === o.id; });
   var unit = (DB.products().find(function(p){ return p.id === o.prodId; }) || {}).unit || 'pc';
   var L = [];
-  L.push('Namaste ' + (cust.contact || o.customer || 'Sir/Madam') + ',');
+  L.push('Namaste ' + (cust.contact || o._cContact || o.customer || 'Sir/Madam') + ',');
   L.push('');
   L.push('OakCraft se aapke order ki update:');
   L.push('');
@@ -1769,7 +1769,7 @@ function waOrder(id, ev){
   var o = DB.orders().find(function(x){ return x.id === id; });
   if(!o){ toast('Order not found'); return; }
   var cust = DB.customers().find(function(c){ return c.id === o.custId; }) || {};
-  var num = waNumber(cust.phone);
+  var num = waNumber(cust.phone || o._cPhone);   /* _cPhone: server hint, jab customer record scope me na ho */
   if(!num){
     var typed = prompt('Is customer ka WhatsApp number save nahi hai.\nNumber likhiye (10 digit ya +91...):', '');
     if(typed === null) return;
@@ -2077,16 +2077,21 @@ function bindAppEvents(){
    * Sales Executive sirf apne owner wale records.                    *
    * Role pehle roster se, na mile to session token se padhte hain.   *
    * ---------------------------------------------------------------- */
-  var FULL_DATA_ROLES = ['administrator', 'sales manager'];
+  /* Kis role ko kis section ka POORA data (sabhi users ka) dikhega.
+     'Sales Manager' -> sirf ORDERS section, admin ki tarah saare orders.
+     Baaki sections (customers/enquiries/quotations/dispatch) me wo sirf
+     apne records dekhta hai. Server par bhi yahi rule lagta hai. */
+  var FULL_DATA_ROLES = { orders: ['sales manager'] };
   function meRole(){
     var r = '';
     try{ var u = AUTH.current(); r = _lc(u && u.role); }catch(e){}
     if(!r){ try{ var s = sidInfo(); r = _lc(s && s.role); }catch(e){} }
     return r;
   }
-  function meSeesAll(){
+  function meSeesAll(coll){
     if(meIsAdmin()) return true;
-    return FULL_DATA_ROLES.indexOf(meRole()) >= 0;
+    var allow = FULL_DATA_ROLES[String(coll || '').toLowerCase()];
+    return !!(allow && allow.indexOf(meRole()) >= 0);
   }
   window.meRole = meRole;
   window.meSeesAll = meSeesAll;
@@ -2184,9 +2189,9 @@ function bindAppEvents(){
    * Ab: admin -> sab kuch, warna sirf apne owner wale records.           *
    * Session hi nahi mila to kuch bhi nahi (safe default).               *
    * ------------------------------------------------------------------ */
-  window.scope = function(list){
+  window.scope = function(list, coll){
     if(!Array.isArray(list)) return [];
-    if(meSeesAll()) return list;   /* admin + sales manager */
+    if(meSeesAll(coll)) return list;   /* admin, ya elevated role (Sales Manager -> orders) */
     var m = meEmail();
     if(!m) return [];
     return list.filter(function(r){
@@ -2197,8 +2202,8 @@ function bindAppEvents(){
   };
 
   /* kya ye record current user edit kar sakta hai? */
-  window.canTouch = function(rec){
-    if(meSeesAll()) return true;   /* admin + sales manager */
+  window.canTouch = function(rec, coll){
+    if(meSeesAll(coll)) return true;   /* admin, ya elevated role */
     var m = meEmail(); if(!m) return false;
     var o = _lc(rec && (rec.owner || rec.ownerEmail || rec.createdBy));
     return !o || o === m;
