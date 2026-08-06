@@ -930,17 +930,17 @@ function openOrderModal(id){
       <div class='form-row two'><div><label>${_odf?_odf.label:_lbl('o_date','Order Date')} <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-set today, locked)</span></label><input id='o-date' type='date' value='${_odVal}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
       <div><label>${_ptf?_ptf.label:_lbl('o_ptype','Product Type')}${(_ptf&&_ptf.required)?` <span style='color:var(--crit)'>*</span>`:''}</label><select id='o-ptype' onchange='recalcExpectedDelivery()'><option value=''>-- Select product type --</option>${_ptOpts.map(s=>`<option ${_ptVal===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
       <div class='form-row two'><div><label>Expected Delivery Date <span style='font-weight:500;font-size:10.5px;color:var(--muted)'>(auto-calculated, locked)</span></label><input id='o-exp' type='date' value='${expectedDelivery(_ptVal,_odVal)||o.expDispatch||''}' readonly tabindex='-1' style='background:var(--surface-2);color:var(--text-2);cursor:not-allowed;pointer-events:none'></div>
-      <div><label>${_lbl('o_stat','Status')}${_fstar('order','o_stat')}</label><select id='o-stat' onchange='recalcOrderAmounts()'>${_opt('o_stat',['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']).map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
+      <div><label>${_lbl('o_stat','Status')}</label><select id='o-stat'>${_opt('o_stat',['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']).map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
       <div id='o-exp-hint' style='margin:-2px 0 12px;font-size:11.5px;color:var(--muted)'></div>
       <div class='section-title'>2. Customer and Salesperson</div>
-      <div class='form-row'><label>${_lbl('o_cust','Customer')}${_fstar('order','o_cust')}</label>${customerSelectHTML('o-cust','ordc', o.custId)}</div>
-      <div class='form-row'><label>${_lbl('o_sales','Salesperson')}${_fstar('order','o_sales')}</label><select id='o-sales'>${[''].concat((getForm('enquiry').find(f=>f.label==='Salesperson')?.options||SALES)).map(s=>`<option ${(o.salesperson||'')===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class='form-row'><label>${_lbl('o_cust','Customer')}</label>${customerSelectHTML('o-cust','ordc', o.custId)}</div>
+      <div class='form-row'><label>${_lbl('o_sales','Salesperson')}</label><select id='o-sales'>${[''].concat((getForm('enquiry').find(f=>f.label==='Salesperson')?.options||SALES)).map(s=>`<option ${(o.salesperson||'')===s?'selected':''}>${s}</option>`).join('')}</select></div>
       <div class='section-title'>3. Products</div>
       <div class='form-row'><div id='o-items'></div>
       <button type='button' class='btn ghost sm' style='margin-top:8px' onclick='addOrderItem()'>+ Add Product</button>
       <div class='sub tabular' id='o-total' style='margin-top:6px'></div></div>
       <div class='section-title'>4. Payment and Amounts</div>
-      <div class='form-row'><label>${_lbl('o_pay','Payment')}${_fstar('order','o_pay')}</label><select id='o-pay'${_req('o_pay')}>${_opt('o_pay',['Pending','Partial','Paid']).map(s=>`<option ${o.payment===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class='form-row'><label>${_lbl('o_pay','Payment')}</label><select id='o-pay'${_req('o_pay')}>${_opt('o_pay',['Pending','Partial','Paid']).map(s=>`<option ${o.payment===s?'selected':''}>${s}</option>`).join('')}</select></div>
       ${customFieldsHTML('order', o, 'payment')}
       <div class='section-title'>5. Dispatch and Documents</div>
       ${customFieldsHTML('order', o, 'logistics')}
@@ -949,7 +949,7 @@ function openOrderModal(id){
       ${customFieldsHTML('order', o, 'other')}
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveOrder('${id||''}')">Save Order</button></div>`);
-  renderOrderItems(); recalcExpectedDelivery(); recalcOrderAmounts();
+  renderOrderItems(); recalcExpectedDelivery();
 }
 function recalcExpectedDelivery(){
       const dEl=document.getElementById('o-date'), pEl=document.getElementById('o-ptype'),
@@ -1049,7 +1049,6 @@ function saveOrder(id){
   readOrderItems();
   const items=window.__orderItems.filter(it=>it.product);
   if(!items.length){ toast('Add at least one product'); return; }
-  if(!validateOrderForm(items)) return;
   const totalQty=items.reduce((s,it)=>s+(+it.qty||0),0);
   const totalAmt=items.reduce((s,it)=>s+((+it.rate||0)*(+it.qty||0)),0);
   const existing=id?DB.orders().find(x=>x.id===id):{};
@@ -1397,114 +1396,25 @@ function customFieldsFor(which){
   if(which === 'order') list = list.filter(f=> orderFieldGroup(f) !== 'hidden');
   return list;
 }
-/* ===== Order form automation =======================================
-   Total Amount           : Billing Amount + Freight Amount          (read-only)
-   Pending Balance Amount : Total - Advance Payment - Full Payment   (read-only)
-   Full Payment Amount / Full Payment Proof sirf tab dikhte hain jab Order Status
-   'Dispatched' ya 'Delivered' ho.
-   Fields label se dhoonde jaate hain (hard-coded id se nahi), taaki Form Builder
-   me naam thoda badalne par bhi automation chalta rahe. */
-const ORDER_FULLPAY_STATUSES = ['dispatched','delivered'];
-const AUTO_LOCK_STYLE = 'background:var(--surface-2);color:var(--text-2);cursor:not-allowed';
-function _nlbl(s){ return String(s==null?'':s).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
-function orderAmtFields(){
-  const fs = (getForm('order')||[]).filter(function(f){ return f && f.id; });
-  const amt = function(rx){ return fs.filter(function(f){ var l=_nlbl(f.label); return f.type==='number' && rx.test(l) && /(amount|amt|balance)/.test(l) && !/proof/.test(l); })[0]||null; };
-  const fil = function(rx){ return fs.filter(function(f){ var l=_nlbl(f.label); return f.type==='file' && rx.test(l); })[0]||null; };
-  return { billing:amt(/billing/), freight:amt(/freight/), total:amt(/total/),
-           advance:amt(/advance/), full:amt(/full/), pending:amt(/pending|balance/),
-           fullProof:fil(/full/) };
-}
-function orderAutoIds(){ var a=orderAmtFields(); return [a.total&&a.total.id, a.pending&&a.pending.id].filter(Boolean); }
-function orderCalcIds(){ var a=orderAmtFields(); return [a.billing&&a.billing.id, a.freight&&a.freight.id, a.advance&&a.advance.id, a.full&&a.full.id].filter(Boolean); }
-function _fstar(which,id){ var f=(getForm(which)||[]).filter(function(x){return x&&x.id===id;})[0]; return (f&&f.required)?" <span style='color:var(--crit)'>*</span>":''; }
-function _cfEl(id){ return document.getElementById('cf-order-'+id); }
-function recalcOrderAmounts(){
-  const A = orderAmtFields();
-  const raw = function(f){ var el=f?_cfEl(f.id):null; return el?String(el.value).trim():''; };
-  const num = function(f){ var v=raw(f); return v===''?0:(parseFloat(v)||0); };
-  const showFull = ORDER_FULLPAY_STATUSES.indexOf(_nlbl((document.getElementById('o-stat')||{}).value)) >= 0;
-  [A.full, A.fullProof].forEach(function(f){
-    if(!f) return;
-    var row = document.getElementById('cfrow-order-'+f.id);
-    if(row) row.style.display = showFull ? '' : 'none';
-  });
-  const hasAmt = raw(A.billing)!=='' || raw(A.freight)!=='';
-  const total  = Math.round((num(A.billing)+num(A.freight))*100)/100;
-  const tEl = A.total?_cfEl(A.total.id):null;
-  if(tEl) tEl.value = hasAmt ? total : '';
-  const pEl = A.pending?_cfEl(A.pending.id):null;
-  const hasPay = hasAmt || raw(A.advance)!=='' || raw(A.full)!=='';
-  if(pEl) pEl.value = hasPay ? (Math.round((total-num(A.advance)-num(A.full))*100)/100) : '';
-}
-/* ---- mandatory field validation: order form ---- */
-function _flagField(el, bad){
-  if(!el || !el.style) return;
-  if(bad){ el.style.borderColor='var(--crit)'; el.style.boxShadow='0 0 0 2px rgba(208,59,59,.16)'; }
-  else { el.style.borderColor=''; el.style.boxShadow=''; }
-}
-function validateOrderForm(items){
-  const _F = getForm('order')||[];
-  const lbl = function(id,d){ var f=_F.filter(function(x){return x&&x.id===id;})[0]; return (f&&f.label)?f.label:d; };
-  const isReq = function(id, dflt){ var f=_F.filter(function(x){return x&&x.id===id;})[0]; return f ? !!f.required : !!dflt; };
-  const core = [];
-  if(isReq('o_cust',true))  core.push({el:'o-cust',  label:lbl('o_cust','Customer')});
-  var _pf = orderProductTypeField();
-  if(!_pf || _pf.required)  core.push({el:'o-ptype', label:(_pf&&_pf.label)||'Product Type'});
-  if(isReq('o_sales',false))core.push({el:'o-sales', label:lbl('o_sales','Salesperson')});
-  if(isReq('o_pay',false))  core.push({el:'o-pay',   label:lbl('o_pay','Payment')});
-  if(isReq('o_stat',false)) core.push({el:'o-stat',  label:lbl('o_stat','Status')});
-  const missing=[]; var firstEl=null;
-  core.forEach(function(r){
-    var el=document.getElementById(r.el);
-    var bad=!el || String(el.value||'').trim()==='';
-    _flagField(el,bad);
-    if(bad){ missing.push(r.label); if(!firstEl) firstEl=el; }
-  });
-  (items||[]).forEach(function(it,i){
-    if(!String(it.product||'').trim()) missing.push('Product '+(i+1)+': Product Name');
-    if(!(+it.qty>0)) missing.push('Product '+(i+1)+': Qty');
-  });
-  const A=orderAmtFields(), auto=orderAutoIds();
-  const showFull = ORDER_FULLPAY_STATUSES.indexOf(_nlbl((document.getElementById('o-stat')||{}).value)) >= 0;
-  customFieldsFor('order').forEach(function(f){
-    if(!f || !f.required || f.type==='file') return;
-    if(auto.indexOf(f.id)>=0) return;
-    if(!showFull && A.full && f.id===A.full.id) return;
-    var el=_cfEl(f.id); if(!el) return;
-    var bad = (f.type==='checkbox') ? !el.checked : String(el.value||'').trim()==='';
-    _flagField(el,bad);
-    if(bad){ missing.push(f.label); if(!firstEl) firstEl=el; }
-  });
-  if(!missing.length) return true;
-  toast('Fill required: '+missing.slice(0,3).join(', ')+(missing.length>3?' +'+(missing.length-3)+' more':''));
-  if(firstEl){ try{ firstEl.scrollIntoView({block:'center'}); firstEl.focus(); }catch(e){} }
-  return false;
-}
 function customFieldsHTML(which, rec, group){
-  rec  = rec || {};
-  let cf  = customFieldsFor(which);
-  if(which === 'order') cf  = cf.filter(f => orderFieldGroup(f) === (group||'other'));
+  rec = rec || {};
+  let cf = customFieldsFor(which);
+  if(which === 'order') cf = cf.filter(f=> orderFieldGroup(f) === (group||'other'));
   if(!cf.length) return "";
-  const cv  = (rec.custom||{});
-  const AUTO = (which === 'order') ? orderAutoIds() : [];
-  const CALC = (which === 'order') ? orderCalcIds() : [];
+  const cv = (rec.custom||{});
   return cf.map(function(f){
-    const val  = (cv[f.id]!=null)?cv[f.id]:"";
-    const dom  = "cf-"+which+"-"+f.id;
-    const req  = f.required?" required":"";
-    const isAuto = AUTO.indexOf(f.id)>=0;
-    const isCalc = CALC.indexOf(f.id)>=0;
+    const val = (cv[f.id]!=null)?cv[f.id]:"";
+    const dom = "cf-"+which+"-"+f.id;
+    const req = f.required?" required":"";
     let input="";
-    if(f.type==="longtext"){ input  = '<textarea id="'+dom+'" rows="2"'+req+'>'+String(val).replace(/</g,"&lt;")+'</textarea>'; }
-    else if(f.type==="number"){ input  = '<input id="'+dom+'" type="number" value="'+String(val).replace(/"/g,"&quot;")+'"'+req+(isAuto?' readonly tabindex="-1" style="'+AUTO_LOCK_STYLE+'"':'')+(isCalc?' oninput="recalcOrderAmounts()" onchange="recalcOrderAmounts()"':'')+'>'; }
-    else if(f.type==="date"){ input  = '<input id="'+dom+'" type="date" value="'+String(val).replace(/"/g,"&quot;")+'"'+req+'>'; }
-    else if(f.type==="checkbox"){ input  = '<label style="display:flex;align-items:center;gap:6px;font-weight:500"><input id="'+dom+'" type="checkbox" '+(val?"checked":"")+'> Yes</label>'; }
-    else if(f.type==="dropdown"){ const opts=(f.options||[]).map(function(o){return '<option '+(String(val)===String(o)?"selected":"")+'>'+o+'</option>';}).join(""); input  = '<select id="'+dom+'"'+req+'><option value="">-- Select --</option>'+opts+'</select>'; }
-    else if(f.type==="file"){ input  = '<input id="'+dom+'" type="file">'; }
-    else { input  = '<input id="'+dom+'" type="text" value="'+String(val).replace(/"/g,"&quot;")+'"'+req+'>'; }
-    const hint = isAuto ? ' <span style="font-weight:500;font-size:10.5px;color:var(--muted)">(auto-calculated, locked)</span>' : '';
-    return '<div class="form-row" id="cfrow-'+which+'-'+f.id+'"><label>'+f.label+hint+(f.required?' <span style="color:var(--crit)">*</span>':"")+'</label>'+input+'</div>';
+    if(f.type==="longtext"){ input = '<textarea id="'+dom+'" rows="2"'+req+'>'+String(val).replace(/</g,"&lt;")+'</textarea>'; }
+    else if(f.type==="number"){ input = '<input id="'+dom+'" type="number" value="'+String(val).replace(/"/g,"&quot;")+'"'+req+'>'; }
+    else if(f.type==="date"){ input = '<input id="'+dom+'" type="date" value="'+String(val).replace(/"/g,"&quot;")+'"'+req+'>'; }
+    else if(f.type==="checkbox"){ input = '<label style="display:flex;align-items:center;gap:6px;font-weight:500"><input id="'+dom+'" type="checkbox" '+(val?"checked":"")+'> Yes</label>'; }
+    else if(f.type==="dropdown"){ const opts=(f.options||[]).map(function(o){return '<option '+(String(val)===String(o)?"selected":"")+'>'+o+'</option>';}).join(""); input = '<select id="'+dom+'"'+req+'><option value="">-- Select --</option>'+opts+'</select>'; }
+    else if(f.type==="file"){ input = '<input id="'+dom+'" type="file">'; }
+    else { input = '<input id="'+dom+'" type="text" value="'+String(val).replace(/"/g,"&quot;")+'"'+req+'>'; }
+    return '<div class="form-row"><label>'+f.label+(f.required?' <span style="color:var(--crit)">*</span>':"")+'</label>'+input+'</div>';
   }).join("");
 }
 function readCustomFields(which){
