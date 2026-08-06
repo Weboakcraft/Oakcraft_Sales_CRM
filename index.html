@@ -1150,23 +1150,46 @@ function openUserModal(email){
       <div style="font-size:12.5px;color:#b06a00;background:rgba(237,161,0,.12);padding:10px 12px;border-radius:10px;margin-bottom:14px">Preview mode: user is saved in this browser only. Real login (email + password) activates in the deployed app with Supabase connected.</div>
       <div class="form-row two"><div><label>Full Name</label><input id="u-name" value="${u.name||''}"></div><div><label>Mobile Number</label><input id="u-phone" value="${u.phone||''}"></div></div>
       <div class="form-row"><label>Login Email / ID</label><input id="u-email" type="email" value="${u.email||''}" ${email?'readonly':''} placeholder="user@oakcraft.in"></div>
-      <div class="form-row two"><div><label>Password ${email?'(leave blank to keep)':''}</label><input id="u-pass" type="password" minlength="6" placeholder="••••••"></div>
+      <div class="form-row two"><div><label>Password ${email?'(leave blank to keep)':''}</label><div style="position:relative"><input id="u-pass" type="password" minlength="6" placeholder="••••••" style="width:100%;padding-right:38px"><button type="button" onclick="togglePw('u-pass',this)" title="Show password" aria-label="Show password" style="position:absolute;top:50%;right:6px;transform:translateY(-50%);width:30px;height:30px;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:none;cursor:pointer;color:var(--muted)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></div>
         <div><label>Role</label><select id="u-role">${['Sales Executive','Sales Manager','Administrator'].map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select></div></div>
       <div class="form-row"><label>Status</label><select id="u-status">${['Active','Inactive'].map(x=>`<option ${u.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
     </div>
     <div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveUser('${email||''}')">${I.check}${email?'Save Changes':'Create Login'}</button></div>`);
 }
-function saveUser(email){
+async function saveUser(email){
   const name=v('u-name').trim(), mail=v('u-email').trim().toLowerCase(), pass=v('u-pass');
   if(!name||!mail){ toast('Name and login email are required'); return; }
   if(!email && pass.length<6){ toast('Password must be at least 6 characters'); return; }
+  if(email && pass && pass.length<6){ toast('Password must be at least 6 characters'); return; }
   const users=DB_users();
   if(!email && users.find(x=>x.email===mail)){ toast('This email already exists'); return; }
   const rec={name, email:mail, phone:v('u-phone'), role:v('u-role'), status:v('u-status')};
+  const setsPw = !!(pass && pass.length>=6);
+  if(setsPw) rec.pwdSet=true;
   if(email){ Object.assign(users.find(x=>x.email===email), rec); }
-  else users.push(rec);
+  else { if(!setsPw) rec.pwdSet=false; users.push(rec); }
   store.set('users', users);
+  /* FIX: pehle yahan pass sirf padha jaata tha, kahin save nahi hota tha. Isliye
+     naya user server par bina password create hota tha aur login karne par usko
+     "Invalid Credentials" milta tha. Ab password ka hash server par enrol karte
+     hain (roster row pehle sheet me bhejte hain, warna server "no account" kahega). */
+  if(setsPw){
+    try{
+      const h = await AUTH.hash(pass);
+      await pushUsersNow(users);
+      const en = await SRV.setPassword(mail, h);
+      if(!en || !en.ok){
+        toast('User saved, but password not set: ' + ((en && en.error) || 'server error'));
+      }
+    }catch(e){ toast('User saved, but the password could not be set.'); }
+  }
   closeModal(); toast(email?'User updated ✓':'User login created ✓'); setView('admin');
+}
+/* users collection ko turant (bina debounce) sheet par bhejta hai */
+function pushUsersNow(list){
+  const records=(list||[]).map(o=>({ id:(o&&o.id)||('USR-'+String((o&&o.email)||'').toLowerCase().replace(/[^a-z0-9]/g,'-')), data:o }));
+  return fetch(CLOUD.url,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:'saveMany',collection:'users',records})}).catch(function(){});
 }
 function delUser(email){
   if(!confirm('Remove this user?'))return;
@@ -1744,6 +1767,23 @@ const AUTH = {
 };
 function seedUsers(){ let list=AUTH.users(); if(!list||!list.length){ list=[{email:'mis@oakcraft.in',name:'Ankush Goswami',role:'Administrator',status:'Active',pwdSet:false,hash:''},{email:'vishu@oakcraft.in',name:'Vishu Mittal',role:'Administrator',status:'Active',pwdSet:false,hash:''}]; AUTH.saveUsers(list); } return list; }
 
+/* ---------- password show / hide toggle (login + user modal) ---------- */
+const PW_EYE = {
+  show:'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+  hide:'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20C5 20 1 12 1 12a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>'
+};
+function togglePw(inputId, btn){
+  const el = document.getElementById(inputId); if(!el) return;
+  const wasHidden = el.type === 'password';
+  el.type = wasHidden ? 'text' : 'password';
+  if(btn){
+    btn.innerHTML = wasHidden ? PW_EYE.hide : PW_EYE.show;
+    btn.title = wasHidden ? 'Hide password' : 'Show password';
+    btn.setAttribute('aria-label', btn.title);
+  }
+  try{ el.focus(); const n = el.value.length; el.setSelectionRange(n, n); }catch(e){}
+}
+
 function renderLogin(msg){
   const app=document.querySelector('.app'); if(app) app.style.display='none';
   let ov=document.getElementById('loginOverlay'); if(!ov){ ov=document.createElement('div'); ov.id='loginOverlay'; document.body.appendChild(ov); }
@@ -1755,7 +1795,7 @@ function renderLogin(msg){
     <label style="font-size:12px;color:#888">Email</label>
     <input id="lg-email" type="email" placeholder="you@oakcraft.in" style="width:100%;padding:11px;margin:4px 0 12px;border:1px solid #ddd;border-radius:9px;box-sizing:border-box;color:#111">
     <label style="font-size:12px;color:#888">Password</label>
-    <input id="lg-pw" type="password" placeholder="Password" style="width:100%;padding:11px;margin:4px 0 12px;border:1px solid #ddd;border-radius:9px;box-sizing:border-box;color:#111" onkeydown="if(event.key==='''Enter''')doLogin()">
+    <div style="position:relative;margin:4px 0 12px"><input id="lg-pw" type="password" placeholder="Password" style="width:100%;padding:11px 42px 11px 11px;border:1px solid #ddd;border-radius:9px;box-sizing:border-box;color:#111" onkeydown="if(event.key==='Enter')doLogin()"><button type="button" id="lg-pw-eye" onclick="togglePw('lg-pw',this)" title="Show password" aria-label="Show password" style="position:absolute;top:50%;right:6px;transform:translateY(-50%);width:32px;height:32px;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:none;cursor:pointer;color:#888"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div>
     <button onclick="doLogin()" style="width:100%;padding:12px;background:#2a78d6;color:#fff;border:0;border-radius:9px;font-weight:700;cursor:pointer">Continue</button>
     <div style="font-size:11.5px;color:#aaa;margin-top:14px;line-height:1.5">First time? Enter your email and the password you want to set — your account will be activated. You will stay signed in on this device until you log out.</div>
   </div>`;
@@ -2069,6 +2109,31 @@ function bindAppEvents(){
   /* ------------------------------------------------------------------ *
    * 4. LOGIN — server pehle                                             *
    * ------------------------------------------------------------------ */
+  /* Roster (users list) ko seedha server se poochte hain.
+     Login screen naye device par localStorage cache ke bina render hota hai,
+     isliye yahan cache par bharosa nahi kiya ja sakta. sid ko khaali bhejte
+     hain taaki fetch shim koi purana token na jode. */
+  function rosterLookup(email){
+    var e = _lc(email);
+    return fetch(CLOUD.url, { method:'POST', body: JSON.stringify({ action:'getAll', sid:'' }) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        var rows = ((j && (j.data || j)) || {}).users || [];
+        var hit = null;
+        rows.forEach(function(x){
+          var d = (x && x.data !== undefined) ? x.data : x;
+          if(!d || _lc(d.email) !== e) return;
+          /* sheet me ek hi email ki do rows ho sakti hain -- jis row ka
+             password set hai wahi jeetegi */
+          if(!hit || (!hit.pwdSet && d.pwdSet)) hit = d;
+        });
+        return hit;
+      })
+      .catch(function(){
+        try{ return (AUTH.find && AUTH.find(e)) || null; }catch(e2){ return null; }
+      });
+  }
+
   window.doLogin = async function(){
     var emEl = document.getElementById('lg-email');
     var pwEl = document.getElementById('lg-pw');
@@ -2094,12 +2159,48 @@ function bindAppEvents(){
       /* Pehli baar login: user roster me hai par server par password set nahi
          hai -> password enrol karo, phir dobara login. */
       if(res && !res.ok && /invalid credentials/i.test(String(res.error || ''))){
-        var known = null;
-        try{ known = AUTH.find ? AUTH.find(email) : null; }catch(e){}
-        if(known && pw.length >= 6){
+        /* FIX (naya user login nahi kar pa raha tha):
+             - Pehle first-time activation sirf tab chalti thi jab email
+               localStorage ke users cache me mil jaaye (AUTH.find). Naye user ke
+               device par login screen se pehle koi cloud pull nahi hota, isliye
+               cache khaali rehta tha, activation skip ho jaati thi aur server ka
+               "invalid credentials" seedha screen par dikh jaata tha.
+             - Ab roster server se check hota hai, aur activation sirf un accounts
+               par hoti hai jinka password abhi set nahi hai (pwdSet false).
+               Isse galat password kisi ke pehle se set password ko overwrite
+               nahi kar sakta. */
+          var acc = await rosterLookup(email);
+          if(!acc){
+            SRV.clear();
+            say('No account for this email. Ask your admin to add you.', true);
+            return;
+          }
+          if(acc.status && acc.status !== 'Active'){
+            SRV.clear();
+            say('This account is inactive. Please contact your admin.', true);
+            return;
+          }
+          if(acc.pwdSet){
+            SRV.clear();
+            say('Incorrect password. Please try again.', true);
+            return;
+          }
+          if(pw.length < 6){
+            say('First time sign-in: choose a password of at least 6 characters.', true);
+            return;
+          }
           var en = await SRV.setPassword(email, h);
-          if(en && en.ok) res = await SRV.login(email, h);
-        }
+          if(!en || !en.ok){
+            SRV.clear();
+            say(String((en && en.error) || 'Password set nahi ho paaya.'), true);
+            return;
+          }
+          try{
+            var lu = AUTH.users();
+            var lr = lu.find(function(x){ return x && String(x.email || '').toLowerCase() === email; });
+            if(lr){ lr.pwdSet = true; AUTH.saveUsers(lu); }
+          }catch(e){}
+          res = await SRV.login(email, h);
       }
 
       if(!res || !res.ok){
