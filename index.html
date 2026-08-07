@@ -4296,17 +4296,14 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
    The Sheets backend upserts by id and never removes a row, so the ids that
    were replaced during the ORD0636 renumbering keep coming back on every
    pull. They are listed here once and ignored everywhere in the app.
-   Canonical live ids are ORD0636 - ORD0646; new orders continue from ORD0658
-   (0647-0657 are burnt by an interrupted first renumbering pass).
+   Canonical live ids are ORD0636 - ORD0646 and new orders continue from there.
    ========================================================================== */
 (function(){
   'use strict';
 
   var RETIRED = {};
   ['ORD-IILH86','ORD-4PA560','ORD-0QPT78','ORD-7JPU94','ORD-IXST57','ORD-N7VK29',
-   'ORD-QR6J81','ORD-NIDX12','ORD-42U265','ORD-XSNR44','ORD-261774',
-   'ORD0647','ORD0648','ORD0649','ORD0650','ORD0651','ORD0652','ORD0653',
-   'ORD0654','ORD0655','ORD0656','ORD0657'].forEach(function(id){ RETIRED[id] = 1; });
+   'ORD-QR6J81','ORD-NIDX12','ORD-42U265','ORD-XSNR44','ORD-261774'].forEach(function(id){ RETIRED[id] = 1; });
 
   var FIRST = 636;
   function pad(n){ return 'ORD' + String(n).padStart(4, '0'); }
