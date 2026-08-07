@@ -4290,6 +4290,94 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   setTimeout(prune, 8000);
 })();
 
+
+/* ============================================================================
+   ORDER ID - RETIRED LIST (v4.2)
+   The Sheets backend upserts by id and never removes a row, so the ids that
+   were replaced during the ORD0636 renumbering keep coming back on every
+   pull. They are listed here once and ignored everywhere in the app.
+   Canonical live ids are ORD0636 - ORD0646; new orders continue from ORD0658
+   (0647-0657 are burnt by an interrupted first renumbering pass).
+   ========================================================================== */
+(function(){
+  'use strict';
+
+  var RETIRED = {};
+  ['ORD-IILH86','ORD-4PA560','ORD-0QPT78','ORD-7JPU94','ORD-IXST57','ORD-N7VK29',
+   'ORD-QR6J81','ORD-NIDX12','ORD-42U265','ORD-XSNR44','ORD-261774',
+   'ORD0647','ORD0648','ORD0649','ORD0650','ORD0651','ORD0652','ORD0653',
+   'ORD0654','ORD0655','ORD0656','ORD0657'].forEach(function(id){ RETIRED[id] = 1; });
+
+  var FIRST = 636;
+  function pad(n){ return 'ORD' + String(n).padStart(4, '0'); }
+  function seqOf(id){ var m = /^ORD0*(\d+)$/.exec(String(id == null ? '' : id)); return m ? parseInt(m[1], 10) : null; }
+  function retired(id){ return !!RETIRED[String(id == null ? '' : id)]; }
+  function live(o){ return !!o && !retired(o.id); }
+
+  window.ocRetiredOrderId = retired;
+
+  DB.orders = function(){
+    var a = store.get('orders', []);
+    return Array.isArray(a) ? a.filter(live) : [];
+  };
+
+  function prune(){
+    try{
+      var a = store.get('orders', []);
+      if(!Array.isArray(a)) return;
+      var out = a.filter(live);
+      if(out.length !== a.length){
+        try{ localStorage.setItem('orders', JSON.stringify(out)); }catch(e){}
+        try{ localStorage.removeItem('oc_orderIdMap'); }catch(e){}
+        try{ if(state && state.view === 'orders' && typeof renderOrders === 'function') renderOrders(); }catch(e){}
+      }
+    }catch(e){}
+  }
+  window.ocPruneRetiredOrders = prune;
+
+  /* every save of the orders collection is cleaned and numbered here first */
+  function fix(arr){
+    var out = arr.filter(live);
+    var legacy = out.filter(function(o){ return seqOf(o.id) === null; });
+    if(legacy.length){
+      var used = {}, mx = FIRST - 1;
+      out.forEach(function(o){ var n = seqOf(o.id); if(n !== null){ used[n] = 1; if(n > mx) mx = n; } });
+      var n = Math.max(FIRST, mx + 1);
+      legacy.sort(function(a, b){ return String(a.date || '').localeCompare(String(b.date || '')); });
+      legacy.forEach(function(o){
+        while(used[n] || retired(pad(n))) n++;
+        used[n] = 1;
+        o.id = pad(n);
+      });
+    }
+    return out;
+  }
+
+  var _save = DB.save;
+  DB.save = function(k, v){
+    if(k === 'orders' && Array.isArray(v)){
+      try{ v = fix(v); }catch(e){ console.warn('order id fix failed', e); }
+    }
+    return _save.call(DB, k, v);
+  };
+
+  window.ocNextOrderId = function(){
+    var out = DB.orders(), mx = FIRST - 1;
+    out.forEach(function(o){ var x = seqOf(o.id); if(x !== null && x > mx) mx = x; });
+    var n = Math.max(FIRST, mx + 1);
+    while(retired(pad(n))) n++;
+    return pad(n);
+  };
+
+  var _pull = CLOUD.pull;
+  CLOUD.pull = function(){
+    var p = _pull.apply(this, arguments);
+    return Promise.resolve(p).then(function(r){ prune(); return r; }, function(e){ prune(); throw e; });
+  };
+
+  [300, 1500, 3500, 6000, 10000, 15000].forEach(function(ms){ setTimeout(prune, ms); });
+})();
+
 </script>
 </body>
 </html>
