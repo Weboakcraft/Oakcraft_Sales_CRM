@@ -1160,7 +1160,7 @@ function openUserModal(email){
       <div class="form-row two"><div><label>Full Name</label><input id="u-name" value="${u.name||''}"></div><div><label>Mobile Number</label><input id="u-phone" value="${u.phone||''}"></div></div>
       <div class="form-row"><label>Login Email / ID</label><input id="u-email" type="email" value="${u.email||''}" ${email?'readonly':''} placeholder="user@oakcraft.in"></div>
       <div class="form-row two"><div><label>Password ${email?'(leave blank to keep)':''}</label><div style="position:relative"><input id="u-pass" type="password" minlength="6" placeholder="••••••" style="width:100%;padding-right:38px"><button type="button" onclick="togglePw('u-pass',this)" title="Show password" aria-label="Show password" style="position:absolute;top:50%;right:6px;transform:translateY(-50%);width:30px;height:30px;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:none;cursor:pointer;color:var(--muted)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></div>
-        <div><label>Role</label><select id="u-role">${['Sales Executive','Sales Manager','Administrator'].map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select></div></div>
+        <div><label>Role</label><select id="u-role">${['Sales Executive','Sales Manager','Administrator','Owner'].map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select></div></div>
       <div class="form-row"><label>Status</label><select id="u-status">${['Active','Inactive'].map(x=>`<option ${u.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
     </div>
     <div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveUser('${email||''}')">${I.check}${email?'Save Changes':'Create Login'}</button></div>`);
@@ -1227,13 +1227,13 @@ function renderAdmin(){
   const users=DB_users();
   content.innerHTML=`
     <div class="grid-3">
-      <div class="panel"><h3>Team Members</h3><div style="font-size:32px;font-weight:750;margin-top:10px" class="tabular">${users.length}</div><div class="lbl" style="color:var(--text-2)">${users.filter(u=>u.status==='Active').length} active · ${users.filter(u=>u.role==='Administrator').length} admins</div></div>
+      <div class="panel"><h3>Team Members</h3><div style="font-size:32px;font-weight:750;margin-top:10px" class="tabular">${users.length}</div><div class="lbl" style="color:var(--text-2)">${users.filter(u=>u.status==='Active').length} active · ${users.filter(u=>['Administrator','Owner'].includes(u.role)).length} admins</div></div>
       <div class="panel"><h3>Records in System</h3><div style="font-size:32px;font-weight:750;margin-top:10px" class="tabular">${DB.enquiries().length+DB.orders().length+DB.customers().length+DB.products().length}</div><div class="lbl" style="color:var(--text-2)">across all modules</div></div>
       <div class="panel"><h3>Data Storage</h3><div style="font-size:26px;font-weight:750;margin-top:10px" class="tabular">Google&nbsp;Sheet</div><div class="lbl" style="color:var(--text-2)">Cloud · auto-synced</div></div>
     </div>
     <div class="card" style="margin-bottom:16px"><div class="card-head"><h3>User Management <span class="chip c-neutral" style="margin-left:4px">${users.length}</span></h3><div class="tools"><button class="btn primary sm" onclick="openUserModal()">${I.plus}Add User</button></div></div>
     <div style="overflow-x:auto"><table><thead><tr><th>Name</th><th>Login Email / ID</th><th>Mobile</th><th>Role</th><th>Status</th><th></th></tr></thead>
-    <tbody>${users.map(u=>`<tr><td>${userCell(u.name)}</td><td class="sub">${u.email}</td><td class="sub tabular">${u.phone||'—'}</td><td><span class="chip ${u.role==='Administrator'?'c-quo':u.role==='Sales Manager'?'c-ship':'c-new'}">${u.role}</span></td><td>${u.status==='Active'?'<span class="chip c-won">Active</span>':'<span class="chip c-neutral">Inactive</span>'}</td><td><div class="row-actions" style="display:flex"><button onclick="openUserModal('${u.email}')" title="Edit">${I.edit}</button><button onclick="openPermsModal('${u.email}')" title="Permissions">${I.gear||I.check}</button>${u.email!=='mis@oakcraft.in'?`<button onclick="delUser('${u.email}')" title="Remove">${I.trash}</button>`:''}</div></td></tr>`).join('')}</tbody></table></div></div>
+    <tbody>${users.map(u=>`<tr><td>${userCell(u.name)}</td><td class="sub">${u.email}</td><td class="sub tabular">${u.phone||'—'}</td><td><span class="chip ${u.role==='Owner'?'c-won':u.role==='Administrator'?'c-quo':u.role==='Sales Manager'?'c-ship':'c-new'}">${u.role}</span></td><td>${u.status==='Active'?'<span class="chip c-won">Active</span>':'<span class="chip c-neutral">Inactive</span>'}</td><td><div class="row-actions" style="display:flex"><button onclick="openUserModal('${u.email}')" title="Edit">${I.edit}</button><button onclick="openPermsModal('${u.email}')" title="Permissions">${I.gear||I.check}</button>${u.email!=='mis@oakcraft.in'?`<button onclick="delUser('${u.email}')" title="Remove">${I.trash}</button>`:''}</div></td></tr>`).join('')}</tbody></table></div></div>
 
     <div class="card" style="margin-bottom:16px"><div class="card-head"><h3>Form Builder</h3></div>      <div style="padding:16px 20px;color:var(--text-2);font-size:13px">Add, edit or remove questions in your Enquiry, Order, Customer and Product forms. Choose the answer type for each question (short text, long description, number, date, dropdown, checkbox, or file upload).</div>      <div style="padding:0 20px 18px;display:flex;gap:10px;flex-wrap:wrap">        <button class="btn primary" onclick="openFormBuilder('enquiry')">${I.edit}Enquiry Form Builder</button>        <button class="btn primary" onclick="openFormBuilder('order')">${I.edit}Order Form Builder</button>        <button class="btn primary" onclick="openFormBuilder('customer')">${I.edit}Customer Form Builder</button>        <button class="btn primary" onclick="openFormBuilder('product')">${I.edit}Product Form Builder</button>      </div>    </div>
 
@@ -1850,7 +1850,7 @@ const AUTH = {
   setSession(email){ try{ localStorage.setItem(this.SESSION_KEY, JSON.stringify({email, exp:Date.now()+this.SESSION_MS})); }catch(e){} },
   logout(){ try{ localStorage.removeItem(this.SESSION_KEY); }catch(e){} location.reload(); },
   current(){ const s=this.session(); return s? (this.find(s.email)||{email:s.email}) : null; },
-  isAdmin(){ const u=this.current(); return !!(u && u.role==='Administrator'); }
+  isAdmin(){ const u=this.current(); const r=String((u&&u.role)||'').trim().toLowerCase(); return r==='administrator' || r==='owner'; }
 };
 function seedUsers(){ let list=AUTH.users(); if(!list||!list.length){ list=[{email:'mis@oakcraft.in',name:'Ankush Goswami',role:'Administrator',status:'Active',pwdSet:false,hash:''},{email:'vishu@oakcraft.in',name:'Vishu Mittal',role:'Administrator',status:'Active',pwdSet:false,hash:''}]; AUTH.saveUsers(list); } return list; }
 
@@ -3014,12 +3014,12 @@ function bindAppEvents(){
 
   function isAdminNow(){
     try{ if(typeof AUTH !== 'undefined' && typeof AUTH.isAdmin === 'function') return !!AUTH.isAdmin(); }catch(e){}
-    try{ return String((window.meRole && window.meRole()) || '').toLowerCase() === 'administrator'; }catch(e){}
+    try{ var _r = String((window.meRole && window.meRole()) || '').toLowerCase(); return _r === 'administrator' || _r === 'owner'; }catch(e){}
     return false;
   }
 
   window.deleteOrderAdmin = function(id){
-    if(!isAdminNow()){ toast('Sirf Administrator order delete kar sakta hai'); return; }
+    if(!isAdminNow()){ toast('Sirf Administrator / Owner order delete kar sakta hai'); return; }
     var o = DB.orders().find(function(x){ return x.id === id; });
     if(!o){ toast('Order not found'); return; }
     var disp = DB.dispatch().find(function(d){ return d.orderId === o.id; });
