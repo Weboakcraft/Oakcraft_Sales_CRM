@@ -4222,6 +4222,74 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   };
 })();
 
+
+/* ============================================================================
+   ORDER ID DEDUPE (v4.1)
+   The Sheets backend upserts by id, so renaming an order id leaves the old
+   row behind. Whenever an order arrives with a retired id AND an identical
+   order with a sequential ORDnnnn id also exists, the retired copy is
+   ignored everywhere in the app (and pruned from local storage after a pull).
+   ========================================================================== */
+(function(){
+  'use strict';
+  function isSeq(id){ return /^ORD0*\d+$/.test(String(id == null ? '' : id)); }
+  function sig(o){
+    return [o.customer, o.custId, o.date, o.amount, o.product, o.qty, o.status, o.payment, o.expDispatch].join('|');
+  }
+  function dedupe(arr){
+    if(!Array.isArray(arr) || arr.length < 2) return arr;
+    var groups = {}, i;
+    for(i = 0; i < arr.length; i++){
+      var o = arr[i];
+      if(!o) continue;
+      var s = sig(o);
+      (groups[s] = groups[s] || []).push(o);
+    }
+    var drop = [];
+    Object.keys(groups).forEach(function(s){
+      var g = groups[s];
+      if(g.length < 2) return;
+      var hasSeq = g.some(function(o){ return isSeq(o.id); });
+      if(!hasSeq) return;
+      g.forEach(function(o){ if(!isSeq(o.id)) drop.push(o); });
+    });
+    if(!drop.length) return arr;
+    return arr.filter(function(o){ return drop.indexOf(o) < 0; });
+  }
+  window.ocDedupeOrders = dedupe;
+
+  var _orders = DB.orders;
+  DB.orders = function(){
+    try{ return dedupe(_orders.call(DB)); }catch(e){ return _orders.call(DB); }
+  };
+
+  function prune(){
+    try{
+      var raw = store.get('orders', []);
+      var out = dedupe(raw);
+      if(out.length !== raw.length){
+        try{ localStorage.setItem('orders', JSON.stringify(out)); }catch(e){}
+      }
+    }catch(e){}
+  }
+
+  var _pull = CLOUD.pull;
+  CLOUD.pull = function(){
+    var self = this;
+    var p = _pull.apply(self, arguments);
+    return Promise.resolve(p).then(function(r){
+      prune();
+      try{ if(typeof window.ocMigrateOrderIds === 'function') window.ocMigrateOrderIds(); }catch(e){}
+      try{ if(state && state.view === 'orders' && typeof renderOrders === 'function') renderOrders(); }catch(e){}
+      return r;
+    });
+  };
+
+  setTimeout(prune, 800);
+  setTimeout(prune, 3000);
+  setTimeout(prune, 8000);
+})();
+
 </script>
 </body>
 </html>
