@@ -4375,6 +4375,391 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   [300, 1500, 3500, 6000, 10000, 15000].forEach(function(ms){ setTimeout(prune, ms); });
 })();
 
+
+/* ============================================================================
+   OAKCRAFT v5  -  SALESPERSON NAME SYNC + ORDER FEED TIMESTAMP + SHEET DEDUPE
+   1) Salesperson names are normalised against the Users master in every
+      collection (Enquiries / Quotations / Orders / Dispatch) so the same
+      person can never appear with two different spellings.
+   2) Every order stores the exact timestamp it was fed (createdAt). It is
+      shown as a "Fed On" column in the Orders list and inside order detail.
+   3) A collection is POSTed to the Google Sheet only when its contents have
+      actually changed, so the same order never travels to the sheet twice.
+   ========================================================================== */
+(function(){
+'use strict';
+
+var K_STAMP = 'oc_orderStamps', K_SYNC = 'oc_orderSync', K_HASH = 'oc_syncHash';
+
+function J(k, d){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function P(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function T(v){ return v == null ? '' : String(v); }
+function esc(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function hsh(s){ var h = 5381, i; for(i = 0; i < s.length; i++){ h = (((h << 5) + h) + s.charCodeAt(i)) | 0; } return (h >>> 0).toString(36) + '.' + s.length; }
+
+function fmtTS(iso, short){
+  if(!iso) return '';
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  var p2 = function(n){ return ('0' + n).slice(-2); };
+  var h = d.getHours(), ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12; if(h12 === 0) h12 = 12;
+  var day = p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/';
+  if(short) return day + String(d.getFullYear()).slice(-2) + '  ' + h12 + ':' + p2(d.getMinutes()) + ' ' + ap;
+  return day + d.getFullYear() + ', ' + h12 + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()) + ' ' + ap;
+}
+window.ocFmtTS = fmtTS;
+
+/* ------------------------------------------------------------------
+   1. CANONICAL SALESPERSON NAMES
+   ------------------------------------------------------------------ */
+function lev(a, b){
+  var m = a.length, n = b.length, i, j, prev = [], cur = [];
+  if(!m) return n; if(!n) return m;
+  for(j = 0; j <= n; j++) prev[j] = j;
+  for(i = 1; i <= m; i++){
+    cur[0] = i;
+    for(j = 1; j <= n; j++){
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1));
+    }
+    prev = cur.slice();
+  }
+  return prev[n];
+}
+function letters(x){ return T(x).toUpperCase().replace(/[^A-Z]/g, ''); }
+function masterNames(){
+  var out = [], seen = {};
+  (J('users', []) || []).forEach(function(u){
+    var n = (u && u.name) ? T(u.name).trim().replace(/\s+/g, ' ').toUpperCase() : '';
+    if(n && !seen[n]){ seen[n] = 1; out.push(n); }
+  });
+  return out;
+}
+window.ocSalesMaster = masterNames;
+
+window.ocCanonSalesperson = function(v){
+  var raw = T(v).trim().replace(/\s+/g, ' ');
+  if(!raw) return raw;
+  var U = raw.toUpperCase(), list = masterNames(), i, best = null, bd = 99;
+  for(i = 0; i < list.length; i++) if(list[i] === U) return list[i];
+  for(i = 0; i < list.length; i++) if(letters(list[i]) === letters(U)) return list[i];
+  for(i = 0; i < list.length; i++){
+    var d = lev(letters(list[i]), letters(U));
+    var fa = list[i].split(' ')[0], fb = U.split(' ')[0];
+    var ok = (fa === fb && d <= 4) || (d <= 2);
+    if(ok && d < bd){ bd = d; best = list[i]; }
+  }
+  return best || U;
+};
+
+var SP_FIELDS = ['salesperson', 'salesPerson', 'sales'];
+function fixSP(arr){
+  var ch = 0;
+  (arr || []).forEach(function(r){
+    if(!r) return;
+    SP_FIELDS.forEach(function(f){
+      if(r[f] == null || r[f] === '') return;
+      var c = window.ocCanonSalesperson(r[f]);
+      if(c && c !== r[f]){ r[f] = c; ch++; }
+    });
+  });
+  return ch;
+}
+window.ocFixSalespersonNames = function(){
+  var keys = ['enquiries', 'quotations', 'orders', 'dispatch'], done = [];
+  keys.forEach(function(k){
+    var arr;
+    try{ arr = store.get(k, []); }catch(e){ return; }
+    if(!Array.isArray(arr) || !arr.length) return;
+    if(fixSP(arr) > 0){ done.push(k); try{ store.set(k, arr); }catch(e){} }
+  });
+  if(done.length){
+    console.log('[oc v5] salesperson names normalised in:', done.join(', '));
+    try{ if(state && state.view && typeof setView === 'function') setView(state.view); }catch(e){}
+  }
+  return done;
+};
+
+/* ------------------------------------------------------------------
+   2. ORDER FEED TIMESTAMP
+   ------------------------------------------------------------------ */
+function stampMap(){
+  var m = J(K_STAMP, null);
+  if(m && typeof m === 'object') return m;
+  m = {};
+  try{
+    (store.get('orders', []) || []).forEach(function(o){
+      if(o && o.id) m[o.id] = o.createdAt || 'legacy';
+    });
+  }catch(e){}
+  P(K_STAMP, m);
+  return m;
+}
+function stampOrders(arr){
+  if(!Array.isArray(arr)) return arr;
+  var m = stampMap(), ch = false;
+  arr.forEach(function(o){
+    if(!o || !o.id) return;
+    if(o.createdAt){ if(m[o.id] !== o.createdAt){ m[o.id] = o.createdAt; ch = true; } return; }
+    if(m[o.id] === undefined){
+      var t = new Date().toISOString();
+      m[o.id] = t; o.createdAt = t; ch = true;
+    }else if(m[o.id] !== 'legacy'){
+      o.createdAt = m[o.id];
+    }
+  });
+  if(ch) P(K_STAMP, m);
+  return arr;
+}
+window.ocStampOrders = stampOrders;
+window.ocOrderTS = function(o){
+  if(!o) return '';
+  if(o.createdAt) return o.createdAt;
+  var v = stampMap()[o.id];
+  return (v && v !== 'legacy') ? v : '';
+};
+window.ocOrderSyncedAt = function(o){
+  if(!o || !o.id) return '';
+  var m = J(K_SYNC, {}) || {};
+  return m[o.id] || '';
+};
+
+/* ------------------------------------------------------------------
+   3. SHEET PUSH DEDUPE  (same payload is never sent twice)
+   ------------------------------------------------------------------ */
+var _fetch = window.fetch;
+window.fetch = function(url, opt){
+  try{
+    var u = T(url && url.url ? url.url : url);
+    if(opt && T(opt.method).toUpperCase() === 'POST' && typeof opt.body === 'string' && u.indexOf('script.google.com') >= 0){
+      var pl = null;
+      try{ pl = JSON.parse(opt.body); }catch(e){ pl = null; }
+      if(pl && pl.action === 'saveMany' && Array.isArray(pl.records)){
+        var coll = T(pl.collection);
+        if(coll === 'orders'){
+          var sm = stampMap();
+          pl.records.forEach(function(r){
+            var d = r && r.data;
+            if(!d || !d.id) return;
+            if(!d.createdAt){
+              var v = sm[d.id];
+              if(v && v !== 'legacy') d.createdAt = v;
+              else if(v === undefined){ var t = new Date().toISOString(); sm[d.id] = t; d.createdAt = t; P(K_STAMP, sm); }
+            }
+          });
+        }
+        pl.records.forEach(function(r){ if(r && r.data) fixSP([r.data]); });
+        var body = JSON.stringify(pl);
+        var h = hsh(coll + '|' + body);
+        var hm = J(K_HASH, {}) || {};
+        if(hm[coll] === h){
+          console.log('[oc v5] sheet push skipped (no change):', coll, pl.records.length + ' records');
+          return Promise.resolve(new Response('{"ok":true,"skipped":true}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
+        var opt2 = {};
+        Object.keys(opt).forEach(function(k){ opt2[k] = opt[k]; });
+        opt2.body = body;
+        return _fetch.call(window, url, opt2).then(function(res){
+          try{
+            if(res && res.ok){
+              var m2 = J(K_HASH, {}) || {};
+              m2[coll] = h; P(K_HASH, m2);
+              if(coll === 'orders'){
+                var sy = J(K_SYNC, {}) || {}, now = new Date().toISOString();
+                pl.records.forEach(function(r){ if(r && r.id) sy[r.id] = now; });
+                P(K_SYNC, sy);
+              }
+              console.log('[oc v5] sheet push OK:', coll, pl.records.length + ' records');
+            }
+          }catch(e){}
+          return res;
+        });
+      }
+    }
+  }catch(e){}
+  return _fetch.apply(window, arguments);
+};
+window.ocForceSync = function(){ P(K_HASH, {}); console.log('[oc v5] sync hashes cleared - next save will re-push'); return true; };
+window.ocSyncState = function(){ return { hashes: J(K_HASH, {}), orderSync: J(K_SYNC, {}), stamps: J(K_STAMP, {}) }; };
+
+/* ------------------------------------------------------------------
+   HOOKS - stamp + normalise on every write, and after every cloud pull
+   ------------------------------------------------------------------ */
+var _set = store.set;
+store.set = function(k, val){
+  try{
+    if(k === 'orders') stampOrders(val);
+    if(k === 'enquiries' || k === 'quotations' || k === 'orders' || k === 'dispatch') fixSP(val);
+  }catch(e){}
+  return _set.call(store, k, val);
+};
+
+var _dbOrders = DB.orders;
+DB.orders = function(){
+  var arr = _dbOrders.call(DB);
+  try{
+    var m = stampMap();
+    (arr || []).forEach(function(o){
+      if(o && !o.createdAt && o.id && m[o.id] && m[o.id] !== 'legacy') o.createdAt = m[o.id];
+    });
+  }catch(e){}
+  return arr;
+};
+
+var _pull5 = CLOUD.pull;
+CLOUD.pull = function(){
+  var self = this, p = _pull5.apply(self, arguments);
+  return Promise.resolve(p).then(function(r){
+    try{
+      var arr = store.get('orders', []);
+      if(Array.isArray(arr) && arr.length){
+        var before = JSON.stringify(arr);
+        stampOrders(arr); fixSP(arr);
+        if(JSON.stringify(arr) !== before){ try{ localStorage.setItem('orders', JSON.stringify(arr)); }catch(e){} }
+      }
+    }catch(e){}
+    setTimeout(function(){ try{ window.ocFixSalespersonNames(); }catch(e){} }, 300);
+    return r;
+  });
+};
+
+/* ------------------------------------------------------------------
+   ORDERS LIST  v5 - adds the "Fed On" timestamp column
+   ------------------------------------------------------------------ */
+function billOf(o){ return Math.round((Number(o && o.amount) || 0) * 1.18); }
+
+window.renderOrders = function(){
+  var all = DB.orders();
+  var mine = scope(all, 'orders');
+  var seen = {}, emps = [];
+  mine.forEach(function(o){
+    var s = (o && o.salesperson) ? T(o.salesperson).trim() : '';
+    if(s && !seen[s.toLowerCase()]){ seen[s.toLowerCase()] = 1; emps.push(s); }
+  });
+  emps.sort(function(a, b){ return a.localeCompare(b); });
+
+  var stats = ['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']
+    .map(function(s){ return '<option>' + s + '</option>'; }).join('');
+  var empOpts = emps.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
+
+  content.innerHTML =
+    '<div class="card"><div class="card-head">'
+    + '<h3>Orders <span class="chip c-neutral" style="margin-left:4px">' + all.length + '</span></h3>'
+    + '<div class="tools">'
+    + '<select class="field" id="f-ostat" onchange="paintTable(&quot;ord-body&quot;)"><option value="">All Status</option>' + stats + '</select>'
+    + '<select class="field" id="f-oemp" onchange="paintTable(&quot;ord-body&quot;)"><option value="">All Employees</option>' + empOpts + '</select>'
+    + dlBtn('orders')
+    + '</div></div>'
+    + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Tip: click any order row to see full details. "Fed On" = exact date &amp; time the order was entered.</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr>'
+    + '<th>Order ID</th><th>Date</th><th>Fed On</th><th>Customer</th><th>Salesperson</th><th>Product</th>'
+    + '<th>Billing Amount</th><th>Payment</th><th>Exp. Delivery</th><th>Status</th><th>Advance Stage</th><th>WhatsApp</th>'
+    + '</tr></thead><tbody id="ord-body"></tbody></table></div></div>';
+  paintTable('ord-body');
+};
+
+var _paint5 = window.paintTable;
+window.paintTable = function(bodyId){
+  if(bodyId !== 'ord-body') return _paint5.apply(this, arguments);
+  var body = document.getElementById('ord-body');
+  if(!body) return;
+  var gs = document.getElementById('globalSearch');
+  var q = ((gs && gs.value) || '').toLowerCase();
+  var se = document.getElementById('f-ostat');
+  var f = (se && se.value) || '';
+  var ee = document.getElementById('f-oemp');
+  var emp = (ee && ee.value) || '';
+
+  var rows = scope(DB.orders(), 'orders').filter(function(o){
+    if(!o) return false;
+    if(f && o.status !== f) return false;
+    if(emp && T(o.salesperson).trim().toLowerCase() !== emp.toLowerCase()) return false;
+    if(q && [o.id, o.customer, o.product, o.salesperson].join(' ').toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  }).sort(function(a, b){
+    var d = T(b.date).localeCompare(T(a.date));
+    if(d !== 0) return d;
+    return T(window.ocOrderTS(b)).localeCompare(T(window.ocOrderTS(a)));
+  });
+
+  body.innerHTML = rows.map(function(o){
+    var ts = window.ocOrderTS(o);
+    var tsCell = ts
+      ? '<span class="tabular" title="' + esc(fmtTS(ts)) + '">' + esc(fmtTS(ts, true)) + '</span>'
+      : '<span title="This order was created before the timestamp feature was added">\u2014</span>';
+    return '<tr style="cursor:pointer" onclick="openOrderDetail(&quot;' + o.id + '&quot;)">'
+      + '<td class="strong tabular">' + esc(o.id) + '</td>'
+      + '<td class="sub tabular">' + esc(o.date) + '</td>'
+      + '<td class="sub" style="white-space:nowrap;font-size:11.5px">' + tsCell + '</td>'
+      + '<td>' + userCell(o.customer) + '</td>'
+      + '<td class="sub">' + (o.salesperson ? esc(o.salesperson) : '\u2014') + '</td>'
+      + '<td>' + esc(o.product) + ' <span class="sub">\u00d7' + esc(o.qty) + '</span></td>'
+      + '<td class="strong tabular">' + money(billOf(o)) + '</td>'
+      + '<td>' + payChip(o.payment) + '</td>'
+      + '<td class="sub tabular">' + esc(o.expDispatch) + '</td>'
+      + '<td>' + orderChip(o.status) + '</td>'
+      + '<td onclick="event.stopPropagation()">' + nextStageBtn(o) + '</td>'
+      + '<td onclick="event.stopPropagation()">' + waBtn(o) + '</td>'
+      + '</tr>';
+  }).join('') || emptyRow(12);
+};
+
+/* ------------------------------------------------------------------
+   ORDER DETAIL v5 - "Record & Sync Info" block
+   ------------------------------------------------------------------ */
+var ROW = 'display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)';
+var LBL = 'color:var(--text-2);font-size:13px';
+var VAL = 'font-weight:650;font-size:13px';
+function drow(label, value){
+  return '<div style="' + ROW + '"><span style="' + LBL + '">' + esc(label) + '</span>'
+    + '<span class="tabular" style="' + VAL + '">' + esc(value) + '</span></div>';
+}
+function enhance5(id){
+  var o = (DB.orders() || []).filter(function(x){ return x && x.id === id; })[0];
+  if(!o) return;
+  var m = document.getElementById('modal');
+  var mb = m ? m.querySelector('.modal-body') : null;
+  if(!mb) return;
+  Array.prototype.forEach.call(mb.querySelectorAll('[data-oc-v5]'), function(n){ n.remove(); });
+
+  var ts = window.ocOrderTS(o), sy = window.ocOrderSyncedAt(o);
+  var html = drow('Order ID', o.id)
+    + drow('Order Date', o.date || '\u2014')
+    + drow('Fed On (Timestamp)', ts ? fmtTS(ts) : 'Not recorded (created before this feature)')
+    + drow('Salesperson', o.salesperson || '\u2014')
+    + drow('Google Sheet', sy ? 'Saved \u2713  ' + fmtTS(sy) : 'Saved \u2713 (will not be re-sent unless the order changes)');
+  var d = document.createElement('div');
+  d.setAttribute('data-oc-v5', '1');
+  d.innerHTML = '<div class="section-title">Record &amp; Sync Info</div>' + html
+    + '<div style="font-size:11px;color:var(--muted);margin-top:8px">Each order is written to the Google Sheet only once. It is re-sent only if something in the order actually changes.</div>';
+  mb.appendChild(d);
+}
+var _ood5 = window.openOrderDetail;
+window.openOrderDetail = function(id){
+  if(typeof _ood5 === 'function') _ood5.apply(this, arguments);
+  var run = function(){ try{ enhance5(id); }catch(e){ console.warn('oc v5 detail failed', e); } };
+  setTimeout(run, 30); setTimeout(run, 260);
+};
+
+/* ------------------------------------------------------------------
+   BOOT
+   ------------------------------------------------------------------ */
+function boot(){
+  try{ stampMap(); }catch(e){}
+  try{
+    var arr = store.get('orders', []);
+    if(Array.isArray(arr) && arr.length){
+      var b = JSON.stringify(arr);
+      stampOrders(arr);
+      if(JSON.stringify(arr) !== b){ try{ localStorage.setItem('orders', JSON.stringify(arr)); }catch(e){} }
+    }
+  }catch(e){}
+  try{ window.ocFixSalespersonNames(); }catch(e){}
+}
+setTimeout(boot, 1800);
+setTimeout(boot, 5200);
+setTimeout(boot, 11000);
+})();
+
 </script>
 </body>
 </html>
