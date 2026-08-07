@@ -1,4 +1,4 @@
-<!DOCTYPE html><!-- build 2026-08-07a -->
+o<!DOCTYPE html><!-- build 2026-08-07a -->
 
 <html lang="en" data-theme="light">
 <head>
@@ -3687,8 +3687,17 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   /* ============================================================
      FILE VISIBILITY — show every uploaded file after submission
      ============================================================ */
-  function isDataUrl(v){ return typeof v==='string' && /^data:/.test(v); }
-  function fileName(v){ var m=/;name=([^;,]+)/.exec(v||''); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } } return 'file'; }
+  function isDataUrl(v){ return typeof v==='string' && (/^data:/.test(v) || /^https?:\/\//i.test(v)); }
+  function isHttp(v){ return typeof v==='string' && /^https?:\/\//i.test(v); }
+  /* Google Drive gives two shapes: thumbnail?id=XXX (images) and file/d/XXX/view (docs).
+     driveId() pulls the id so we can build a proper preview + full-size view link. */
+  function driveId(v){ var m=/[?&]id=([A-Za-z0-9_-]+)/.exec(v||''); if(m) return m[1];
+    m=/\/file\/d\/([A-Za-z0-9_-]+)/.exec(v||''); if(m) return m[1]; return ''; }
+  function driveThumb(v){ var id=driveId(v); return id ? ('https://drive.google.com/thumbnail?id='+id+'&sz=w400') : v; }
+  function driveOpen(v){ var id=driveId(v); return id ? ('https://drive.google.com/file/d/'+id+'/view') : v; }
+  function fileName(v){ var m=/;name=([^;,]+)/.exec(v||''); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } }
+    if(isHttp(v)){ var id=driveId(v); return id ? ('Drive file ('+id.slice(0,6)+'…)') : 'Open link'; }
+    return 'file'; }
   function mimeOf(v){ var m=/^data:([^;]+)/.exec(v||''); return m?m[1]:''; }
   function openDataUrl(v){
     try{
@@ -3702,28 +3711,60 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   function downloadDataUrl(v){
     try{ var a=document.createElement('a'); a.href=v; a.download=fileName(v); document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
   }
-  window.ocOpenFile=function(key){ var v=window.__ocFileMap&&window.__ocFileMap[key]; if(v) openDataUrl(v); };
-  window.ocDlFile=function(key){ var v=window.__ocFileMap&&window.__ocFileMap[key]; if(v) downloadDataUrl(v); };
+  window.ocOpenFile=function(key){ var v=window.__ocFileMap&&window.__ocFileMap[key]; if(!v) return;
+    if(isHttp(v)){ window.open(driveOpen(v),'_blank','noopener'); return; } openDataUrl(v); };
+  window.ocDlFile=function(key){ var v=window.__ocFileMap&&window.__ocFileMap[key]; if(!v) return;
+    if(isHttp(v)){ var id=driveId(v); window.open(id?('https://drive.google.com/uc?export=download&id='+id):v,'_blank','noopener'); return; }
+    downloadDataUrl(v); };
   window.__ocFileMap=window.__ocFileMap||{};
 
-  function filePreviewHTML(v, label){
-    var key='f'+(Math.random().toString(36).slice(2));
-    window.__ocFileMap[key]=v;
+  function filePreviewHTML(v,label){
+    var key='f'+(Math.random().toString(36).slice(2)); window.__ocFileMap[key]=v;
     var nm=fileName(v), mime=mimeOf(v);
-    var thumb = /^image\//.test(mime)
-      ? '<img src="'+v+'" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">'
-      : '<div style="width:46px;height:46px;border-radius:8px;border:1px solid var(--border);display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--muted);background:var(--surface-2)">'+((mime.split('/')[1]||'FILE').slice(0,4).toUpperCase())+'</div>';
+    /* image = data:image/*  OR a Drive "thumbnail?id=" link OR a url with an image extension */
+    var imgLike = /^image\//.test(mime) || (isHttp(v) && (/thumbnail\?id=/i.test(v) || /\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(v)));
+    var src = isHttp(v) ? driveThumb(v) : v;
+    var thumb = imgLike
+      ? '<img src="'+src+'" alt="'+nm+'" title="Click to zoom" onclick="ocZoom(\''+key+'\')" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in">'
+      : '<div style="width:46px;height:46px;border-radius:8px;border:1px solid var(--border);display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--muted);background:var(--surface-2)">'+((mime.split('/')[1]||(isHttp(v)?'LINK':'FILE')).slice(0,4).toUpperCase())+'</div>';
     return '<div class="oc-file-card" style="display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)">'
       + thumb
       + '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(label?label+': ':'')+nm+'</div>'
-      + '<div style="font-size:11px;color:var(--muted)">Uploaded file — stays available</div></div>'
+      + '<div style="font-size:11px;color:var(--muted)">Uploaded file \u2014 stays available</div></div>'
+      + (imgLike ? '<button type="button" class="btn sm" onclick="ocZoom(\''+key+'\')">Zoom</button>' : '')
       + '<button type="button" class="btn sm" onclick="ocOpenFile(\''+key+'\')">View</button>'
       + '<button type="button" class="btn sm" onclick="ocDlFile(\''+key+'\')">Download</button>'
       + '</div>';
   }
 
-  /* Inside the order/enquiry form: show the previously-uploaded file under each
-     file input, so it never looks lost after submission. */
+  /* ---- IMAGE LIGHTBOX: click any uploaded image to see it full screen ---- */
+  function bigSrc(v){ if(isHttp(v)){ var id=driveId(v); return id?('https://drive.google.com/thumbnail?id='+id+'&sz=w2000'):v; } return v; }
+  function ensureLightbox(){
+    var el=document.getElementById('ocLightbox');
+    if(el) return el;
+    el=document.createElement('div'); el.id='ocLightbox';
+    el.style.cssText='position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.88);padding:24px';
+    el.innerHTML='<button type="button" id="ocLbClose" title="Close (Esc)" style="position:absolute;top:14px;right:18px;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:20px;cursor:pointer;line-height:1">\u2715</button>'
+      + '<a id="ocLbOpen" target="_blank" rel="noopener" style="position:absolute;top:18px;left:18px;color:#fff;font-size:12.5px;text-decoration:underline;opacity:.85">Open original</a>'
+      + '<img id="ocLbImg" alt="" style="max-width:94vw;max-height:88vh;object-fit:contain;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.6);background:#111">'
+      + '<div id="ocLbCap" style="position:absolute;bottom:16px;left:0;right:0;text-align:center;color:#fff;font-size:12.5px;opacity:.85"></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click',function(ev){ if(ev.target===el||ev.target.id==='ocLbClose') closeZoom(); });
+    return el;
+  }
+  function closeZoom(){ var el=document.getElementById('ocLightbox'); if(el) el.style.display='none'; }
+  window.ocCloseZoom=closeZoom;
+  document.addEventListener('keydown',function(ev){ if(ev.key==='Escape') closeZoom(); });
+  window.ocZoom=function(key){ var v=window.__ocFileMap&&window.__ocFileMap[key]; if(v) window.ocZoomSrc(v, fileName(v)); };
+  window.ocZoomSrc=function(v,caption){
+    if(!v) return;
+    var el=ensureLightbox();
+    var img=document.getElementById('ocLbImg'); if(img) img.src=bigSrc(v);
+    var a2=document.getElementById('ocLbOpen'); if(a2) a2.href=isHttp(v)?driveOpen(v):v;
+    var cap=document.getElementById('ocLbCap'); if(cap) cap.textContent=caption||'';
+    el.style.display='flex';
+  };
+
   var _cfh=window.customFieldsHTML;
   window.customFieldsHTML=function(which, rec, group){
     var html = (typeof _cfh==='function') ? _cfh.apply(this, arguments) : '';
@@ -3791,6 +3832,45 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   };
 })();
 
+
+/* ============================================================================
+   ITEM IMAGE ZOOM — every product image inside an order becomes clickable and
+   opens full-screen. The Products table is rendered by an earlier block, so we
+   upgrade its <img> tags after the drawer/form opens instead of rewriting it.
+   ========================================================================== */
+(function(){
+  'use strict';
+  function upgrade(root){
+    if(!root) return;
+    Array.prototype.forEach.call(root.querySelectorAll('img'), function(im){
+      if(im.dataset.ocZoomable) return;
+      var src=im.getAttribute('src')||'';
+      if(!src) return;
+      if(im.closest && im.closest('.cell-user')) return;   /* skip avatars */
+      im.dataset.ocZoomable='1';
+      im.style.cursor='zoom-in';
+      if(!im.title) im.title='Click to zoom';
+      im.addEventListener('click', function(ev){
+        ev.preventDefault(); ev.stopPropagation();
+        if(typeof window.ocZoomSrc==='function') window.ocZoomSrc(src, im.getAttribute('alt')||'');
+      });
+    });
+  }
+  function upgradeModal(){ try{ var m=document.getElementById('modal'); if(m) upgrade(m); }catch(e){} }
+
+  var _d=window.openOrderDetail;
+  if(typeof _d==='function'){
+    window.openOrderDetail=function(id){ _d.apply(this,arguments); setTimeout(upgradeModal,0); setTimeout(upgradeModal,120); };
+  }
+  var _r=window.renderOrderItems;
+  if(typeof _r==='function'){
+    window.renderOrderItems=function(){ _r.apply(this,arguments); setTimeout(upgradeModal,0); };
+  }
+  try{
+    var host=document.getElementById('modalBg');
+    if(host) new MutationObserver(function(){ upgradeModal(); }).observe(host,{childList:true,subtree:true});
+  }catch(e){}
+})();
 </script>
 </body>
 </html>
