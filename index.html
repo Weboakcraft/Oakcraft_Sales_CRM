@@ -3871,6 +3871,193 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
     if(host) new MutationObserver(function(){ upgradeModal(); }).observe(host,{childList:true,subtree:true});
   }catch(e){}
 })();
+
+/* ============================================================================
+   ORDER DETAIL - FULL FIELD VISIBILITY (v3)
+   Every order, after the form is submitted, now shows inside its detail drawer:
+     - Billing & Payment Details  (Products Total, GST 18%, Billing Amount
+       incl. GST, Freight Amount, Total, Advance, Pending Balance, ...)
+     - Documents & Uploads        (Proforma Invoice, Tax Invoice, Advance
+       Payment Proof, Full Amount Proof, Freight Charge Proof, product images)
+       with thumbnail + Zoom (full screen) + View + Download for each file.
+   ========================================================================== */
+(function(){
+  'use strict';
+
+  function S(v){ return v==null ? '' : String(v); }
+  function isData(v){ return /^data:/i.test(S(v)); }
+  function isHttp(v){ return /^https?:\/\//i.test(S(v)); }
+  function isFake(v){ return /fakepath/i.test(S(v)); }
+  function hasFile(v){ return isData(v) || isHttp(v); }
+  function dId(v){ var m = S(v).match(/[-\w]{25,}/); return m ? m[0] : ''; }
+  function dThumb(v){ if(isData(v)) return v; var i=dId(v); return i ? 'https://drive.google.com/thumbnail?id='+i+'&sz=w400' : v; }
+  function dBig(v){ if(isData(v)) return v; var i=dId(v); return i ? 'https://drive.google.com/thumbnail?id='+i+'&sz=w2000' : v; }
+  function dView(v){ if(isData(v)) return v; var i=dId(v); return i ? 'https://drive.google.com/file/d/'+i+'/view' : v; }
+  function dDown(v){ if(isData(v)) return v; var i=dId(v); return i ? 'https://drive.google.com/uc?export=download&id='+i : v; }
+  function nameOf(v){
+    if(isFake(v)) return S(v).split(/[\\/]/).pop();
+    if(isData(v)) return 'attachment';
+    var i = dId(v); if(i) return 'Drive file ('+i.slice(0,6)+'\u2026)';
+    return S(v).split('/').pop().slice(0,44) || 'file';
+  }
+  function esc(v){ return S(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function inr(n){ n = Number(n)||0; return '\u20b9' + n.toLocaleString('en-IN',{maximumFractionDigits:2}); }
+
+  window.__ocDocs = window.__ocDocs || {};
+  window.ocDocZoom = function(k){
+    var d = window.__ocDocs[k];
+    if(d && typeof window.ocZoomSrc === 'function') window.ocZoomSrc(d.big, d.label);
+  };
+
+  var ROW = 'display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)';
+  var LBL = 'color:var(--text-2);font-size:13px';
+  var VAL = 'font-weight:650;font-size:13px';
+  function row(label, value, strong){
+    return '<div style="'+ROW+'"><span style="'+LBL+'">'+esc(label)+'</span>'
+      + '<span class="tabular" style="'+VAL+(strong ? ';font-size:14px' : '')+'">'+esc(value)+'</span></div>';
+  }
+
+  var BOX = 'display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)';
+  var THUMB = 'width:46px;height:46px;flex:0 0 46px;object-fit:cover;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);cursor:zoom-in';
+  var PLACE = 'width:46px;height:46px;flex:0 0 46px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--border);border-radius:8px;font-size:10px;font-weight:700;color:var(--muted)';
+  var kc = 0;
+
+  function docCard(label, v){
+    var icon, sub, btns = '';
+    if(hasFile(v)){
+      var key = 'd' + (++kc);
+      window.__ocDocs[key] = { big: dBig(v), label: label };
+      icon = '<img src="'+esc(dThumb(v))+'" alt="" title="Click to zoom" style="'+THUMB+'" onclick="ocDocZoom(&quot;'+key+'&quot;)" onerror="this.style.visibility=&quot;hidden&quot;">';
+      sub  = '<span style="color:var(--muted)">'+esc(nameOf(v))+' \u2014 saved, always available</span>';
+      btns = '<button type="button" class="btn sm" onclick="ocDocZoom(&quot;'+key+'&quot;)">Zoom</button>'
+           + '<a class="btn sm" href="'+esc(dView(v))+'" target="_blank" rel="noopener">View</a>'
+           + '<a class="btn sm" href="'+esc(dDown(v))+'" target="_blank" rel="noopener">Download</a>';
+    } else if(isFake(v)){
+      icon = '<div style="'+PLACE+'">!</div>';
+      sub  = '<span style="color:#b45309">'+esc(nameOf(v))+' \u2014 file was never uploaded on this old order. Use Edit Order to upload it again.</span>';
+    } else {
+      icon = '<div style="'+PLACE+'">--</div>';
+      sub  = '<span style="color:var(--muted)">Not uploaded</span>';
+    }
+    return '<div style="'+BOX+'">'
+      + icon
+      + '<div style="flex:1;min-width:0">'
+      +   '<div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(label)+'</div>'
+      +   '<div style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sub+'</div>'
+      + '</div>'
+      + btns
+      + '</div>';
+  }
+  window.__ocDocCard = docCard;
+
+  function titles(mb){ return Array.prototype.slice.call(mb.querySelectorAll('.section-title')); }
+  function titleNamed(mb, re){
+    var t = titles(mb).filter(function(x){ return re.test(S(x.textContent).trim()); })[0];
+    return t || null;
+  }
+  function makeSection(titleHTML, bodyHTML){
+    var d = document.createElement('div');
+    d.setAttribute('data-oc-full','1');
+    d.innerHTML = '<div class="section-title">' + titleHTML + '</div>' + bodyHTML;
+    return d;
+  }
+  function shownLabels(mb){
+    var set = {};
+    Array.prototype.forEach.call(mb.querySelectorAll('div'), function(d){
+      if(d.children.length === 2 && d.children[0].tagName === 'SPAN' && d.children[1].tagName === 'SPAN'){
+        set[S(d.children[0].textContent).trim().toLowerCase()] = 1;
+      }
+    });
+    return set;
+  }
+
+  function enhance(id){
+    var list = (typeof DB !== 'undefined' && DB.orders) ? (DB.orders() || []) : [];
+    var o = list.filter(function(x){ return x && x.id === id; })[0];
+    if(!o) return;
+    var m = document.getElementById('modal');
+    var mb = m ? m.querySelector('.modal-body') : null;
+    if(!mb) return;
+
+    Array.prototype.forEach.call(mb.querySelectorAll('[data-oc-full]'), function(n){ n.remove(); });
+    titles(mb).forEach(function(t){
+      if(/^documents\s*&\s*uploads/i.test(S(t.textContent).trim())){
+        var host = t.parentElement;
+        if(host && host !== mb) host.remove(); else t.remove();
+      }
+    });
+
+    var cv = o.custom || {};
+    var fields = (typeof getForm === 'function') ? (getForm('order') || []) : [];
+    var already = shownLabels(mb);
+    function fieldBy(re){ return fields.filter(function(f){ return f && re.test(S(f.label)); })[0] || null; }
+
+    var amt = Number(o.amount) || 0;
+    var fFreight = fieldBy(/freight\s*amount/i);
+    var freight = fFreight ? (Number(cv[fFreight.id]) || 0) : 0;
+    var bill = amt * 1.18;
+
+    var pay = row('Products Total (excl. GST)', inr(amt))
+            + row('GST 18%', inr(amt * 0.18))
+            + row('Billing Amount (incl. 18% GST)', inr(bill), true)
+            + row('Freight Amount', inr(freight))
+            + row('Total Amount', inr(bill + freight), true);
+
+    var moneyRe = /(amount|amt|balance|paid|price|value|charge)/i;
+    var skipRe  = /^(billing amount|freight amount|total amount)$/i;
+    fields.forEach(function(f){
+      if(!f || f.type === 'file') return;
+      var lab = S(f.label).trim();
+      if(!lab || skipRe.test(lab)) return;
+      if(already[lab.toLowerCase()]) return;
+      var v = cv[f.id];
+      if(v === undefined || v === null || v === '') return;
+      pay += row(lab, (moneyRe.test(lab) && !isNaN(Number(v))) ? inr(v) : v);
+    });
+
+    kc = 0;
+    var docs = '', total = 0, up = 0;
+    fields.forEach(function(f){
+      if(!f || f.type !== 'file') return;
+      total++;
+      var v = cv[f.id];
+      if(hasFile(v)) up++;
+      docs += docCard(S(f.label) || 'File', v);
+    });
+    (o.items || []).forEach(function(it, i){
+      if(!it || !hasFile(it.image)) return;
+      total++; up++;
+      docs += docCard('Item ' + (i + 1) + ' Image' + (it.name ? ' \u2014 ' + it.name : ''), it.image);
+    });
+
+    var counter = '<span style="font-weight:500;color:var(--muted);font-size:11.5px">(' + up + ' of ' + total + ' uploaded)</span>';
+    var secPay  = makeSection('Billing &amp; Payment Details', pay);
+    var secDocs = makeSection('Documents &amp; Uploads ' + counter,
+                    docs + '<div style="font-size:11px;color:var(--muted);margin-top:8px">Click any thumbnail or Zoom to open the file full screen. View opens the original, Download saves a copy.</div>');
+
+    var anchor = titleNamed(mb, /^dispatch$/i) || titleNamed(mb, /^progress$/i);
+    if(anchor && anchor.parentElement === mb){
+      mb.insertBefore(secPay, anchor);
+      mb.insertBefore(secDocs, anchor);
+    } else if(anchor && anchor.parentElement && anchor.parentElement.parentElement === mb){
+      mb.insertBefore(secPay, anchor.parentElement);
+      mb.insertBefore(secDocs, anchor.parentElement);
+    } else {
+      mb.appendChild(secPay);
+      mb.appendChild(secDocs);
+    }
+  }
+
+  var _prevOOD = window.openOrderDetail;
+  window.openOrderDetail = function(id){
+    if(typeof _prevOOD === 'function') _prevOOD.apply(this, arguments);
+    var run = function(){ try{ enhance(id); }catch(e){ console.warn('oc full detail failed', e); } };
+    setTimeout(run, 0);
+    setTimeout(run, 180);
+  };
+  window.__ocEnhanceDetail = enhance;
+})();
+
 </script>
 </body>
 </html>
