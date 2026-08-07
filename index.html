@@ -4058,6 +4058,170 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   window.__ocEnhanceDetail = enhance;
 })();
 
+
+/* ============================================================================
+   ORDERS TABLE v4
+     1. Salesperson column
+     2. Amount column now shows the Billing Amount (products total + 18% GST)
+     3. New "Employee" dropdown filter next to the Order Status filter
+     4. Sequential Order IDs - ORD0636, ORD0637, ORD0638 ... including a
+        one-time renumbering of every previously created order (dispatch
+        records that point at an order are remapped too).
+   ========================================================================== */
+(function(){
+  'use strict';
+
+  var START = 636;
+  var MAPKEY = 'oc_orderIdMap';
+
+  function pad(n){ return 'ORD' + String(n).padStart(4, '0'); }
+  function seqOf(id){ var m = /^ORD0*(\d+)$/.exec(String(id == null ? '' : id)); return m ? parseInt(m[1], 10) : null; }
+  function loadMap(){ try{ return JSON.parse(localStorage.getItem(MAPKEY) || '{}') || {}; }catch(e){ return {}; } }
+  function saveMap(m){ try{ localStorage.setItem(MAPKEY, JSON.stringify(m)); }catch(e){} }
+
+  var writing = false;
+
+  function renumber(arr){
+    if(!Array.isArray(arr)) return false;
+    var legacy = arr.filter(function(o){ return o && seqOf(o.id) === null; });
+    if(!legacy.length) return false;
+
+    var used = {}, mx = START - 1;
+    arr.forEach(function(o){
+      var n = seqOf(o && o.id);
+      if(n !== null){ used[n] = 1; if(n > mx) mx = n; }
+    });
+    var next = Math.max(START, mx + 1);
+    function alloc(){ while(used[next]) next++; used[next] = 1; return next; }
+
+    var pos = {};
+    arr.forEach(function(o, i){ if(o) pos[o.id] = i; });
+    legacy.sort(function(a, b){
+      var d = String(a.date || '').localeCompare(String(b.date || ''));
+      return d || ((pos[a.id] || 0) - (pos[b.id] || 0));
+    });
+
+    var map = loadMap(), remap = {};
+    legacy.forEach(function(o){
+      var old = String(o.id == null ? '' : o.id);
+      var nid = map[old];
+      var taken = nid ? arr.some(function(x){ return x !== o && x && x.id === nid; }) : true;
+      if(!nid || taken || seqOf(nid) === null) nid = pad(alloc());
+      else used[seqOf(nid)] = 1;
+      map[old] = nid; remap[old] = nid; o.id = nid;
+    });
+    saveMap(map);
+
+    try{
+      var dis = DB.dispatch() || [], touched = false;
+      dis.forEach(function(d){ if(d && remap[d.orderId]){ d.orderId = remap[d.orderId]; touched = true; } });
+      if(touched){ writing = true; store.set('dispatch', dis); writing = false; }
+    }catch(e){}
+    return true;
+  }
+
+  var _save = DB.save;
+  DB.save = function(k, v){
+    if(k === 'orders' && Array.isArray(v) && !writing){
+      writing = true;
+      try{ renumber(v); }catch(e){ console.warn('order id renumber failed', e); }
+      writing = false;
+    }
+    return _save.call(DB, k, v);
+  };
+
+  function migrate(){
+    try{
+      var arr = DB.orders() || [];
+      if(renumber(arr)){
+        writing = true; store.set('orders', arr); writing = false;
+        if(state && state.view === 'orders' && typeof renderOrders === 'function') renderOrders();
+      }
+    }catch(e){ console.warn('order id migration failed', e); }
+  }
+  window.ocMigrateOrderIds = migrate;
+  window.ocNextOrderId = function(){
+    var arr = DB.orders() || [], mx = START - 1;
+    arr.forEach(function(o){ var n = seqOf(o && o.id); if(n !== null && n > mx) mx = n; });
+    return pad(Math.max(START, mx + 1));
+  };
+
+  setTimeout(migrate, 1200);
+  setTimeout(migrate, 4000);
+  setTimeout(migrate, 9000);
+
+  /* ---------- Orders list: Salesperson column, Billing Amount, Employee filter ---------- */
+  function billOf(o){ return Math.round((Number(o && o.amount) || 0) * 1.18); }
+  function esc(v){ return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  window.renderOrders = function(){
+    var all = DB.orders();
+    var mine = scope(all, 'orders');
+    var seen = {}, emps = [];
+    mine.forEach(function(o){
+      var s = (o && o.salesperson) ? String(o.salesperson).trim() : '';
+      if(s && !seen[s.toLowerCase()]){ seen[s.toLowerCase()] = 1; emps.push(s); }
+    });
+    emps.sort(function(a, b){ return a.localeCompare(b); });
+
+    var stats = ['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled']
+      .map(function(s){ return '<option>' + s + '</option>'; }).join('');
+    var empOpts = emps.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
+
+    content.innerHTML =
+      '<div class="card"><div class="card-head">'
+      + '<h3>Orders <span class="chip c-neutral" style="margin-left:4px">' + all.length + '</span></h3>'
+      + '<div class="tools">'
+      +   '<select class="field" id="f-ostat" onchange="paintTable(&quot;ord-body&quot;)"><option value="">All Status</option>' + stats + '</select>'
+      +   '<select class="field" id="f-oemp" onchange="paintTable(&quot;ord-body&quot;)"><option value="">All Employees</option>' + empOpts + '</select>'
+      +   dlBtn('orders')
+      + '</div></div>'
+      + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Tip: click any order row to see full details.</div>'
+      + '<div style="overflow-x:auto"><table><thead><tr>'
+      +   '<th>Order ID</th><th>Date</th><th>Customer</th><th>Salesperson</th><th>Product</th>'
+      +   '<th>Billing Amount</th><th>Payment</th><th>Exp. Delivery</th><th>Status</th><th>Advance Stage</th><th>WhatsApp</th>'
+      + '</tr></thead><tbody id="ord-body"></tbody></table></div></div>';
+    paintTable('ord-body');
+  };
+
+  var _paint = window.paintTable;
+  window.paintTable = function(bodyId){
+    if(bodyId !== 'ord-body') return _paint.apply(this, arguments);
+    var body = document.getElementById('ord-body');
+    if(!body) return;
+    var gs = document.getElementById('globalSearch');
+    var q = ((gs && gs.value) || '').toLowerCase();
+    var se = document.getElementById('f-ostat');
+    var f = (se && se.value) || '';
+    var ee = document.getElementById('f-oemp');
+    var emp = (ee && ee.value) || '';
+
+    var rows = scope(DB.orders(), 'orders').filter(function(o){
+      if(!o) return false;
+      if(f && o.status !== f) return false;
+      if(emp && String(o.salesperson || '').trim().toLowerCase() !== emp.toLowerCase()) return false;
+      if(q && [o.id, o.customer, o.product, o.salesperson].join(' ').toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    }).sort(function(a, b){ return String(b.date || '').localeCompare(String(a.date || '')); });
+
+    body.innerHTML = rows.map(function(o){
+      return '<tr style="cursor:pointer" onclick="openOrderDetail(&quot;' + o.id + '&quot;)">'
+        + '<td class="strong tabular">' + esc(o.id) + '</td>'
+        + '<td class="sub tabular">' + esc(o.date) + '</td>'
+        + '<td>' + userCell(o.customer) + '</td>'
+        + '<td class="sub">' + (o.salesperson ? esc(o.salesperson) : '\u2014') + '</td>'
+        + '<td>' + esc(o.product) + ' <span class="sub">\u00d7' + esc(o.qty) + '</span></td>'
+        + '<td class="strong tabular">' + money(billOf(o)) + '</td>'
+        + '<td>' + payChip(o.payment) + '</td>'
+        + '<td class="sub tabular">' + esc(o.expDispatch) + '</td>'
+        + '<td>' + orderChip(o.status) + '</td>'
+        + '<td onclick="event.stopPropagation()">' + nextStageBtn(o) + '</td>'
+        + '<td onclick="event.stopPropagation()">' + waBtn(o) + '</td>'
+        + '</tr>';
+    }).join('') || emptyRow(11);
+  };
+})();
+
 </script>
 </body>
 </html>
