@@ -4828,6 +4828,165 @@ setTimeout(function(){ try{ window.ocFixFormSalesOptions(); }catch(e){} }, 2600)
 setTimeout(function(){ try{ window.ocFixFormSalesOptions(); }catch(e){} }, 7200);
 })();
 
+
+/* ============================================================================
+   OAKCRAFT v7  -  ADMIN: USER-WISE INCENTIVE BREAKDOWN
+   The existing "My Incentive" card stays exactly as it is (for an admin it is
+   the combined company figure). Below it, an admin additionally gets one box
+   per user with that user's own Weekly / Monthly / Last Month incentive,
+   calculated with the same rules and the same data scope the user sees on
+   their own dashboard (owner-based, Cancelled orders excluded).
+   ========================================================================== */
+(function(){
+'use strict';
+var GST = 0.18, WEEK_TARGET = 130000, RATE = 0.015;
+
+function T(v){ return v == null ? '' : String(v); }
+function esc(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function inr(n){ try{ return money(n); }catch(e){ return '\u20b9' + Number(n || 0).toLocaleString('en-IN'); } }
+function bill(o){ return Math.round(((+((o || {}).amount) || 0) * (1 + GST)) * 100) / 100; }
+
+function toDate(s){ if(!s) return null; var d = new Date(T(s).slice(0, 10) + 'T00:00:00'); return isNaN(d.getTime()) ? null : d; }
+function ymd(d){ return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function weekStart(d){ var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); var wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return x; }
+function weekKey(d){ return ymd(weekStart(d)); }
+function firstMonday(y, m){ var x = new Date(y, m, 1); var wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() + ((7 - wd) % 7)); return x; }
+function cycleStart(d){
+  var fm = firstMonday(d.getFullYear(), d.getMonth());
+  if(d < fm){ var pm = new Date(d.getFullYear(), d.getMonth() - 1, 1); return firstMonday(pm.getFullYear(), pm.getMonth()); }
+  return fm;
+}
+function cycleEnd(startMon){ var d = new Date(startMon), nm = new Date(d.getFullYear(), d.getMonth() + 1, 1); return firstMonday(nm.getFullYear(), nm.getMonth()); }
+function weekInc(total){ return total >= WEEK_TARGET ? Math.round(total * RATE * 100) / 100 : 0; }
+
+/* incentive figures for an arbitrary list of orders */
+function calc(orders){
+  var wt = {}, i;
+  (orders || []).forEach(function(o){
+    if(!o || o.status === 'Cancelled') return;
+    var d = toDate(o.date); if(!d) return;
+    var k = weekKey(d);
+    wt[k] = (wt[k] || 0) + bill(o);
+  });
+  var now = new Date();
+  var thisWeek = wt[weekKey(now)] || 0;
+  var cs = cycleStart(now), ce = cycleEnd(cs);
+  var pmd = new Date(cs.getFullYear(), cs.getMonth() - 1, 1);
+  var ps = firstMonday(pmd.getFullYear(), pmd.getMonth());
+  function sumRange(a, b){
+    var s = 0;
+    Object.keys(wt).forEach(function(k){
+      var ws = toDate(k); if(!ws) return;
+      if(ws >= a && ws < b) s += weekInc(wt[k]);
+    });
+    return Math.round(s * 100) / 100;
+  }
+  return {
+    weekly: weekInc(thisWeek),
+    monthly: sumRange(cs, ce),
+    lastMonth: sumRange(ps, cs),
+    weekSales: Math.round(thisWeek * 100) / 100
+  };
+}
+window.ocIncentiveFor = calc;
+
+/* every user's own slice of the orders, exactly like scope() does for them */
+function ordersOfUser(email){
+  var all = [];
+  try{ all = DB.orders() || []; }catch(e){ all = []; }
+  var e = T(email).toLowerCase();
+  return all.filter(function(o){ return o && (!o.owner || T(o.owner).toLowerCase() === e); });
+}
+
+window.ocTeamIncentive = function(){
+  var users = [];
+  try{ users = AUTH.users() || []; }catch(e){ users = []; }
+  var rows = [];
+  users.forEach(function(u){
+    if(!u || !u.email) return;
+    if(T(u.status) && T(u.status).toLowerCase() !== 'active') return;
+    var mine = ordersOfUser(u.email);
+    var own = mine.filter(function(o){ return T(o.owner).toLowerCase() === T(u.email).toLowerCase(); });
+    if(!own.length) return;
+    var r = calc(mine);
+    r.name = u.name || u.email;
+    r.role = u.role || 'User';
+    r.email = u.email;
+    r.orders = own.length;
+    rows.push(r);
+  });
+  rows.sort(function(a, b){ return (b.monthly - a.monthly) || (b.weekly - a.weekly) || T(a.name).localeCompare(T(b.name)); });
+  return rows;
+};
+
+function initials(n){
+  var p = T(n).trim().split(/\s+/);
+  return ((p[0] || '').charAt(0) + (p.length > 1 ? (p[p.length - 1] || '').charAt(0) : '')).toUpperCase() || '?';
+}
+function line(lbl, val, strong){
+  return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:5px 0;border-bottom:1px solid var(--border)">'
+    + '<span style="font-size:11.5px;color:var(--text-2)">' + esc(lbl) + '</span>'
+    + '<span class="tabular" style="font-weight:' + (strong ? '750' : '650') + ';font-size:' + (strong ? '14.5' : '12.5') + 'px' + (strong ? ';color:#0ca30c' : '') + '">' + esc(val) + '</span></div>';
+}
+
+function userCard(r){
+  var pct = Math.min(100, Math.round((r.weekSales / WEEK_TARGET) * 100));
+  var hit = r.weekSales >= WEEK_TARGET;
+  var col = (typeof avColor === 'function') ? avColor(r.name) : '#2a78d6';
+  return '<div style="border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:var(--surface)">'
+    + '<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">'
+    + '<span style="width:31px;height:31px;flex:0 0 31px;border-radius:9px;background:' + col + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">' + esc(initials(r.name)) + '</span>'
+    + '<div style="min-width:0"><div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(r.name) + '</div>'
+    + '<div style="font-size:10.5px;color:var(--muted)">' + esc(r.role) + ' \u00b7 ' + r.orders + ' order' + (r.orders === 1 ? '' : 's') + '</div></div></div>'
+    + line('Weekly Incentive', inr(r.weekly), true)
+    + line('Monthly Incentive', inr(r.monthly))
+    + line('Last Month Incentive', inr(r.lastMonth))
+    + '<div style="margin-top:9px">'
+    + '<div style="height:6px;border-radius:6px;background:var(--surface-2);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + (hit ? '#0ca30c' : '#eda100') + '"></div></div>'
+    + '<div style="font-size:10.5px;color:var(--muted);margin-top:4px">' + (hit ? 'Target hit \u2014 ' : '') + inr(r.weekSales) + ' / ' + inr(WEEK_TARGET) + ' this week (' + pct + '%)</div>'
+    + '</div></div>';
+}
+
+function panelHTML(){
+  var rows = window.ocTeamIncentive();
+  if(!rows.length) return '';
+  var tw = 0, tm = 0;
+  rows.forEach(function(r){ tw += r.weekly; tm += r.monthly; });
+  return '<div class="card" style="margin-top:0"><div class="card-head">'
+    + '<h3>Team Incentive \u2014 User-wise <span class="chip c-neutral" style="margin-left:4px">Admin view</span></h3>'
+    + '<div class="tools"><span style="font-size:11.5px;color:var(--muted)">Sum of individual weekly: <b class="tabular">' + inr(Math.round(tw * 100) / 100) + '</b> \u00b7 monthly: <b class="tabular">' + inr(Math.round(tm * 100) / 100) + '</b></span></div>'
+    + '</div>'
+    + '<div style="padding:4px 20px 8px;font-size:11.5px;color:var(--muted)">Each box uses the same rule as that user\'s own dashboard: \u20b91.3L weekly target, 1.5% of the week total, Cancelled orders excluded.</div>'
+    + '<div style="padding:4px 20px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:12px">'
+    + rows.map(userCard).join('')
+    + '</div></div>';
+}
+window.ocTeamIncentiveHTML = panelHTML;
+
+var _rd7 = window.renderDashboard;
+window.renderDashboard = function(){
+  if(typeof _rd7 === 'function') _rd7.apply(this, arguments);
+  try{
+    if(!content) return;
+    var isAdm = false;
+    try{ isAdm = AUTH.isAdmin(); }catch(e){ isAdm = false; }
+    var old = content.querySelector('#oc-team-incentive');
+    if(!isAdm){ if(old) old.remove(); return; }
+    if(old) old.remove();
+    var html = panelHTML();
+    if(!html) return;
+    var wrap = document.createElement('div');
+    wrap.id = 'oc-team-incentive';
+    wrap.style.marginBottom = '16px';
+    wrap.innerHTML = html;
+    var anchor = content.querySelector('#oc-incentive');
+    if(anchor && anchor.nextSibling) content.insertBefore(wrap, anchor.nextSibling);
+    else if(anchor) content.appendChild(wrap);
+    else content.insertBefore(wrap, content.firstChild);
+  }catch(e){ console.warn('team incentive panel error', e); }
+};
+})();
+
 </script>
 </body>
 </html>
