@@ -3585,36 +3585,175 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   window.computeIncentive = computeIncentive;
 
   function inr(n){ try{ return money(n); }catch(e){ return '₹'+Number(n||0).toLocaleString('en-IN'); } }
-  function incentivePanelHTML(){
-    var r=computeIncentive();
-    var box=function(ico,bg,col,val,lbl,sub){
-      return '<div class="kpi"><div class="k-top"><div class="k-ico" style="background:'+bg+';color:'+col+'">'+(I[ico]||I.money||'')+'</div></div>'
-        +'<div class="val tabular">'+inr(val)+'</div><div class="lbl">'+lbl+'</div>'
-        +(sub?'<div class="sub" style="margin-top:2px;font-size:11px;color:var(--muted)">'+sub+'</div>':'')+'</div>';
-    };
-    var pct=Math.min(100, Math.round((r.weekTotal/WEEK_TARGET)*100));
-    var hit=r.weekTotal>=WEEK_TARGET;
-    var sub = hit ? 'Target hit — '+inr(r.weekTotal)+' this week' : inr(r.weekTotal)+' / '+inr(WEEK_TARGET)+' ('+pct+'%)';
-    return '<div class="card" style="margin-top:0"><div class="card-head"><h3>My Incentive '
-      +'<span class="chip c-neutral" style="margin-left:4px">1.5% over ₹1.3L / week</span></h3></div>'
-      +'<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);padding:6px 4px 4px">'
-      + box('money','rgba(12,163,12,.13)','#0ca30c', r.weekly,  'Weekly Incentive Amount', sub)
-      + box('flow','rgba(42,120,214,.12)','#2a78d6', r.monthly, 'Monthly Incentive Amount', 'Current month cycle')
-      + box('inbox','rgba(74,58,167,.14)','#4a3aa7', r.lastMonth,'Last Month Incentive', 'Previous cycle total')
-      +'</div></div>';
+
+  /* ==================================================================
+     ROLE GATE — Incentive dashboard sirf un users ko dikhega jinka role
+     "Sales Executive" ya "User" hai. Administrator ko iski jagah har
+     sales user ka apna alag dashboard dikhta hai (neeche v7 block me).
+     Sales Manager / doosre roles ko incentive dashboard nahi milta.
+     ================================================================== */
+  function isSalesRole(role){
+    var r = String(role == null ? '' : role).trim().toLowerCase().replace(/[\s_\-]+/g, ' ');
+    return r === 'user' || r === 'sales executive' || r === 'sales exec' || r === 'salesexecutive' || r === 'sales';
+  }
+  window.ocIsSalesRole = isSalesRole;
+  function myRole(){ try{ return (AUTH.current() || {}).role || ''; }catch(e){ return ''; } }
+
+  /* ---- ek order ki total quantity ---- */
+  function orderQty(o){
+    var q = +(((o || {}).qty)) || 0;
+    if(q) return q;
+    var items = (o && o.items) || [];
+    return items.reduce(function(s, it){ return s + (+((it || {}).qty) || 0); }, 0);
   }
 
-  /* inject the incentive panel at the top of the dashboard after each render */
+  /* ---- chalu month-cycle ke andar ke weeks (4 ya 5) ---- */
+  function cycleWeeks(cs, ce){
+    var out = [], d = new Date(cs), i = 0;
+    while(d < ce && i < 6){
+      var nx = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7);
+      out.push({ no: i + 1, start: new Date(d), end: (nx < ce ? nx : new Date(ce)) });
+      d = nx; i++;
+    }
+    return out;
+  }
+  function dLabel(d){ return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2); }
+
+  /* ---- kisi bhi orders list ka poora metric set ---- */
+  function metricsFor(list){
+    var orders = (list || []).filter(function(o){ return o && o.status !== 'Cancelled'; });
+    var wt = weeklyTotals(orders);
+    var now = new Date();
+    var cs = cycleStart(now), ce = cycleEnd(cs);
+    var pmd = new Date(cs.getFullYear(), cs.getMonth() - 1, 1);
+    var ps = firstMonday(pmd.getFullYear(), pmd.getMonth());
+
+    var inCycle = orders.filter(function(o){ var d = toDate(o.date); return d && d >= cs && d < ce; });
+    var totalSales = 0, topOrder = 0, totalQty = 0;
+    inCycle.forEach(function(o){
+      var v = billGST(o);
+      totalSales += v;
+      if(v > topOrder) topOrder = v;
+      totalQty += orderQty(o);
+    });
+    var cnt = inCycle.length;
+    var thisWeekTotal = wt[weekKey(now)] || 0;
+
+    var weeks = cycleWeeks(cs, ce).map(function(w){
+      var sales = wt[ymd(w.start)] || 0;
+      return { no: w.no, start: w.start, end: w.end,
+               sales: Math.round(sales * 100) / 100,
+               incentive: weekIncentive(sales),
+               current: (now >= w.start && now < w.end) };
+    });
+
+    return {
+      weekTarget: WEEK_TARGET,
+      weekSales : Math.round(thisWeekTotal * 100) / 100,
+      weekly    : weekIncentive(thisWeekTotal),
+      totalSales: Math.round(totalSales * 100) / 100,
+      orders    : cnt,
+      avgOrder  : cnt ? Math.round((totalSales / cnt) * 100) / 100 : 0,
+      topOrder  : Math.round(topOrder * 100) / 100,
+      totalQty  : totalQty,
+      weeks     : weeks,
+      monthly   : cycleIncentive(wt, cs, ce),
+      lastMonth : cycleIncentive(wt, ps, cs),
+      cycleStart: cs,
+      cycleEnd  : ce
+    };
+  }
+  window.ocIncMetrics = metricsFor;
+
+  /* ----------------------------- UI ----------------------------- */
+  var GREAT_AT = 300000;
+
+  function kbox(ico, bg, col, val, lbl, sub, chip){
+    return '<div class="kpi">'
+      + '<div class="k-top"><div class="k-ico" style="background:' + bg + ';color:' + col + '">' + (I[ico] || I.money || '') + '</div>'
+      + (chip ? '<span class="chip c-won" style="font-size:10.5px;font-weight:750">' + chip + '</span>' : '')
+      + '</div>'
+      + '<div class="val tabular" style="font-size:23px">' + val + '</div>'
+      + '<div class="lbl">' + lbl + '</div>'
+      + (sub ? '<div style="margin-top:5px;font-size:11px;color:var(--muted);line-height:1.65">' + sub + '</div>' : '')
+      + '</div>';
+  }
+
+  function weekTile(w){
+    var paid = w.incentive > 0;
+    return '<div style="border:1px solid ' + (w.current ? '#2a78d6' : 'var(--border)') + ';border-radius:12px;padding:10px 12px;background:var(--surface)">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'
+      + '<span style="font-size:11.5px;font-weight:700;color:var(--text-2)">Week ' + w.no + '</span>'
+      + (w.current ? '<span class="chip c-new" style="font-size:9.5px">Running</span>' : '')
+      + '</div>'
+      + '<div class="tabular" style="font-size:19px;font-weight:750;margin-top:5px;color:' + (paid ? '#0ca30c' : 'var(--muted)') + '">' + inr(w.incentive) + '</div>'
+      + '<div style="font-size:10.5px;color:var(--muted);margin-top:3px">' + dLabel(w.start) + ' - ' + dLabel(new Date(w.end.getTime() - 86400000)) + '</div>'
+      + '<div style="font-size:10.5px;color:var(--muted)">Sales ' + inr(w.sales) + '</div>'
+      + '</div>';
+  }
+
+  function totTile(lbl, val, col, sub){
+    return '<div style="border:1px solid var(--border);border-radius:12px;padding:12px 14px;background:var(--surface-2)">'
+      + '<div style="font-size:11.5px;color:var(--text-2);font-weight:600">' + lbl + '</div>'
+      + '<div class="tabular" style="font-size:22px;font-weight:750;margin-top:4px;color:' + col + '">' + val + '</div>'
+      + (sub ? '<div style="font-size:10.5px;color:var(--muted);margin-top:2px">' + sub + '</div>' : '')
+      + '</div>';
+  }
+
+  /* title aur head-tools bahar se aate hain, taaki admin isi exact layout ko
+     har user ke liye dobara use kar sake */
+  function dashHTML(m, title, tools){
+    var pct = Math.min(100, Math.round((m.weekSales / WEEK_TARGET) * 100));
+    var hit = m.weekSales >= WEEK_TARGET;
+    var bar = '<div style="height:6px;border-radius:6px;background:var(--surface-2);overflow:hidden;margin-top:6px">'
+            + '<div style="height:100%;width:' + pct + '%;background:' + (hit ? '#0ca30c' : '#eda100') + '"></div></div>';
+
+    return '<div class="card" style="margin-top:0">'
+      + '<div class="card-head"><h3>' + title + ' <span class="chip c-neutral" style="margin-left:4px">1.5% over ' + inr(WEEK_TARGET) + ' / week</span></h3>'
+      + (tools || '') + '</div>'
+
+      + '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);gap:12px;padding:14px 20px 2px;margin-bottom:0">'
+      + kbox('money', 'rgba(42,120,214,.12)', '#2a78d6', inr(WEEK_TARGET), 'Weekly Target',
+             'This week ' + inr(m.weekSales) + ' &middot; ' + pct + '%' + bar)
+      + kbox('up', 'rgba(12,163,12,.13)', '#0ca30c', inr(m.totalSales), 'Target Achieved (this month)',
+             'GST included &middot; Cancelled orders excluded',
+             (m.totalSales > GREAT_AT ? 'Great' : ''))
+      + kbox('cart', 'rgba(237,161,0,.14)', '#b06a00', String(m.orders), 'Total Orders',
+             'Avg order value &nbsp;<b class="tabular">' + inr(m.avgOrder) + '</b><br>Highest order value &nbsp;<b class="tabular">' + inr(m.topOrder) + '</b>')
+      + kbox('box', 'rgba(74,58,167,.14)', '#4a3aa7', Number(m.totalQty || 0).toLocaleString('en-IN'), 'Total Sales Qty',
+             'Units sold in this month cycle')
+      + '</div>'
+
+      + '<div style="padding:12px 20px 6px;font-size:12px;font-weight:700;color:var(--text-2)">Weekly Incentive Breakdown</div>'
+      + '<div style="padding:0 20px 12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px">'
+      + m.weeks.map(weekTile).join('')
+      + '</div>'
+
+      + '<div style="padding:0 20px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px">'
+      + totTile('This Month Total Incentive', inr(m.monthly), '#0ca30c', 'Week 1 - Week ' + m.weeks.length + ' ka total')
+      + totTile('Last Month Incentive', inr(m.lastMonth), '#4a3aa7', 'Pichhle cycle ka total')
+      + '</div>'
+      + '</div>';
+  }
+  window.ocIncDashHTML = dashHTML;
+
+  /* har dashboard render ke baad panel inject karo — sirf sales users ke liye */
   var _rd = window.renderDashboard;
   window.renderDashboard = function(){
-    if(typeof _rd==='function') _rd.apply(this, arguments);
+    if(typeof _rd === 'function') _rd.apply(this, arguments);
     try{
       if(!content) return;
-      if(content.querySelector('#oc-incentive')) return;
-      var wrap=document.createElement('div');
-      wrap.id='oc-incentive';
-      wrap.style.marginBottom='16px';
-      wrap.innerHTML=incentivePanelHTML();
+      var old = content.querySelector('#oc-incentive');
+      if(old) old.remove();
+      var isAdm = false;
+      try{ isAdm = AUTH.isAdmin(); }catch(e){ isAdm = false; }
+      /* Admin ko combined card nahi milta — usko user-wise dashboards dikhte hain */
+      if(isAdm) return;
+      if(!isSalesRole(myRole())) return;
+      var wrap = document.createElement('div');
+      wrap.id = 'oc-incentive';
+      wrap.style.marginBottom = '16px';
+      wrap.innerHTML = dashHTML(metricsFor(myOrders()), 'My Incentive Dashboard', '');
       content.insertBefore(wrap, content.firstChild);
     }catch(e){ console.warn('incentive panel error', e); }
   };
@@ -4830,67 +4969,20 @@ setTimeout(function(){ try{ window.ocFixFormSalesOptions(); }catch(e){} }, 7200)
 
 
 /* ============================================================================
-   OAKCRAFT v7  -  ADMIN: USER-WISE INCENTIVE BREAKDOWN
-   The existing "My Incentive" card stays exactly as it is (for an admin it is
-   the combined company figure). Below it, an admin additionally gets one box
-   per user with that user's own Weekly / Monthly / Last Month incentive,
-   calculated with the same rules and the same data scope the user sees on
-   their own dashboard (owner-based, Cancelled orders excluded).
+   OAKCRAFT v7  -  ADMIN: USER-WISE INCENTIVE DASHBOARDS
+   Admin ko har Sales Executive / User ka apna poora incentive dashboard
+   alag-alag dikhta hai — bilkul wahi metrics jo us user ko apne dashboard
+   par dikhte hain (owner-based scope, Cancelled orders excluded).
+   Jinka role Sales Executive / User nahi hai, wo yahan list nahi hote.
    ========================================================================== */
 (function(){
 'use strict';
-var GST = 0.18, WEEK_TARGET = 130000, RATE = 0.015;
 
 function T(v){ return v == null ? '' : String(v); }
-function esc(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function inr(n){ try{ return money(n); }catch(e){ return '\u20b9' + Number(n || 0).toLocaleString('en-IN'); } }
-function bill(o){ return Math.round(((+((o || {}).amount) || 0) * (1 + GST)) * 100) / 100; }
+function esc(v){ return T(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function inr(n){ try{ return money(n); }catch(e){ return '₹' + Number(n || 0).toLocaleString('en-IN'); } }
 
-function toDate(s){ if(!s) return null; var d = new Date(T(s).slice(0, 10) + 'T00:00:00'); return isNaN(d.getTime()) ? null : d; }
-function ymd(d){ return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
-function weekStart(d){ var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); var wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return x; }
-function weekKey(d){ return ymd(weekStart(d)); }
-function firstMonday(y, m){ var x = new Date(y, m, 1); var wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() + ((7 - wd) % 7)); return x; }
-function cycleStart(d){
-  var fm = firstMonday(d.getFullYear(), d.getMonth());
-  if(d < fm){ var pm = new Date(d.getFullYear(), d.getMonth() - 1, 1); return firstMonday(pm.getFullYear(), pm.getMonth()); }
-  return fm;
-}
-function cycleEnd(startMon){ var d = new Date(startMon), nm = new Date(d.getFullYear(), d.getMonth() + 1, 1); return firstMonday(nm.getFullYear(), nm.getMonth()); }
-function weekInc(total){ return total >= WEEK_TARGET ? Math.round(total * RATE * 100) / 100 : 0; }
-
-/* incentive figures for an arbitrary list of orders */
-function calc(orders){
-  var wt = {}, i;
-  (orders || []).forEach(function(o){
-    if(!o || o.status === 'Cancelled') return;
-    var d = toDate(o.date); if(!d) return;
-    var k = weekKey(d);
-    wt[k] = (wt[k] || 0) + bill(o);
-  });
-  var now = new Date();
-  var thisWeek = wt[weekKey(now)] || 0;
-  var cs = cycleStart(now), ce = cycleEnd(cs);
-  var pmd = new Date(cs.getFullYear(), cs.getMonth() - 1, 1);
-  var ps = firstMonday(pmd.getFullYear(), pmd.getMonth());
-  function sumRange(a, b){
-    var s = 0;
-    Object.keys(wt).forEach(function(k){
-      var ws = toDate(k); if(!ws) return;
-      if(ws >= a && ws < b) s += weekInc(wt[k]);
-    });
-    return Math.round(s * 100) / 100;
-  }
-  return {
-    weekly: weekInc(thisWeek),
-    monthly: sumRange(cs, ce),
-    lastMonth: sumRange(ps, cs),
-    weekSales: Math.round(thisWeek * 100) / 100
-  };
-}
-window.ocIncentiveFor = calc;
-
-/* every user's own slice of the orders, exactly like scope() does for them */
+/* har user ka apna orders slice - waise hi jaise scope() us user ko deta hai */
 function ordersOfUser(email){
   var all = [];
   try{ all = DB.orders() || []; }catch(e){ all = []; }
@@ -4898,68 +4990,74 @@ function ordersOfUser(email){
   return all.filter(function(o){ return o && (!o.owner || T(o.owner).toLowerCase() === e); });
 }
 
-window.ocTeamIncentive = function(){
+/* sirf wahi users jinka role "Sales Executive" ya "User" hai */
+function salesUsers(){
   var users = [];
   try{ users = AUTH.users() || []; }catch(e){ users = []; }
-  var rows = [];
-  users.forEach(function(u){
-    if(!u || !u.email) return;
-    if(T(u.status) && T(u.status).toLowerCase() !== 'active') return;
-    var mine = ordersOfUser(u.email);
-    var own = mine.filter(function(o){ return T(o.owner).toLowerCase() === T(u.email).toLowerCase(); });
-    if(!own.length) return;
-    var r = calc(mine);
-    r.name = u.name || u.email;
-    r.role = u.role || 'User';
-    r.email = u.email;
-    r.orders = own.length;
-    rows.push(r);
+  var seen = {};
+  return users.filter(function(u){
+    if(!u || !u.email) return false;
+    var k = T(u.email).toLowerCase();
+    if(seen[k]) return false;
+    seen[k] = 1;
+    if(T(u.status) && T(u.status).toLowerCase() !== 'active') return false;
+    return (typeof window.ocIsSalesRole === 'function') ? window.ocIsSalesRole(u.role) : false;
   });
-  rows.sort(function(a, b){ return (b.monthly - a.monthly) || (b.weekly - a.weekly) || T(a.name).localeCompare(T(b.name)); });
+}
+window.ocSalesUsers = salesUsers;
+
+window.ocTeamIncentive = function(){
+  var rows = [];
+  if(typeof window.ocIncMetrics !== 'function') return rows;
+  salesUsers().forEach(function(u){
+    var m = window.ocIncMetrics(ordersOfUser(u.email));
+    m.name  = u.name || u.email;
+    m.role  = u.role || 'User';
+    m.email = u.email;
+    rows.push(m);
+  });
+  rows.sort(function(a, b){
+    return (b.monthly - a.monthly) || (b.totalSales - a.totalSales) || T(a.name).localeCompare(T(b.name));
+  });
   return rows;
+};
+window.ocIncentiveFor = function(list){
+  return (typeof window.ocIncMetrics === 'function') ? window.ocIncMetrics(list) : null;
 };
 
 function initials(n){
   var p = T(n).trim().split(/\s+/);
   return ((p[0] || '').charAt(0) + (p.length > 1 ? (p[p.length - 1] || '').charAt(0) : '')).toUpperCase() || '?';
 }
-function line(lbl, val, strong){
-  return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:5px 0;border-bottom:1px solid var(--border)">'
-    + '<span style="font-size:11.5px;color:var(--text-2)">' + esc(lbl) + '</span>'
-    + '<span class="tabular" style="font-weight:' + (strong ? '750' : '650') + ';font-size:' + (strong ? '14.5' : '12.5') + 'px' + (strong ? ';color:#0ca30c' : '') + '">' + esc(val) + '</span></div>';
-}
 
-function userCard(r){
-  var pct = Math.min(100, Math.round((r.weekSales / WEEK_TARGET) * 100));
-  var hit = r.weekSales >= WEEK_TARGET;
+function userTitle(r){
   var col = (typeof avColor === 'function') ? avColor(r.name) : '#2a78d6';
-  return '<div style="border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:var(--surface)">'
-    + '<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">'
-    + '<span style="width:31px;height:31px;flex:0 0 31px;border-radius:9px;background:' + col + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">' + esc(initials(r.name)) + '</span>'
-    + '<div style="min-width:0"><div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(r.name) + '</div>'
-    + '<div style="font-size:10.5px;color:var(--muted)">' + esc(r.role) + ' \u00b7 ' + r.orders + ' order' + (r.orders === 1 ? '' : 's') + '</div></div></div>'
-    + line('Weekly Incentive', inr(r.weekly), true)
-    + line('Monthly Incentive', inr(r.monthly))
-    + line('Last Month Incentive', inr(r.lastMonth))
-    + '<div style="margin-top:9px">'
-    + '<div style="height:6px;border-radius:6px;background:var(--surface-2);overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + (hit ? '#0ca30c' : '#eda100') + '"></div></div>'
-    + '<div style="font-size:10.5px;color:var(--muted);margin-top:4px">' + (hit ? 'Target hit \u2014 ' : '') + inr(r.weekSales) + ' / ' + inr(WEEK_TARGET) + ' this week (' + pct + '%)</div>'
-    + '</div></div>';
+  return '<span style="display:inline-flex;align-items:center;gap:9px">'
+    + '<span style="width:28px;height:28px;flex:0 0 28px;border-radius:8px;background:' + col + ';color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:11px">' + esc(initials(r.name)) + '</span>'
+    + '<span>' + esc(r.name) + '</span></span>';
+}
+function userTools(r){
+  return '<div class="tools"><span style="font-size:11.5px;color:var(--muted)">' + esc(r.role) + ' &middot; ' + esc(r.email) + '</span></div>';
 }
 
 function panelHTML(){
   var rows = window.ocTeamIncentive();
   if(!rows.length) return '';
-  var tw = 0, tm = 0;
-  rows.forEach(function(r){ tw += r.weekly; tm += r.monthly; });
-  return '<div class="card" style="margin-top:0"><div class="card-head">'
-    + '<h3>Team Incentive \u2014 User-wise <span class="chip c-neutral" style="margin-left:4px">Admin view</span></h3>'
-    + '<div class="tools"><span style="font-size:11.5px;color:var(--muted)">Sum of individual weekly: <b class="tabular">' + inr(Math.round(tw * 100) / 100) + '</b> \u00b7 monthly: <b class="tabular">' + inr(Math.round(tm * 100) / 100) + '</b></span></div>'
-    + '</div>'
-    + '<div style="padding:4px 20px 8px;font-size:11.5px;color:var(--muted)">Each box uses the same rule as that user\'s own dashboard: \u20b91.3L weekly target, 1.5% of the week total, Cancelled orders excluded.</div>'
-    + '<div style="padding:4px 20px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:12px">'
-    + rows.map(userCard).join('')
-    + '</div></div>';
+  if(typeof window.ocIncDashHTML !== 'function') return '';
+  var tw = 0, tm = 0, ts = 0;
+  rows.forEach(function(r){ tw += r.weekly; tm += r.monthly; ts += r.totalSales; });
+  var head = '<div class="card" style="margin-top:0;margin-bottom:14px">'
+    + '<div class="card-head"><h3>Team Incentive Dashboards <span class="chip c-neutral" style="margin-left:4px">Admin view</span></h3>'
+    + '<div class="tools"><span style="font-size:11.5px;color:var(--muted)">' + rows.length + ' sales user' + (rows.length === 1 ? '' : 's')
+    + ' &middot; month sales <b class="tabular">' + inr(Math.round(ts * 100) / 100) + '</b>'
+    + ' &middot; month incentive <b class="tabular">' + inr(Math.round(tm * 100) / 100) + '</b>'
+    + ' &middot; this week <b class="tabular">' + inr(Math.round(tw * 100) / 100) + '</b></span></div></div>'
+    + '<div style="padding:4px 20px 16px;font-size:11.5px;color:var(--muted)">Neeche har Sales Executive / User ka apna alag incentive dashboard hai. Rule wahi hai: '
+    + inr(130000) + ' weekly target, week total par 1.5%, Cancelled orders count nahi hote.</div>'
+    + '</div>';
+  return head + rows.map(function(r){
+    return '<div style="margin-bottom:14px">' + window.ocIncDashHTML(r, userTitle(r), userTools(r)) + '</div>';
+  }).join('');
 }
 window.ocTeamIncentiveHTML = panelHTML;
 
@@ -4968,21 +5066,18 @@ window.renderDashboard = function(){
   if(typeof _rd7 === 'function') _rd7.apply(this, arguments);
   try{
     if(!content) return;
+    var old = content.querySelector('#oc-team-incentive');
+    if(old) old.remove();
     var isAdm = false;
     try{ isAdm = AUTH.isAdmin(); }catch(e){ isAdm = false; }
-    var old = content.querySelector('#oc-team-incentive');
-    if(!isAdm){ if(old) old.remove(); return; }
-    if(old) old.remove();
+    if(!isAdm) return;
     var html = panelHTML();
     if(!html) return;
     var wrap = document.createElement('div');
     wrap.id = 'oc-team-incentive';
     wrap.style.marginBottom = '16px';
     wrap.innerHTML = html;
-    var anchor = content.querySelector('#oc-incentive');
-    if(anchor && anchor.nextSibling) content.insertBefore(wrap, anchor.nextSibling);
-    else if(anchor) content.appendChild(wrap);
-    else content.insertBefore(wrap, content.firstChild);
+    content.insertBefore(wrap, content.firstChild);
   }catch(e){ console.warn('team incentive panel error', e); }
 };
 })();
