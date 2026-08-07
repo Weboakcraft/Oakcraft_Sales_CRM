@@ -3486,6 +3486,311 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
     };
   }
 })();
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   OAKCRAFT — INCENTIVE DASHBOARD + BILLING GST + FILE VISIBILITY  (added feature)
+   ---------------------------------------------------------------------------
+   • Per-user incentive (Weekly / Monthly / Last Month) — uses scope() so each
+     user sees only their own orders.
+   • Weekly target ₹1,30,000; if week total >= target -> 1.5% of week total, else 0.
+   • Week = Monday 00:00 .. Sunday 23:59. A Monday sale rolls into the new week.
+   • Monthly = sum of every completed/partial week incentive inside the month's
+     cycle (first Monday of month .. first Monday of next month). On the first
+     Monday it resets to ₹0 automatically; the closing cycle total is stored and
+     shown in "Last Month Incentive".
+   • Billing Amount always shows GST-inclusive (products total × 1.18), for both
+     the live order form and already-saved orders.
+   • Every uploaded file stays visible (order detail drawer + inside the form).
+   Cancelled orders never count toward sales.
+   ════════════════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  var GST = 0.18, WEEK_TARGET = 130000, RATE = 0.015;
+
+  /* ---- GST-inclusive billing amount for any order record ---- */
+  function billGST(o){ return Math.round(((+((o||{}).amount)||0) * (1+GST))*100)/100; }
+  window.orderBillingWithGST = billGST;
+
+  /* ---- date helpers (local time) ---- */
+  function toDate(s){ if(!s) return null; var d=new Date(String(s).slice(0,10)+'T00:00:00'); return isNaN(d.getTime())?null:d; }
+  function ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  /* Monday (0=Sun..6=Sat -> shift so Monday is start) of the week containing d */
+  function weekStart(d){ var x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); var wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); return x; }
+  function weekKey(d){ return ymd(weekStart(d)); }
+  /* first Monday of the month containing d */
+  function firstMonday(y,m){ var x=new Date(y,m,1); var wd=(x.getDay()+6)%7; x.setDate(x.getDate()+((7-wd)%7)); return x; }
+  /* the monthly-cycle start Monday for a given date: first Monday of its month,
+     but if d is before that first Monday it belongs to the previous month's cycle */
+  function cycleStart(d){ var fm=firstMonday(d.getFullYear(),d.getMonth()); if(d<fm){ var pm=new Date(d.getFullYear(),d.getMonth()-1,1); return firstMonday(pm.getFullYear(),pm.getMonth()); } return fm; }
+  function cycleEnd(startMon){ var d=new Date(startMon); var nm=new Date(d.getFullYear(),d.getMonth()+1,1); return firstMonday(nm.getFullYear(),nm.getMonth()); }
+
+  /* ---- gather this user's counting orders (exclude Cancelled) ---- */
+  function myOrders(){
+    var list=[]; try{ list=scope(DB.orders(),'orders')||[]; }catch(e){ try{ list=DB.orders()||[]; }catch(_){ list=[]; } }
+    return list.filter(function(o){ return o && o.status!=='Cancelled'; });
+  }
+
+  /* ---- weekly sales totals keyed by week-start Monday ---- */
+  function weeklyTotals(orders){
+    var map={};
+    (orders||[]).forEach(function(o){
+      var d=toDate(o.date); if(!d) return;
+      var k=weekKey(d); map[k]=(map[k]||0)+billGST(o);
+    });
+    return map;
+  }
+  function weekIncentive(total){ return total>=WEEK_TARGET ? Math.round(total*RATE*100)/100 : 0; }
+
+  /* ---- per-user localStorage key for the stored "last month" figure ---- */
+  function meKey(){ var e=''; try{ e=((AUTH.current()||{}).email||'').toLowerCase(); }catch(_){ } return 'oc_incentive_'+(e||'anon'); }
+  function loadStore(){ try{ return JSON.parse(localStorage.getItem(meKey())||'{}')||{}; }catch(e){ return {}; } }
+  function saveStore(o){ try{ localStorage.setItem(meKey(), JSON.stringify(o)); }catch(e){} }
+
+  /* Sum incentive for one monthly cycle [start, end) from weekly totals. */
+  function cycleIncentive(wt, startMon, endMon){
+    var sum=0;
+    Object.keys(wt).forEach(function(k){
+      var ws=toDate(k); if(!ws) return;
+      if(ws>=startMon && ws<endMon) sum+=weekIncentive(wt[k]);
+    });
+    return Math.round(sum*100)/100;
+  }
+
+  function computeIncentive(){
+    var orders=myOrders(), wt=weeklyTotals(orders);
+    var now=new Date();
+    var thisWeekTotal = wt[weekKey(now)]||0;
+    var weekly = weekIncentive(thisWeekTotal);
+
+    var cs=cycleStart(now), ce=cycleEnd(cs);
+    var monthly = cycleIncentive(wt, cs, ce);
+
+    /* previous cycle (the one that just closed on this cycle's start Monday) */
+    var prevStart=new Date(cs); var pm=new Date(cs.getFullYear(),cs.getMonth()-1,1); prevStart=firstMonday(pm.getFullYear(),pm.getMonth());
+    var prevCalc = cycleIncentive(wt, prevStart, cs);
+
+    /* persist rollover: when the current cycle changes, freeze the previous total */
+    var st=loadStore(), curKey=ymd(cs);
+    var lastMonth;
+    if(st.cycleKey===curKey){
+      lastMonth = (st.lastMonth!=null)?st.lastMonth:prevCalc;
+    } else {
+      /* cycle rolled over (or first run) — store previous cycle's total as Last Month */
+      lastMonth = prevCalc;
+      saveStore({cycleKey:curKey, lastMonth:lastMonth});
+    }
+    return { weekly:weekly, monthly:monthly, lastMonth:lastMonth, weekTotal:thisWeekTotal };
+  }
+  window.computeIncentive = computeIncentive;
+
+  function inr(n){ try{ return money(n); }catch(e){ return '₹'+Number(n||0).toLocaleString('en-IN'); } }
+  function incentivePanelHTML(){
+    var r=computeIncentive();
+    var box=function(ico,bg,col,val,lbl,sub){
+      return '<div class="kpi"><div class="k-top"><div class="k-ico" style="background:'+bg+';color:'+col+'">'+(I[ico]||I.money||'')+'</div></div>'
+        +'<div class="val tabular">'+inr(val)+'</div><div class="lbl">'+lbl+'</div>'
+        +(sub?'<div class="sub" style="margin-top:2px;font-size:11px;color:var(--muted)">'+sub+'</div>':'')+'</div>';
+    };
+    var pct=Math.min(100, Math.round((r.weekTotal/WEEK_TARGET)*100));
+    var hit=r.weekTotal>=WEEK_TARGET;
+    var sub = hit ? 'Target hit — '+inr(r.weekTotal)+' this week' : inr(r.weekTotal)+' / '+inr(WEEK_TARGET)+' ('+pct+'%)';
+    return '<div class="card" style="margin-top:0"><div class="card-head"><h3>My Incentive '
+      +'<span class="chip c-neutral" style="margin-left:4px">1.5% over ₹1.3L / week</span></h3></div>'
+      +'<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);padding:6px 4px 4px">'
+      + box('money','rgba(12,163,12,.13)','#0ca30c', r.weekly,  'Weekly Incentive Amount', sub)
+      + box('flow','rgba(42,120,214,.12)','#2a78d6', r.monthly, 'Monthly Incentive Amount', 'Current month cycle')
+      + box('inbox','rgba(74,58,167,.14)','#4a3aa7', r.lastMonth,'Last Month Incentive', 'Previous cycle total')
+      +'</div></div>';
+  }
+
+  /* inject the incentive panel at the top of the dashboard after each render */
+  var _rd = window.renderDashboard;
+  window.renderDashboard = function(){
+    if(typeof _rd==='function') _rd.apply(this, arguments);
+    try{
+      if(!content) return;
+      if(content.querySelector('#oc-incentive')) return;
+      var wrap=document.createElement('div');
+      wrap.id='oc-incentive';
+      wrap.style.marginBottom='16px';
+      wrap.innerHTML=incentivePanelHTML();
+      content.insertBefore(wrap, content.firstChild);
+    }catch(e){ console.warn('incentive panel error', e); }
+  };
+
+  /* ============================================================
+     BILLING AMOUNT — always GST-inclusive (products total × 1.18)
+     Runs after the existing syncBilling(); re-dispatches events so the
+     dependent Total Amount / Pending Balance recalc.
+     ============================================================ */
+  var NORM=function(s){ return String(s==null?'':s).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); };
+  var RXB=/^billing( amount| amt| value)?$/;
+  function oform(){ try{ return getForm('order')||[]; }catch(e){ return []; } }
+  function billId(){ var L=oform(); for(var i=0;i<L.length;i++){ if(L[i]&&RXB.test(NORM(L[i].label))) return L[i].id; } return ''; }
+  function billEl(){ var id=billId(); return id?document.getElementById('cf-order-'+id):null; }
+  function itemsTotal(){ return (window.__orderItems||[]).reduce(function(s,it){ return s+((+it.rate||0)*(+it.qty||0)); },0); }
+
+  function applyGSTBilling(){
+    var b=billEl(); if(!b) return;
+    var base=itemsTotal();
+    var gst=Math.round(base*GST*100)/100;
+    var withGst=Math.round(base*(1+GST)*100)/100;
+    if(String(b.value)!==String(withGst)){
+      b.value=withGst;
+      b.dispatchEvent(new Event('input',{bubbles:true}));
+      b.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+    /* update hint + summary line */
+    var r=b.closest? b.closest('.form-row'):null, lb=r&&r.querySelector('label');
+    if(lb){ var h=lb.querySelector('.oc-bill-hint'); if(h) h.textContent='(auto: products total + 18% GST)'; }
+    var el=document.getElementById('o-total');
+    if(el){ el.textContent = (window.__orderItems||[]).filter(function(it){return it.product;}).length
+      +' item(s) · Products Total '+inr(base)+' · GST 18% '+inr(gst)+' · Billing Amount '+inr(withGst); }
+  }
+  var _uot=window.updateOrderTotal;
+  window.updateOrderTotal=function(){
+    if(typeof _uot==='function') _uot.apply(this, arguments);
+    try{ applyGSTBilling(); }catch(e){}
+  };
+  var _oom=window.openOrderModal;
+  window.openOrderModal=function(id){
+    if(typeof _oom==='function') _oom.apply(this, arguments);
+    setTimeout(function(){ try{ applyGSTBilling(); }catch(e){} }, 20);
+  };
+
+  /* ---- Saved orders should also DISPLAY billing with GST ----
+     money(o.amount) is shown in many places; we leave stored data untouched but
+     show the GST-inclusive value wherever the order value is presented. */
+  function relabelOrderValues(){
+    /* order detail drawer: replace the "Order Value" line value */
+    try{
+      var mb=(typeof modal!=='undefined'&&modal)?modal.querySelector('.modal-body'):null;
+      if(mb){
+        var rows=mb.querySelectorAll('div');
+        rows.forEach(function(row){
+          var sp=row.querySelector('span');
+          if(sp && /order value/i.test(sp.textContent||'')){
+            var val=row.querySelectorAll('span')[1];
+            if(val && !val.dataset.ocGst){
+              var idm=(mb.textContent.match(/ORD-[A-Z0-9]+/)||[])[0];
+              var o=idm?(DB.orders().find(function(x){return x.id===idm;})):null;
+              if(o){ val.dataset.ocGst='1'; val.textContent=inr(billGST(o))+' (incl. 18% GST)'; }
+            }
+          }
+        });
+      }
+    }catch(e){}
+  }
+  window.ocRelabelOrderValues=relabelOrderValues;
+
+  /* ============================================================
+     FILE VISIBILITY — show every uploaded file after submission
+     ============================================================ */
+  function isDataUrl(v){ return typeof v==='string' && /^data:/.test(v); }
+  function fileName(v){ var m=/;name=([^;,]+)/.exec(v||''); if(m){ try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; } } return 'file'; }
+  function mimeOf(v){ var m=/^data:([^;]+)/.exec(v||''); return m?m[1]:''; }
+  function openDataUrl(v){
+    try{
+      var mime=mimeOf(v)||'application/octet-stream';
+      var i=v.indexOf('base64,'); var b64=i>=0?v.slice(i+7):'';
+      var bin=atob(b64); var arr=new Uint8Array(bin.length); for(var j=0;j<bin.length;j++) arr[j]=bin.charCodeAt(j);
+      var blob=new Blob([arr],{type:mime}); var url=URL.createObjectURL(blob);
+      window.open(url,'_blank','noopener'); setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+    }catch(e){ try{ window.open(v,'_blank','noopener'); }catch(_){}}
+  }
+  function downloadDataUrl(v){
+    try{ var a=document.createElement('a'); a.href=v; a.download=fileName(v); document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
+  }
+  window.ocOpenFile=function(key){ var v=window.__ocFileMap&&window.__ocFileMap[key]; if(v) openDataUrl(v); };
+  window.ocDlFile=function(key){ var v=window.__ocFileMap&&window.__ocFileMap[key]; if(v) downloadDataUrl(v); };
+  window.__ocFileMap=window.__ocFileMap||{};
+
+  function filePreviewHTML(v, label){
+    var key='f'+(Math.random().toString(36).slice(2));
+    window.__ocFileMap[key]=v;
+    var nm=fileName(v), mime=mimeOf(v);
+    var thumb = /^image\//.test(mime)
+      ? '<img src="'+v+'" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">'
+      : '<div style="width:46px;height:46px;border-radius:8px;border:1px solid var(--border);display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--muted);background:var(--surface-2)">'+((mime.split('/')[1]||'FILE').slice(0,4).toUpperCase())+'</div>';
+    return '<div class="oc-file-card" style="display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)">'
+      + thumb
+      + '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(label?label+': ':'')+nm+'</div>'
+      + '<div style="font-size:11px;color:var(--muted)">Uploaded file — stays available</div></div>'
+      + '<button type="button" class="btn sm" onclick="ocOpenFile(\''+key+'\')">View</button>'
+      + '<button type="button" class="btn sm" onclick="ocDlFile(\''+key+'\')">Download</button>'
+      + '</div>';
+  }
+
+  /* Inside the order/enquiry form: show the previously-uploaded file under each
+     file input, so it never looks lost after submission. */
+  var _cfh=window.customFieldsHTML;
+  window.customFieldsHTML=function(which, rec, group){
+    var html = (typeof _cfh==='function') ? _cfh.apply(this, arguments) : '';
+    try{
+      var cv=(rec&&rec.custom)||{};
+      var list=(typeof customFieldsFor==='function')?customFieldsFor(which):[];
+      list.forEach(function(f){
+        if(!f||f.type!=='file') return;
+        if(which==='order' && typeof orderFieldGroup==='function' && orderFieldGroup(f)!==(group||'other')) return;
+        var v=cv[f.id];
+        if(!isDataUrl(v)) return;
+        var dom='cf-'+which+'-'+f.id;
+        /* insert the preview right after this field's input container */
+        var marker='id="'+dom+'"';
+        var pos=html.indexOf(marker);
+        if(pos<0) return;
+        var closeRow=html.indexOf('</div>', pos);
+        if(closeRow<0) return;
+        html = html.slice(0, closeRow) + filePreviewHTML(v) + html.slice(closeRow);
+      });
+    }catch(e){ console.warn('file preview inject failed', e); }
+    return html;
+  };
+
+  /* Order detail drawer: add a "Documents & Uploads" section listing every file. */
+  var _ood=window.openOrderDetail;
+  window.openOrderDetail=function(id){
+    if(typeof _ood==='function') _ood.apply(this, arguments);
+    try{
+      var o=DB.orders().find(function(x){return x.id===id;}); if(!o) return;
+      var cv=o.custom||{};
+      var fields=(typeof getForm==='function')?(getForm('order')||[]):[];
+      var files=[];
+      fields.forEach(function(f){ if(f&&f.type==='file'&&isDataUrl(cv[f.id])) files.push({label:f.label, v:cv[f.id]}); });
+      /* also the section-1 product image if present */
+      var mb=(typeof modal!=='undefined'&&modal)?modal.querySelector('.modal-body'):null;
+      if(mb && files.length){
+        var sec=document.createElement('div');
+        sec.innerHTML='<div class="section-title">Documents &amp; Uploads <span style="font-weight:500;color:var(--muted);font-size:11.5px">('+files.length+')</span></div>'
+          + files.map(function(f){ return filePreviewHTML(f.v, f.label); }).join('');
+        var titles=Array.prototype.slice.call(mb.querySelectorAll('.section-title'));
+        var prog=titles.filter(function(t){ return /^progress$/i.test((t.textContent||'').trim()); })[0];
+        if(prog) mb.insertBefore(sec, prog); else mb.appendChild(sec);
+      }
+      relabelOrderValues();
+    }catch(e){ console.warn('order detail files failed', e); }
+  };
+
+  /* Keep previously-uploaded files when re-saving without choosing a new file.
+     (The base readCustomFields wrapper already merges prev values for missing
+      files; this adds a defensive local cache so large data URLs survive even if
+      the sheet backend drops them.) */
+  var _roc=window.readOrderCustom;
+  window.readOrderCustom=function(){
+    var c=(typeof _roc==='function')?_roc.apply(this, arguments):{};
+    try{
+      var id=window.__ocOrderEditId;
+      var prev=id?(((DB.orders()||[]).find(function(x){return x&&x.id===id;})||{}).custom||{}):{};
+      oform().forEach(function(f){
+        if(!f||f.type!=='file') return;
+        if(!isDataUrl(c[f.id]) && isDataUrl(prev[f.id])) c[f.id]=prev[f.id];
+      });
+    }catch(e){}
+    return c;
+  };
+})();
+
 </script>
 </body>
 </html>
