@@ -1145,7 +1145,7 @@ function DB_users(){
       {name:'Ujala Rajput',role:'Sales Executive',email:'ujala444e@gmail.com',phone:'7827554727',status:'Active'},
       {name:'Amira Saikh',role:'Sales Executive',email:'oc.amirashiekh@gmail.com',phone:'8800848890',status:'Active'},
       {name:'Niti Kumari',role:'Sales Executive',email:'oc.priya2001@gmail.com',phone:'9910759285',status:'Active'},
-      {name:'Mayank Mittal',role:'Sales Executive',email:'contact@oakcraft.in',phone:'9910566422',status:'Active'},
+      {name:'Mayank Mittal',role:'User',email:'contact@oakcraft.in',phone:'9910566422',status:'Active'},
       ...SALES.map((s,i)=>({name:s,role:i===0?'Sales Manager':'Sales Executive',email:s.toLowerCase().replace(' ','.')+'@oakcraft.in',phone:'',status:i===4?'Inactive':'Active'}))
     ];
     store.set('users', u);
@@ -5274,5 +5274,195 @@ try{ rebuild(); }catch(e){}
 console.log('[oc v7] row-safe save active');
 })();
 </script>
+<script>
+/* ==================================================================
+   OAKCRAFT v8 — ORDER SAVE RELIABILITY + MAYANK ROLE/DASHBOARD FIX
+   (added 08 Aug 2026)
+
+   Purpose of this block (loads LAST, so it wins over every earlier
+   override):
+
+   FIX A — Orders were saved locally, shown for a moment, then vanished
+           and never reached the Google Sheet. Root cause: the v7
+           CLOUD.push committed its "already-synced" snapshot BEFORE the
+           network POST was confirmed, and the v5 fetch shim could skip
+           the POST entirely on a per-collection hash match. A failed or
+           skipped push therefore left the row marked as synced, so it was
+           never retried; the next CLOUD.pull() overwrote local storage
+           with the Sheet's data (which never got the row) and the order
+           disappeared. This hit shared-mailbox / concurrent sessions
+           (e.g. Mayank Mittal, contact@oakcraft.in) the hardest.
+
+           Fix: for the 'orders' collection we push through a direct,
+           confirmed POST and only mark the row as synced AFTER the server
+           acknowledges it. Nothing about per-user isolation is weakened.
+
+   FIX B — Mayank Mittal's role is forced to "User" at runtime as well
+           (belt-and-suspenders with the seed change), and his owner
+           identity is normalised so his own records reliably round-trip.
+
+   FIX C — The Incentive Dashboard is hidden for Mayank Mittal ONLY
+           (contact@oakcraft.in). Every other user — including other "User"
+           role staff — still sees it, and the admin team view still
+           lists everyone except Mayank.
+================================================================== */
+(function(){
+  'use strict';
+  var MAYANK = 'contact@oakcraft.in';
+  function LC(v){ return String(v==null?'':v).trim().toLowerCase(); }
+  function isMayank(email){ return LC(email) === MAYANK; }
+
+  /* ---------- FIX B1: force Mayank's role to "User" wherever it is read ---------- */
+  function normaliseMayankRole(){
+    try{
+      var list = store.get('users', null);
+      if(Array.isArray(list)){
+        var changed = false;
+        list.forEach(function(u){
+          if(u && isMayank(u.email || (u.data && u.data.email))){
+            if(u.data && u.data.email){ if(u.data.role !== 'User'){ u.data.role = 'User'; changed = true; } }
+            else if(u.role !== 'User'){ u.role = 'User'; changed = true; }
+          }
+        });
+        if(changed){ try{ localStorage.setItem('users', JSON.stringify(list)); }catch(e){} }
+      }
+    }catch(e){}
+  }
+  // Wrap AUTH.current so Mayank's role always reads as "User" in the running app.
+  try{
+    if(typeof AUTH !== 'undefined' && typeof AUTH.current === 'function'){
+      var _cur = AUTH.current.bind(AUTH);
+      AUTH.current = function(){
+        var u = _cur();
+        if(u && isMayank(u.email)){ u = Object.assign({}, u, { role: 'User' }); }
+        return u;
+      };
+    }
+  }catch(e){}
+  // Re-run role normalisation after every cloud pull (the Sheet is the source of truth
+  // for role, so we keep pinning Mayank to "User" locally on each refresh).
+  try{
+    var _pullR = CLOUD.pull;
+    CLOUD.pull = function(){
+      var p = _pullR.apply(this, arguments);
+      return Promise.resolve(p).then(function(r){ normaliseMayankRole(); return r; });
+    };
+  }catch(e){}
+  setTimeout(normaliseMayankRole, 1500);
+  setTimeout(normaliseMayankRole, 5000);
+
+  /* ---------- FIX A: reliable, confirmed order push ----------
+     A dedicated, confirmed writer for the 'orders' collection. It always
+     performs a real network POST (bypassing the fragile per-collection
+     hash skip) and only records the row as synced once the server
+     acknowledges it, so a failed push is retried on the next save instead
+     of being silently dropped. */
+  var SNAP = 'oc_srvSnap';
+  function snap(){ try{ return JSON.parse(localStorage.getItem(SNAP) || '{}') || {}; }catch(e){ return {}; } }
+  function saveSnap(o){ try{ localStorage.setItem(SNAP, JSON.stringify(o)); }catch(e){} }
+
+  function directPostOrders(records){
+    // Use XMLHttpRequest so the v5 fetch dedupe shim never intercepts / skips it.
+    return new Promise(function(resolve){
+      try{
+        var payload = { action:'saveMany', collection:'orders', records: records };
+        try{ var sid = (window.SRV && SRV.get) ? SRV.get() : ''; if(sid) payload.sid = sid; }catch(e){}
+        var x = new XMLHttpRequest();
+        x.open('POST', CLOUD.url, true);
+        x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+        x.onload = function(){ var j=null; try{ j=JSON.parse(x.responseText); }catch(err){} resolve({ ok: x.status>=200 && x.status<300 && (!j || !j.error), resp: j }); };
+        x.onerror = function(){ resolve({ ok:false }); };
+        x.send(JSON.stringify(payload));
+      }catch(err){ resolve({ ok:false }); }
+    });
+  }
+
+  var _push = CLOUD.push.bind(CLOUD);
+  CLOUD.push = function(key, arr){
+    if(key !== 'orders'){ return _push(key, arr); }
+    try{
+      var all = snap(), was = all.orders || {}, changed = [];
+      (arr || []).forEach(function(o){
+        if(!o || !o.id) return;
+        var id = String(o.id), js = JSON.stringify(o);
+        if(was[id] === js) return;                 // genuinely unchanged
+        changed.push({ o:o, id:id, js:js });
+      });
+      if(!changed.length){ return; }
+      var records = changed.map(function(c){ return { id: c.id, data: c.o }; });
+      // Fire a confirmed write; only mark synced on success.
+      directPostOrders(records).then(function(res){
+        if(res && res.ok){
+          var a2 = snap(), w2 = a2.orders || {};
+          changed.forEach(function(c){ w2[c.id] = c.js; });
+          a2.orders = w2; saveSnap(a2);
+          console.log('[oc v8] orders push confirmed:', records.length, 'row(s)');
+        } else {
+          console.warn('[oc v8] orders push FAILED — will retry on next save');
+          try{ toast('Order sync pending — internet check kijiye'); }catch(e){}
+        }
+      });
+    }catch(e){ console.warn('[oc v8] push override failed, falling back', e); return _push(key, arr); }
+  };
+
+  /* ---------- FIX B2: normalise owner identity for Mayank's records ----------
+     stampOwner already sets owner = current user's email. We additionally
+     lowercase/trim the stored owner so the fail-closed scope() (which
+     compares lowercased) always matches on the round-trip. This is safe
+     for every user and simply guarantees a record created by someone is
+     visible to that same someone after a Sheet round-trip. */
+  try{
+    var _stamp = window.stampOwner;
+    if(typeof _stamp === 'function'){
+      window.stampOwner = function(rec){
+        var r = _stamp.apply(this, arguments);
+        try{ if(r && r.owner) r.owner = LC(r.owner); }catch(e){}
+        return r;
+      };
+    }
+  }catch(e){}
+
+  /* ---------- FIX C: hide Incentive Dashboard for Mayank ONLY ----------
+     (a) Self view: if the signed-in user is Mayank, remove the injected
+         incentive panel after each dashboard render. */
+  try{
+    var _rd = window.renderDashboard;
+    if(typeof _rd === 'function'){
+      window.renderDashboard = function(){
+        _rd.apply(this, arguments);
+        try{
+          var me = '';
+          try{ me = (AUTH.current() || {}).email; }catch(e){}
+          if(isMayank(me) && typeof content !== 'undefined' && content){
+            var p = content.querySelector('#oc-incentive');
+            if(p) p.remove();
+          }
+        }catch(e){}
+      };
+    }
+  }catch(e){}
+  /* (b) Admin team view: exclude Mayank from the per-user dashboards list,
+         so admins see everyone else's incentive dashboard but not his. */
+  try{
+    if(typeof window.ocSalesUsers === 'function'){
+      var _su = window.ocSalesUsers;
+      window.ocSalesUsers = function(){
+        var rows = _su.apply(this, arguments) || [];
+        return rows.filter(function(u){ return !isMayank(u && u.email); });
+      };
+    }
+    if(typeof window.ocTeamIncentive === 'function'){
+      var _ti = window.ocTeamIncentive;
+      window.ocTeamIncentive = function(){
+        var rows = _ti.apply(this, arguments) || [];
+        return rows.filter(function(r){ return !isMayank(r && r.email); });
+      };
+    }
+  }catch(e){}
+
+  console.log('[oc v8] order-save reliability + Mayank role/dashboard fix active');
+})();
+</script>
+
 </body>
 </html>
