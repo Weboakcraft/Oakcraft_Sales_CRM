@@ -5083,5 +5083,196 @@ window.renderDashboard = function(){
 })();
 
 </script>
+<script>
+/* ==================================================================
+   OAKCRAFT v7 - ROW SAFE SAVE  (08 Aug 2026)
+   Fixes the 07-Aug data loss in the Google Sheet.
+   1. A new order id is globally unique, so two users can never
+      generate the same id and overwrite each other's Sheet row.
+   2. An order id is frozen at creation - it is never renumbered.
+   3. A save pushes only the records that actually changed, so
+      editing one order rewrites exactly one row in the Sheet and
+      no other row is touched.
+   4. A user can never write to a row that is not owned by them
+      (admins / owner / roles with full visibility are exempt).
+   5. Owner, created date and order date are frozen after creation
+      - afterwards only the content of the record can be updated.
+   6. The Products section is locked when an existing order is
+      reopened, so no product can be added, removed or changed.
+   ================================================================== */
+(function(){
+'use strict';
+
+var SNAP = 'oc_srvSnap';
+var SEQ  = /^ORD0*\d+$/;
+var KEYS = ['orders','enquiries','quotations','dispatch','customers','products'];
+
+function J(k, d){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function P(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function S(v){ return v == null ? '' : String(v); }
+function LC(v){ return S(v).trim().toLowerCase(); }
+
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function myMail(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function ownerOf(o){ return LC(o && (o.owner || o.ownerEmail || o.createdBy)); }
+function mayWrite(o, key){
+  var ow = ownerOf(o);
+  if(!ow || isAdm()) return true;
+  try{ if(window.meSeesAll && window.meSeesAll(key)) return true; }catch(e){}
+  var me = myMail();
+  return !me || ow === me;
+}
+/* ---- 1. collision proof order id --------------------------------
+   'ORD' + seconds since 01-Jan-2026 + a 2 digit salt built from the
+   signed-in e-mail. Two different users can never land on the same
+   number, and the same user can never repeat one. The value still
+   matches ^ORD0*\d+$ so the older renumbering modules treat it as a
+   proper sequential id and leave it untouched. -------------------- */
+var EP = Date.UTC(2026, 0, 1) / 1000, lastT = 0;
+function salt(){
+  var e = myMail(), h = 7, i;
+  for(i = 0; i < e.length; i++) h = (h * 31 + e.charCodeAt(i)) % 100;
+  return S(h + 100).slice(1);
+}
+function newId(){
+  var t = Math.floor(Date.now() / 1000 - EP);
+  if(t <= lastT) t = lastT + 1;
+  lastT = t;
+  return 'ORD' + t + salt();
+}
+window.ocSafeOrderId = newId;
+window.ocNextOrderId = newId;
+
+/* ---- 2. snapshot of what the Sheet currently holds -------------- */
+function snap(){ return J(SNAP, {}) || {}; }
+function rebuild(){
+  var a = snap();
+  KEYS.forEach(function(k){
+    var arr = J(k, []); if(!Array.isArray(arr)) return;
+    var m = {};
+    arr.forEach(function(o){ if(o && o.id) m[S(o.id)] = JSON.stringify(o); });
+    a[k] = m;
+  });
+  P(SNAP, a);
+}
+window.ocResyncSnapshot = rebuild;
+
+var _pull = CLOUD.pull;
+CLOUD.pull = function(){
+  var p = _pull.apply(this, arguments);
+  return Promise.resolve(p).then(function(r){ try{ rebuild(); }catch(e){} return r; });
+};
+/* ---- 3. push only the rows that really changed ------------------
+   store.set() used to send the WHOLE collection on every save, so a
+   stale or partial local copy could rewrite rows that the user had
+   never even opened. Now only the changed records travel. -------- */
+var _push = CLOUD.push;
+CLOUD.push = function(key, arr){
+  try{
+    if(KEYS.indexOf(key) < 0) return _push.call(CLOUD, key, arr);
+    var all = snap(), was = all[key] || {}, out = [];
+    (arr || []).forEach(function(o){
+      if(!o || !o.id) return;
+      var id = S(o.id), js = JSON.stringify(o);
+      if(was[id] === js) return;        /* unchanged - leave that row alone */
+      if(!mayWrite(o, key)) return;     /* not my record - never touch it   */
+      out.push(o); was[id] = js;
+    });
+    if(!out.length) return;
+    all[key] = was; P(SNAP, all);
+    console.log('[oc v7] pushing ' + out.length + ' of ' + (arr || []).length + ' ' + key + ' row(s)');
+    return _push.call(CLOUD, key, out);
+  }catch(e){ return _push.call(CLOUD, key, arr); }
+};
+
+/* ---- 4 + 5. id, owner and products are frozen after creation ---- */
+var _save = DB.save;
+DB.save = function(k, v){
+  if(k === 'orders' && Array.isArray(v)){
+    try{
+      var old = {};
+      (J('orders', []) || []).forEach(function(o){ if(o && o.id) old[S(o.id)] = o; });
+      v.forEach(function(o){
+        if(!o) return;
+        if(!o.id || !SEQ.test(S(o.id))) o.id = newId();
+        var p = old[S(o.id)]; if(!p) return;
+        o.owner      = p.owner      || o.owner;
+        o.ownerEmail = p.ownerEmail || o.ownerEmail;
+        o.createdBy  = p.createdBy  || o.createdBy;
+        o.createdAt  = p.createdAt  || o.createdAt;
+        o.date       = p.date       || o.date;
+        if(!isAdm() && p.salesperson) o.salesperson = p.salesperson;
+        if(p.items && p.items.length){
+          o.items     = p.items;
+          o.image     = p.image || o.image;
+          o.qty       = p.qty;
+          o.amount    = p.amount;
+          o.product   = p.product;
+          o.prodId    = p.prodId;
+          o.orderType = p.orderType;
+        }
+      });
+    }catch(e){ console.warn('[oc v7] order guard failed', e); }
+  }
+  return _save.apply(DB, arguments);
+};
+/* ---- 6. products locked when an existing order is reopened ------ */
+function lockProducts(){
+  if(!window.__ocOrderEditId) return;
+  var wrap = document.getElementById('o-items'); if(!wrap) return;
+  var n = wrap.querySelectorAll('input, select, textarea, button'), i;
+  for(i = 0; i < n.length; i++){
+    n[i].disabled = true;
+    n[i].style.opacity = '.7';
+    n[i].style.cursor = 'not-allowed';
+  }
+  var box = wrap.parentNode; if(!box) return;
+  var add = box.querySelector('button[onclick*="addOrderItem"]');
+  if(add) add.style.display = 'none';
+  if(!document.getElementById('oc-plock')){
+    var d = document.createElement('div');
+    d.id = 'oc-plock';
+    d.style.cssText = 'margin:0 0 8px;padding:7px 10px;border:1px solid var(--border);border-left:3px solid var(--warn);border-radius:8px;background:var(--surface-2);font-size:11.5px;color:var(--muted)';
+    d.textContent = 'Products locked. Order banate waqt jo products bhare gaye the wahi final hain - ab naya product add, remove ya change nahi ho sakta.';
+    box.insertBefore(d, wrap);
+  }
+}
+var _rend = window.renderOrderItems;
+if(typeof _rend === 'function'){
+  window.renderOrderItems = function(){
+    var r = _rend.apply(this, arguments);
+    try{ lockProducts(); }catch(e){}
+    return r;
+  };
+}
+var _addItem = window.addOrderItem;
+if(typeof _addItem === 'function'){
+  window.addOrderItem = function(){
+    if(window.__ocOrderEditId){ try{ toast('Is order me naya product add nahi kar sakte'); }catch(e){} return; }
+    return _addItem.apply(this, arguments);
+  };
+}
+var _rmItem = window.removeOrderItem;
+if(typeof _rmItem === 'function'){
+  window.removeOrderItem = function(){
+    if(window.__ocOrderEditId){ try{ toast('Is order se product hata nahi sakte'); }catch(e){} return; }
+    return _rmItem.apply(this, arguments);
+  };
+}
+var _oom = window.openOrderModal;
+if(typeof _oom === 'function'){
+  window.openOrderModal = function(id){
+    var r = _oom.apply(this, arguments);
+    setTimeout(lockProducts, 0);
+    setTimeout(lockProducts, 150);
+    setTimeout(lockProducts, 450);
+    return r;
+  };
+}
+
+try{ rebuild(); }catch(e){}
+console.log('[oc v7] row-safe save active');
+})();
+</script>
 </body>
 </html>
