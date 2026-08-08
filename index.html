@@ -1827,8 +1827,8 @@ function openOrderDetail(id){
 let toastT;
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600);}
 function refreshBadges(){
-  document.getElementById('nb-enq').textContent=DB.enquiries().filter(e=>e.stage==='New').length;
-  document.getElementById('nb-ord').textContent=DB.orders().filter(o=>!['Delivered','Cancelled'].includes(o.status)).length;
+  document.getElementById('nb-enq').textContent=DB.enquiries().length;
+  document.getElementById('nb-ord').textContent=DB.orders().length;
   document.getElementById('nb-dis').textContent=DB.dispatch().filter(d=>d.status!=='Delivered').length;
 }
 function applyTheme(){ document.getElementById('themeBtn').innerHTML=isDark()?I.sun:I.moon; }
