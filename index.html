@@ -982,7 +982,7 @@ function renderOrderItems(){
     const typeOpts = TYPES.map(t=>`<option ${it.type===t?'selected':''}>${t}</option>`).join('');
     const nameField = manual
       ? `<input class="oi-name" data-i="${i}" value="${(it.product||'').replace(/"/g,"&quot;")}" placeholder="Enter product name" onchange="onOrderItemChange(${i})">`
-      : `<select class="oi-prod" data-i="${i}" onchange="onOrderItemChange(${i})"><option value="">-- Select product --</option>${orderProdOptions(it.prodId)}</select>`;
+      : `<input class="oi-search" data-i="${i}" list="oi-datalist-${i}" placeholder="Type to search product..." autocomplete="off" value="${(it.product||'').replace(/"/g,'&quot;')}" oninput="onProdSearch(${i}, this.value)" style="width:100%"><datalist id="oi-datalist-${i}">${DB.products().map(p=>`<option data-id="${p.id}" data-price="${p.price}" value="${p.name.replace(/"/g,'&quot;')}"></option>`).join('')}</datalist><select class="oi-prod" data-i="${i}" style="display:none">${orderProdOptions(it.prodId)}</select>`;
     const toggle = `<label class="lbl" style="font-size:11px;display:flex;align-items:center;gap:5px;margin-top:4px;cursor:pointer"><input type="checkbox" class="oi-manual" data-i="${i}" ${manual?"checked":""} onchange="toggleProdName(${i}, this.checked)"> Not in list / add new name</label>`;
     const imgPrev = it.image ? `<img src="${it.image}" style="max-width:70px;max-height:70px;border-radius:8px;margin-top:6px;display:block">` : '';
     return `<div class="panel" style="background:var(--bg);border:1px solid var(--border);margin-bottom:10px" data-row="${i}">
@@ -1035,6 +1035,19 @@ function onOrderImage(i, input){
     img.src=e.target.result;
   };
   rd.readAsDataURL(f);
+}
+function onProdSearch(i, val){
+  const rows = document.querySelectorAll('#o-items [data-row]');
+  const row = rows[i];
+  if(!row) return;
+  const sel = row.querySelector('.oi-prod');
+  if(sel){
+    const v=(val||'').trim().toLowerCase();
+    let matched='';
+    for(const o of sel.options){ if(o.value.trim().toLowerCase()===v){ matched=o.value; break; } }
+    sel.value = matched;
+  }
+  readOrderItems(); updateOrderTotal();
 }
 function onOrderItemChange(i){ readOrderItems(); updateOrderTotal(); }
 function addOrderItem(){ readOrderItems(); window.__orderItems.push({type:'EXISTING PRODUCT',prodId:'',product:'',manual:false,spec:'',image:'',qty:1,rate:0}); renderOrderItems(); }
@@ -1937,16 +1950,28 @@ function customerSelectHTML(selId, prefix, selectedCustId){
         <div><label class="lbl" style="font-size:11px">City</label><input id="${prefix}-city"></div>
         <div><label class="lbl" style="font-size:11px">Phone</label><input id="${prefix}-phone"></div>
         <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Email</label><input id="${prefix}-email"></div>
+        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Type</label><select id="${prefix}-type" style="width:100%"><option value="Enterprise">Enterprise</option><option value="SMB" selected>SMB</option><option value="Retail">Retail</option><option value="Unknown">Unknown</option></select></div>
+        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Customer Billing Address</label><textarea id="${prefix}-billaddr" rows="2" style="width:100%" oninput="syncInlineShip('${prefix}')"></textarea></div>
+        <div style="grid-column:1/3"><label class="lbl" style="display:flex;align-items:center;gap:6px;font-size:11.5px;cursor:pointer"><input type="checkbox" id="${prefix}-sameaddr" onchange="syncInlineShip('${prefix}')"> Shipping address same as billing</label></div>
+        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Customer Shipping Address</label><textarea id="${prefix}-shipaddr" rows="2" style="width:100%"></textarea></div>
       </div>
       <button type="button" class="btn primary sm" style="margin-top:10px" data-sel="${selId}" data-prefix="${prefix}" onclick="saveInlineCust(this.dataset.sel, this.dataset.prefix)">Save Customer</button>
     </div>`;
 }
 
 function toggleNewCust(prefix){ const b=document.getElementById(prefix+'-box'); if(b) b.style.display=(b.style.display==='none'?'':'none'); }
+function syncInlineShip(prefix){
+  const chk=document.getElementById(prefix+'-sameaddr');
+  const bill=document.getElementById(prefix+'-billaddr');
+  const ship=document.getElementById(prefix+'-shipaddr');
+  if(!chk||!bill||!ship) return;
+  if(chk.checked){ ship.value=bill.value; ship.setAttribute('readonly','readonly'); ship.style.opacity='0.7'; }
+  else { ship.removeAttribute('readonly'); ship.style.opacity='1'; }
+}
 function saveInlineCust(selId, prefix){
   const g=id=>{ const el=document.getElementById(prefix+'-'+id); return el?el.value.trim():''; };
   const name=g('name'); if(!name){ toast('Enter company name'); return; }
-  const rec={ id:uid('CUST-'), name, contact:g('contact'), city:g('city'), email:g('email'), phone:g('phone'), gstin:g('gst'), type:'SMB', since:new Date().getFullYear() };
+  const rec={ id:uid('CUST-'), name, contact:g('contact'), city:g('city'), email:g('email'), phone:g('phone'), gstin:g('gst'), type:g('type')||'SMB', c_msg1tc8d:g('billaddr'), c_msg1ttd9:g('shipaddr'), since:new Date().getFullYear() };
   stampOwner(rec);
   const list=DB.customers(); list.unshift(rec); DB.save('customers', list);
   const sel=document.getElementById(selId); if(sel){ const o=document.createElement('option'); o.value=rec.name; o.textContent=rec.name; o.selected=true; sel.insertBefore(o, sel.children[1]||null); sel.value=rec.name; }
