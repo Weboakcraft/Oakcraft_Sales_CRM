@@ -907,7 +907,7 @@ function openEnqModal(id){
   openModal(`<div class="modal-head"><h3>${id?'Edit':'New'} Enquiry</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div class="form-row"><label>${_lbl('f_cust','Customer')}</label>${customerSelectHTML("m-cust","enqc", e.custId)}</div>
-      <div class="form-row two"><div><label>${_lbl('f_prod','Product')}</label><select id="m-prod">${prods.map(p=>`<option ${e.prodId===p.id?'selected':''} data-price="${p.price}" data-id="${p.id}">${p.name}</option>`).join('')}</select></div>
+      <div class="form-row two"><div><label>${_lbl('f_prod','Product')}</label><input id="m-prod-search" list="m-prod-datalist" placeholder="Type to search or enter product..." autocomplete="off" value="${(e.product||'').replace(/"/g,'&quot;')}" oninput="onEnqProdSearch(this.value)" style="width:100%"><datalist id="m-prod-datalist">${prods.map(p=>`<option data-id="${p.id}" data-price="${p.price}" value="${p.name.replace(/"/g,'&quot;')}"></option>`).join('')}</datalist></div>
         <div><label>${_lbl('f_qty','Quantity')}</label><input id="m-qty" type="number" min="1" value="${e.qty||1}"></div></div>
       <div class="form-row two"><div><label>${_lbl('f_src','Source')}</label><select id="m-src"${_req('f_src')}>${_opt('f_src',SOURCES).map(s=>`<option ${e.source===s?'selected':''}>${s}</option>`).join('')}</select></div>
         <div><label>${_lbl('f_sales','Salesperson')}</label><select id="m-sales"${_req('f_sales')}>${(getForm('enquiry').find(f=>f.label==='Salesperson')?.options||SALES).map(s=>`<option ${e.salesperson===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
@@ -1049,6 +1049,7 @@ function onProdSearch(i, val){
   }
   readOrderItems(); updateOrderTotal();
 }
+function onEnqProdSearch(val){ /* datalist handles suggestions; custom text allowed */ }
 function onOrderItemChange(i){ readOrderItems(); updateOrderTotal(); }
 function addOrderItem(){ readOrderItems(); window.__orderItems.push({type:'EXISTING PRODUCT',prodId:'',product:'',manual:false,spec:'',image:'',qty:1,rate:0}); renderOrderItems(); }
 function removeOrderItem(i){ readOrderItems(); window.__orderItems.splice(i,1); renderOrderItems(); }
@@ -1107,19 +1108,24 @@ function saveOrder(id){
   DB.save('orders',list); closeModal(); toast(id?'Order updated':'Order added'); refreshBadges(); setView('orders');
 }
 function saveEnq(id){
-  const prodSel=document.getElementById('m-prod').selectedOptions[0];
+  const _pinp=document.getElementById('m-prod-search');
+  const _pname=_pinp?_pinp.value.trim():'';
+  let _pid='', _pprice=0;
+  const _dl=document.getElementById('m-prod-datalist');
+  if(_dl){ for(const o of _dl.options){ if(o.value.trim().toLowerCase()===_pname.toLowerCase()){ _pid=o.getAttribute('data-id')||''; _pprice=+o.getAttribute('data-price')||0; break; } } }
   const qty=+document.getElementById('m-qty').value||1;
   const rec={
     customer:document.getElementById('m-cust').value,
     custId:DB.customers().find(c=>c.name===document.getElementById('m-cust').value)?.id,
-    product:document.getElementById('m-prod').value, prodId:prodSel.dataset.id, qty,
+    product:_pname, prodId:_pid, qty,
     source:document.getElementById('m-src').value, salesperson:document.getElementById('m-sales').value,
     priority:document.getElementById('m-prio').value, stage:document.getElementById('m-stage').value,
-    note:document.getElementById('m-note').value, value:(+prodSel.dataset.price)*qty,
+    note:document.getElementById('m-note').value, value:_pprice*qty,
     custom:readCustomFields('enquiry')
   };
   const list=DB.enquiries();
   if(id){Object.assign(list.find(x=>x.id===id),rec);} else {rec.id=uid('ENQ-');rec.date=today();stampOwner(rec);list.unshift(rec);}
+  { const _t=id||rec.id; const _r=list.find(x=>x.id===_t); if(_r){ _r.custom=_r.custom||{}; _r.custom['c_mrwd1293']=_t; } }
   DB.save('enquiries',list); closeModal(); toast(id?'Enquiry updated ✓':'Enquiry added ✓'); refreshBadges(); setView('enquiries');
 }
 
@@ -1440,6 +1446,10 @@ function customFieldsHTML(which, rec, group){
     const dom = "cf-"+which+"-"+f.id;
     const req = f.required?" required":"";
     let input="";
+    if(which==="enquiry" && f.id==="c_mrwd1293"){
+      const eid = (rec && rec.id) ? rec.id : "";
+      return '<div class="form-row"><label>'+f.label+' <span style="color:var(--crit)">*</span></label><input id="'+dom+'" type="text" value="'+String(eid).replace(/"/g,"&quot;")+'" readonly style="background:var(--surface-2);cursor:not-allowed;color:var(--muted)" placeholder="(auto-generated on save)" title="Enquiry Id is auto-generated and locked"></div>';
+    }
     if(f.type==="longtext"){ input = '<textarea id="'+dom+'" rows="2"'+req+'>'+String(val).replace(/</g,"&lt;")+'</textarea>'; }
     else if(f.type==="number"){ input = '<input id="'+dom+'" type="number" value="'+String(val).replace(/"/g,"&quot;")+'"'+req+'>'; }
     else if(f.type==="date"){ input = '<input id="'+dom+'" type="date" value="'+String(val).replace(/"/g,"&quot;")+'"'+req+'>'; }
@@ -1945,7 +1955,12 @@ function toggleAllProd(cb){ document.querySelectorAll('.prod-chk').forEach(x=>{ 
 function bulkDeleteProducts(){ if(!AUTH.isAdmin()){ toast('Admin only'); return; } const ids=[...document.querySelectorAll('.prod-chk:checked')].map(x=>x.value); if(!ids.length){ toast('Select products to delete'); return; } if(!confirm('Delete '+ids.length+' selected product(s)? This cannot be undone.')) return; const remaining=DB.products().filter(p=>!ids.includes(p.id)); DB.save('products', remaining); toast(ids.length+' product(s) deleted'); setView('products'); }
 
 function customerSelectHTML(selId, prefix, selectedCustId){
-  const custs=DB.customers();
+  let custs=DB.customers();
+  if(prefix==='ordc'){
+    const wonIds={};
+    DB.enquiries().forEach(function(en){ if(en && String(en.stage||'').toLowerCase()==='won' && en.custId) wonIds[en.custId]=1; });
+    custs=custs.filter(function(c){ return c.origin!=='enquiry' || wonIds[c.id] || c.id===selectedCustId; });
+  }
   const opts=custs.map(c=>`<option value="${c.name.replace(/"/g,"&quot;")}" ${selectedCustId===c.id?"selected":""}>${c.name}</option>`).join("");
   return `<div style="display:flex;gap:6px;align-items:center"><select id="${selId}" style="flex:1"><option value="">-- Select customer --</option>${opts}</select>
     <button type="button" class="btn ghost sm" data-prefix="${prefix}" onclick="toggleNewCust(this.dataset.prefix)">+ New</button></div>
@@ -1989,7 +2004,7 @@ function saveInlineCust(selId, prefix){
   if(!g('type')){ toast('Select customer type'); return; }
   if(!g('billaddr')){ toast('Enter billing address'); return; }
   if(!g('shipaddr')){ toast('Enter shipping address'); return; }
-  const rec={ id:uid('CUST-'), name, contact:g('contact'), city:g('city'), email:g('email'), phone:g('phone'), gstin:g('gst'), type:g('type')||'SMB', c_msg1tc8d:g('billaddr'), c_msg1ttd9:g('shipaddr'), since:new Date().getFullYear() };
+  const rec={ id:uid('CUST-'), name, contact:g('contact'), city:g('city'), email:g('email'), phone:g('phone'), gstin:g('gst'), type:g('type')||'SMB', c_msg1tc8d:g('billaddr'), c_msg1ttd9:g('shipaddr'), origin:(prefix==='enqc'?'enquiry':'order'), since:new Date().getFullYear() };
   stampOwner(rec);
   const list=DB.customers(); list.unshift(rec); DB.save('customers', list);
   const sel=document.getElementById(selId); if(sel){ const o=document.createElement('option'); o.value=rec.name; o.textContent=rec.name; o.selected=true; sel.insertBefore(o, sel.children[1]||null); sel.value=rec.name; }
