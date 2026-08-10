@@ -1225,6 +1225,39 @@ window.addEventListener('focus', ()=>{
     if(el){ el.textContent = msg; el.style.color = ok ? 'var(--ok)' : 'var(--err)'; }
   }
 
+  window.__saveQuoteToCRM = async function(){
+    if(!configured){
+      setStatus('Google Sheets not connected yet — paste your Web App URL into the integration script.', false);
+      return;
+    }
+    try{
+      setStatus('Saving ' + fmtQno() + ' to Google Sheets…', true);
+      const P = buildPayload();
+      const firstItem = (P.items && P.items[0]) ? P.items[0].name : '';
+      const totalQty = (P.items||[]).reduce(function(a,it){ return a + (Number(it.qty)||0); }, 0) || 1;
+      const avgDisc = (P.items && P.items.length) ? Math.round((P.items.reduce(function(a,it){return a+(Number(it.disc)||0);},0) / P.items.length)) : 0;
+      const crmRec = {
+        id: P.qnoFormatted,
+        date: P.date,
+        customer: P.co || P.attn || '—',
+        product: firstItem + ((P.items && P.items.length>1) ? (' +' + (P.items.length-1) + ' more') : ''),
+        qty: totalQty,
+        amount: Number(P.grand)||0,
+        discount: avgDisc,
+        validTill: P.valid || '',
+        salesperson: P.rep || '',
+        status: 'Sent',
+        source: 'Quotation Builder',
+        items: P.items
+      };
+      await gas('save', { collection: 'quotations', record: { id: crmRec.id, data: crmRec } });
+      setStatus('✓ ' + crmRec.id + ' saved to your CRM Quotations tab.', true);
+    }catch(err){
+      console.error('Sheets save failed:', err);
+      setStatus('Could not save to Google Sheets: ' + err.message + ' — the PDF itself downloaded fine.', false);
+    }
+  };
+
   const originalDownloadPDF = window.downloadPDF;
   window.downloadPDF = async function(){
     await originalDownloadPDF.apply(this, arguments);
@@ -1474,7 +1507,6 @@ window.addEventListener('focus', ()=>{
   /* purana downloadPDF override ho jaata hai (button inline onclick use karta hai,
      jo click ke time resolve hota hai, isliye ye override kaam karta hai) */
   window.downloadPDF = async function(){
-    if(typeof repMissing === 'function' && repMissing()) return;
     var btn = document.getElementById('dlBtn');
     var label = btn ? btn.textContent : '';
     if(btn){ btn.disabled = true; btn.textContent = 'Preparing PDF\u2026'; }
@@ -1498,6 +1530,7 @@ window.addEventListener('focus', ()=>{
       var qn = (typeof S !== 'undefined' && S && S.qno) ? S.qno : '';
       var fy = (typeof FY !== 'undefined') ? FY : '';
       doc.save('OakCraft-ProForma-OAK-' + fy + '-' + qn + '.pdf');
+      if(typeof window.__saveQuoteToCRM === 'function'){ await window.__saveQuoteToCRM(); }
     }catch(e){
       console.error('vector pdf failed', e);
       pdfError();
