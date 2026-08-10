@@ -991,13 +991,13 @@ function renderOrderItems(){
         ${window.__orderItems.length>1?`<button type="button" class="icon-btn" title="Remove" onclick="removeOrderItem(${i})">✕</button>`:''}
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:8px">
-        <div><label class="lbl" style="font-size:11px">Order Type</label><select class="oi-type" data-i="${i}" onchange="onOrderItemChange(${i})">${typeOpts}</select></div>
-        <div><label class="lbl" style="font-size:11px">Product Name</label>${nameField}${toggle}</div>
-        <div><label class="lbl" style="font-size:11px">Qty</label><input class="oi-qty" data-i="${i}" type="number" min="1" value="${it.qty||1}" onchange="onOrderItemChange(${i})"></div>
-        <div><label class="lbl" style="font-size:11px">Rate (without GST)</label><input class="oi-rate" data-i="${i}" type="number" min="0" step="0.01" value="${it.rate||0}" onchange="onOrderItemChange(${i})"></div>
+        <div><label class="lbl" style="font-size:11px">Order Type <span style="color:var(--crit)">*</span></label><select class="oi-type" data-i="${i}" onchange="onOrderItemChange(${i})">${typeOpts}</select></div>
+        <div><label class="lbl" style="font-size:11px">Product Name <span style="color:var(--crit)">*</span></label>${nameField}${toggle}</div>
+        <div><label class="lbl" style="font-size:11px">Qty <span style="color:var(--crit)">*</span></label><input class="oi-qty" data-i="${i}" type="number" min="1" value="${it.qty||1}" onchange="onOrderItemChange(${i})"></div>
+        <div><label class="lbl" style="font-size:11px">Rate (without GST) <span style="color:var(--crit)">*</span></label><input class="oi-rate" data-i="${i}" type="number" min="0" step="0.01" value="${it.rate||0}" onchange="onOrderItemChange(${i})"></div>
       </div>
-      <div class="form-row" style="margin-top:8px"><label class="lbl" style="font-size:11px">Product Specification</label><textarea class="oi-spec" data-i="${i}" rows="2" placeholder="Material, size, color, finish, etc." onchange="onOrderItemChange(${i})">${it.spec||''}</textarea></div>
-      <div class="form-row"><label class="lbl" style="font-size:11px">Item Image</label><input class="oi-img" data-i="${i}" type="file" accept="image/*" onchange="onOrderImage(${i}, this)">${imgPrev}</div>
+      <div class="form-row" style="margin-top:8px"><label class="lbl" style="font-size:11px">Product Specification <span style="color:var(--crit)">*</span></label><textarea class="oi-spec" data-i="${i}" rows="2" placeholder="Material, size, color, finish, etc." onchange="onOrderItemChange(${i})">${it.spec||''}</textarea></div>
+      <div class="form-row"><label class="lbl" style="font-size:11px">Item Image <span style="color:var(--crit)">*</span></label><input class="oi-img" data-i="${i}" type="file" accept="image/*" onchange="onOrderImage(${i}, this)">${imgPrev}</div>
     </div>`;
   }).join('');
   updateOrderTotal();
@@ -1957,15 +1957,15 @@ function customerSelectHTML(selId, prefix, selectedCustId){
       </div>
       <div id="${prefix}-gstmsg" style="font-size:11.5px;color:var(--text-2);margin-bottom:8px"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div><label class="lbl" style="font-size:11px">Company Name</label><input id="${prefix}-name"></div>
-        <div><label class="lbl" style="font-size:11px">Contact Person</label><input id="${prefix}-contact"></div>
-        <div><label class="lbl" style="font-size:11px">City</label><input id="${prefix}-city"></div>
-        <div><label class="lbl" style="font-size:11px">Phone</label><input id="${prefix}-phone"></div>
+        <div><label class="lbl" style="font-size:11px">Company Name <span style="color:var(--crit)">*</span></label><input id="${prefix}-name"></div>
+        <div><label class="lbl" style="font-size:11px">Contact Person <span style="color:var(--crit)">*</span></label><input id="${prefix}-contact"></div>
+        <div><label class="lbl" style="font-size:11px">City <span style="color:var(--crit)">*</span></label><input id="${prefix}-city"></div>
+        <div><label class="lbl" style="font-size:11px">Phone <span style="color:var(--crit)">*</span></label><input id="${prefix}-phone"></div>
         <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Email</label><input id="${prefix}-email"></div>
-        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Type</label><select id="${prefix}-type" style="width:100%"><option value="Enterprise">Enterprise</option><option value="SMB" selected>SMB</option><option value="Retail">Retail</option><option value="Unknown">Unknown</option></select></div>
-        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Customer Billing Address</label><textarea id="${prefix}-billaddr" rows="2" style="width:100%" oninput="syncInlineShip('${prefix}')"></textarea></div>
+        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Type <span style="color:var(--crit)">*</span></label><select id="${prefix}-type" style="width:100%"><option value="Enterprise">Enterprise</option><option value="SMB" selected>SMB</option><option value="Retail">Retail</option><option value="Unknown">Unknown</option></select></div>
+        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Customer Billing Address <span style="color:var(--crit)">*</span></label><textarea id="${prefix}-billaddr" rows="2" style="width:100%" oninput="syncInlineShip('${prefix}')"></textarea></div>
         <div style="grid-column:1/3"><label class="lbl" style="display:flex;align-items:center;gap:6px;font-size:11.5px;cursor:pointer"><input type="checkbox" id="${prefix}-sameaddr" onchange="syncInlineShip('${prefix}')"> Shipping address same as billing</label></div>
-        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Customer Shipping Address</label><textarea id="${prefix}-shipaddr" rows="2" style="width:100%"></textarea></div>
+        <div style="grid-column:1/3"><label class="lbl" style="font-size:11px">Customer Shipping Address <span style="color:var(--crit)">*</span></label><textarea id="${prefix}-shipaddr" rows="2" style="width:100%"></textarea></div>
       </div>
       <button type="button" class="btn primary sm" style="margin-top:10px" data-sel="${selId}" data-prefix="${prefix}" onclick="saveInlineCust(this.dataset.sel, this.dataset.prefix)">Save Customer</button>
     </div>`;
@@ -3296,6 +3296,28 @@ function bindAppEvents(){
         return;
       }
       if(!String(n.value==null?'':n.value).trim()) miss.push({ label:f.label, node:n });
+    });
+    document.querySelectorAll('#o-items [data-row]').forEach(function(row){
+      var ri = row.getAttribute('data-row');
+      var checks = [
+        ['.oi-type','Order Type'],
+        [(row.querySelector('.oi-name')?'.oi-name':'.oi-prod'),'Product Name'],
+        ['.oi-qty','Qty'],
+        ['.oi-rate','Rate (without GST)'],
+        ['.oi-spec','Product Specification']
+      ];
+      checks.forEach(function(c){
+        var el = row.querySelector(c[0]);
+        if(!el) return;
+        var v = String(el.value==null?'':el.value).trim();
+        var bad = (!v) || ((c[0]=='.oi-qty'||c[0]=='.oi-rate') && !(parseFloat(v)>0));
+        if(bad) miss.push({ label:c[1]+' (Product '+(parseInt(ri,10)+1)+')', node:el });
+      });
+      var img = row.querySelector('.oi-img');
+      if(img){
+        var hasImg = (img.files && img.files.length) || row.querySelector('.oi-img-prev, [data-imgset], img.oi-thumb');
+        if(!hasImg) miss.push({ label:'Item Image (Product '+(parseInt(ri,10)+1)+')', node:img });
+      }
     });
     return miss;
   }
