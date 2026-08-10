@@ -1068,8 +1068,20 @@ function readOrderCustom(){
 }
 function saveOrder(id){
   readOrderItems();
-  const items=window.__orderItems.filter(it=>it.product);
+  const custName=(document.getElementById('o-cust')||{}).value||'';
+  if(!custName){ toast('Select a customer'); return; }
+  const allItems=window.__orderItems||[];
+  const items=allItems.filter(it=>it.product);
   if(!items.length){ toast('Add at least one product'); return; }
+  for(let n=0;n<allItems.length;n++){
+    const it=allItems[n]; const R=n+1;
+    if(!it.type){ toast('Product '+R+': select order type'); return; }
+    if(!it.product || !String(it.product).trim()){ toast('Product '+R+': enter product name'); return; }
+    if(!(+it.qty>0)){ toast('Product '+R+': enter quantity'); return; }
+    if(!(+it.rate>0)){ toast('Product '+R+': enter rate (without GST)'); return; }
+    if(!it.spec || !String(it.spec).trim()){ toast('Product '+R+': enter product specification'); return; }
+    if(!it.image){ toast('Product '+R+': upload item image'); return; }
+  }
   const totalQty=items.reduce((s,it)=>s+(+it.qty||0),0);
   const totalAmt=items.reduce((s,it)=>s+((+it.rate||0)*(+it.qty||0)),0);
   const existing=id?DB.orders().find(x=>x.id===id):{};
@@ -1971,6 +1983,12 @@ function syncInlineShip(prefix){
 function saveInlineCust(selId, prefix){
   const g=id=>{ const el=document.getElementById(prefix+'-'+id); return el?el.value.trim():''; };
   const name=g('name'); if(!name){ toast('Enter company name'); return; }
+  if(!g('contact')){ toast('Enter contact person'); return; }
+  if(!g('city')){ toast('Enter city'); return; }
+  if(!g('phone')){ toast('Enter phone'); return; }
+  if(!g('type')){ toast('Select customer type'); return; }
+  if(!g('billaddr')){ toast('Enter billing address'); return; }
+  if(!g('shipaddr')){ toast('Enter shipping address'); return; }
   const rec={ id:uid('CUST-'), name, contact:g('contact'), city:g('city'), email:g('email'), phone:g('phone'), gstin:g('gst'), type:g('type')||'SMB', c_msg1tc8d:g('billaddr'), c_msg1ttd9:g('shipaddr'), since:new Date().getFullYear() };
   stampOwner(rec);
   const list=DB.customers(); list.unshift(rec); DB.save('customers', list);
