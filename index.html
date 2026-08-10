@@ -2534,8 +2534,20 @@ function bindAppEvents(){
 
   /* tab wapas focus me aaye to session touch kar do */
   document.addEventListener('visibilitychange', function(){
-    if(!document.hidden){ try{ AUTH.touch(); }catch(e){} }
+    if(!document.hidden){ try{ AUTH.touch(); }catch(e){} try{ if(typeof AUTH!=='undefined' && AUTH.session && AUTH.session() && typeof refreshFromCloud==='function'){ refreshFromCloud(true); } }catch(e){} }
   });
+  /* OC: periodic auto-refresh so new data from other users shows up without manual reload */
+  try{
+    if(!window.__ocAutoSync){
+      window.__ocAutoSync = setInterval(function(){
+        try{
+          if(document.hidden) return;
+          if(typeof AUTH==='undefined' || !AUTH.session || !AUTH.session()) return;
+          if(typeof refreshFromCloud==='function') refreshFromCloud(true);
+        }catch(e){}
+      }, 25000);
+    }
+  }catch(e){}
 
   try{
     if(AUTH.session && AUTH.session() && !SRV.get()){
