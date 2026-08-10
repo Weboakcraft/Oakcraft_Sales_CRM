@@ -2534,8 +2534,19 @@ function bindAppEvents(){
 
   /* tab wapas focus me aaye to session touch kar do */
   document.addEventListener('visibilitychange', function(){
-    if(!document.hidden){ try{ AUTH.touch(); }catch(e){} try{ if(typeof AUTH!=='undefined' && AUTH.session && AUTH.session() && typeof refreshFromCloud==='function'){ refreshFromCloud(true); } }catch(e){} }
+    if(!document.hidden){ try{ AUTH.touch(); }catch(e){} try{ if(typeof AUTH!=='undefined' && AUTH.session && AUTH.session() && typeof refreshFromCloud==='function' && !(window.__ocUserTyping && window.__ocUserTyping())){ refreshFromCloud(true); } }catch(e){} }
   });
+  /* OC: is the user actively typing/editing a field? if so, skip auto-refresh so nothing gets disturbed */
+  window.__ocUserTyping = function(){
+    try{
+      var el = document.activeElement;
+      if(!el) return false;
+      var tag = (el.tagName||'').toLowerCase();
+      if(tag==='input' || tag==='textarea' || tag==='select') return true;
+      if(el.isContentEditable) return true;
+      return false;
+    }catch(e){ return false; }
+  };
   /* OC: periodic auto-refresh so new data from other users shows up without manual reload */
   try{
     if(!window.__ocAutoSync){
@@ -2543,6 +2554,7 @@ function bindAppEvents(){
         try{
           if(document.hidden) return;
           if(typeof AUTH==='undefined' || !AUTH.session || !AUTH.session()) return;
+          if(window.__ocUserTyping && window.__ocUserTyping()) return;
           if(typeof refreshFromCloud==='function') refreshFromCloud(true);
         }catch(e){}
       }, 25000);
