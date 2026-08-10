@@ -190,6 +190,12 @@ td .sub{color:var(--muted);font-size:12px}
 .empty{padding:50px;text-align:center;color:var(--muted)}
 @media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.grid-2,.grid-3{grid-template-columns:1fr}.pipeline{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:760px){.app{grid-template-columns:1fr}.sidebar{display:none}}
+
+.oi-suggest{position:absolute;left:0;right:0;top:100%;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(11,11,11,.12);max-height:220px;overflow:auto;margin-top:2px}
+.oi-sug-item{padding:7px 10px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--border)}
+.oi-sug-item:last-child{border-bottom:none}
+.oi-sug-item:hover{background:var(--surface-2)}
+.oi-sug-empty{padding:8px 10px;font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -907,7 +913,7 @@ function openEnqModal(id){
   openModal(`<div class="modal-head"><h3>${id?'Edit':'New'} Enquiry</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div class="form-row"><label>${_lbl('f_cust','Customer')}</label>${customerSelectHTML("m-cust","enqc", e.custId)}</div>
-      <div class="form-row two"><div><label>${_lbl('f_prod','Product')}</label><input id="m-prod-search" list="m-prod-datalist" placeholder="Type to search or enter product..." autocomplete="off" value="${(e.product||'').replace(/"/g,'&quot;')}" oninput="onEnqProdSearch(this.value)" style="width:100%"><datalist id="m-prod-datalist">${prods.map(p=>`<option data-id="${p.id}" data-price="${p.price}" value="${p.name.replace(/"/g,'&quot;')}"></option>`).join('')}</datalist></div>
+      <div class="form-row two"><div><label>${_lbl('f_prod','Product')}</label><div class="oi-ac" style="position:relative"><input id="m-prod-search" placeholder="Type to search or enter product..." autocomplete="off" value="${(e.product||'').replace(/"/g,'&quot;')}" oninput="onEnqProdSearch(this.value)" onfocus="onEnqProdSearch(this.value)" onblur="hideEnqSuggest()" style="width:100%"><div id="m-prod-suggest" style="display:none"></div></div></div>
         <div><label>${_lbl('f_qty','Quantity')}</label><input id="m-qty" type="number" min="1" value="${e.qty||1}"></div></div>
       <div class="form-row two"><div><label>${_lbl('f_src','Source')}</label><select id="m-src"${_req('f_src')}>${_opt('f_src',SOURCES).map(s=>`<option ${e.source===s?'selected':''}>${s}</option>`).join('')}</select></div>
         <div><label>${_lbl('f_sales','Salesperson')}</label><select id="m-sales"${_req('f_sales')}>${(getForm('enquiry').find(f=>f.label==='Salesperson')?.options||SALES).map(s=>`<option ${e.salesperson===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
@@ -982,7 +988,7 @@ function renderOrderItems(){
     const typeOpts = TYPES.map(t=>`<option ${it.type===t?'selected':''}>${t}</option>`).join('');
     const nameField = manual
       ? `<input class="oi-name" data-i="${i}" value="${(it.product||'').replace(/"/g,"&quot;")}" placeholder="Enter product name" onchange="onOrderItemChange(${i})">`
-      : `<input class="oi-search" data-i="${i}" list="oi-datalist-${i}" placeholder="Type to search product..." autocomplete="off" value="${(it.product||'').replace(/"/g,'&quot;')}" oninput="onProdSearch(${i}, this.value)" style="width:100%"><datalist id="oi-datalist-${i}">${DB.products().map(p=>`<option data-id="${p.id}" data-price="${p.price}" value="${p.name.replace(/"/g,'&quot;')}"></option>`).join('')}</datalist><select class="oi-prod" data-i="${i}" style="display:none">${orderProdOptions(it.prodId)}</select>`;
+      : `<div class="oi-ac" style="position:relative"><input class="oi-search" data-i="${i}" placeholder="Type to search product..." autocomplete="off" value="${(it.product||'').replace(/"/g,'&quot;')}" oninput="onProdSearch(${i}, this.value)" onfocus="onProdSearch(${i}, this.value)" onblur="hideProdSuggest(${i})" style="width:100%"><div class="oi-suggest" data-i="${i}" style="display:none"></div><select class="oi-prod" data-i="${i}" style="display:none">${orderProdOptions(it.prodId)}</select></div>`;
     const toggle = `<label class="lbl" style="font-size:11px;display:flex;align-items:center;gap:5px;margin-top:4px;cursor:pointer"><input type="checkbox" class="oi-manual" data-i="${i}" ${manual?"checked":""} onchange="toggleProdName(${i}, this.checked)"> Not in list / add new name</label>`;
     const imgPrev = it.image ? `<img src="${it.image}" style="max-width:70px;max-height:70px;border-radius:8px;margin-top:6px;display:block">` : '';
     return `<div class="panel" style="background:var(--bg);border:1px solid var(--border);margin-bottom:10px" data-row="${i}">
@@ -1036,6 +1042,19 @@ function onOrderImage(i, input){
   };
   rd.readAsDataURL(f);
 }
+function __ocProdMatches(val){
+  const v=(val||'').trim().toLowerCase();
+  const all=DB.products();
+  if(!v) return all.slice(0,50);
+  return all.filter(function(p){ return String(p.name||'').toLowerCase().includes(v); }).slice(0,50);
+}
+function __ocSuggestHTML(list, val){
+  if(!list.length) return '<div class="oi-sug-empty">No matching product</div>';
+  return list.map(function(p){
+    const nm=String(p.name||'');
+    return '<div class="oi-sug-item" data-id="'+p.id+'" data-price="'+(p.price||0)+'" data-name="'+nm.replace(/"/g,'&quot;')+'">'+nm.replace(/</g,'&lt;')+'</div>';
+  }).join('');
+}
 function onProdSearch(i, val){
   const rows = document.querySelectorAll('#o-items [data-row]');
   const row = rows[i];
@@ -1047,9 +1066,39 @@ function onProdSearch(i, val){
     for(const o of sel.options){ if(o.value.trim().toLowerCase()===v){ matched=o.value; break; } }
     sel.value = matched;
   }
+  const box = row.querySelector('.oi-suggest');
+  if(box){
+    const list=__ocProdMatches(val);
+    box.innerHTML=__ocSuggestHTML(list, val);
+    box.style.display = (list.length || String(val||'').trim()) ? 'block' : 'none';
+    box.onmousedown=function(ev){
+      const it=ev.target.closest('.oi-sug-item'); if(!it) return;
+      ev.preventDefault();
+      const inp=row.querySelector('.oi-search'); if(inp) inp.value=it.getAttribute('data-name');
+      box.style.display='none';
+      onProdSearch(i, it.getAttribute('data-name'));
+    };
+  }
   readOrderItems(); updateOrderTotal();
 }
-function onEnqProdSearch(val){ /* datalist handles suggestions; custom text allowed */ }
+function hideProdSuggest(i){
+  const rows=document.querySelectorAll('#o-items [data-row]'); const row=rows[i]; if(!row) return;
+  const box=row.querySelector('.oi-suggest'); if(box) setTimeout(function(){ box.style.display='none'; }, 150);
+}
+function onEnqProdSearch(val){
+  const box=document.getElementById('m-prod-suggest');
+  const inp=document.getElementById('m-prod-search');
+  if(!box||!inp) return;
+  const list=__ocProdMatches(val);
+  box.className='oi-suggest';
+  box.innerHTML=__ocSuggestHTML(list, val);
+  box.style.display = (list.length || String(val||'').trim()) ? 'block' : 'none';
+  box.onmousedown=function(ev){
+    const it=ev.target.closest('.oi-sug-item'); if(!it) return;
+    ev.preventDefault(); inp.value=it.getAttribute('data-name'); box.style.display='none';
+  };
+}
+function hideEnqSuggest(){ const box=document.getElementById('m-prod-suggest'); if(box) setTimeout(function(){ box.style.display='none'; }, 150); }
 function onOrderItemChange(i){ readOrderItems(); updateOrderTotal(); }
 function addOrderItem(){ readOrderItems(); window.__orderItems.push({type:'EXISTING PRODUCT',prodId:'',product:'',manual:false,spec:'',image:'',qty:1,rate:0}); renderOrderItems(); }
 function removeOrderItem(i){ readOrderItems(); window.__orderItems.splice(i,1); renderOrderItems(); }
@@ -1111,8 +1160,7 @@ function saveEnq(id){
   const _pinp=document.getElementById('m-prod-search');
   const _pname=_pinp?_pinp.value.trim():'';
   let _pid='', _pprice=0;
-  const _dl=document.getElementById('m-prod-datalist');
-  if(_dl){ for(const o of _dl.options){ if(o.value.trim().toLowerCase()===_pname.toLowerCase()){ _pid=o.getAttribute('data-id')||''; _pprice=+o.getAttribute('data-price')||0; break; } } }
+  { const _pl=DB.products(); for(const _p of _pl){ if(String(_p.name||'').trim().toLowerCase()===_pname.toLowerCase()){ _pid=_p.id||''; _pprice=+_p.price||0; break; } } }
   const qty=+document.getElementById('m-qty').value||1;
   const rec={
     customer:document.getElementById('m-cust').value,
