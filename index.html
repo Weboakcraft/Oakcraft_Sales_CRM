@@ -8,7 +8,7 @@ o<!DOCTYPE html><!-- build 2026-08-07a -->
 <title>OakCraft Sales CRM — Enquiry to Dispahtch</title>
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+<link rel="dns-prefetch" href="https://cdnjs.clouhdflare.com">
 <!-- Chart.js is deferred so it never blocks HTML parsing. init() runs on DOMContentLoaded,
      which fires after deferred scripts, so Chart is guaranteed to be ready by then. -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -990,7 +990,7 @@ function renderOrderItems(){
       ? `<input class="oi-name" data-i="${i}" value="${(it.product||'').replace(/"/g,"&quot;")}" placeholder="Enter product name" onchange="onOrderItemChange(${i})">`
       : `<div class="oi-ac" style="position:relative"><input class="oi-search" data-i="${i}" placeholder="Type to search product..." autocomplete="off" value="${(it.product||'').replace(/"/g,'&quot;')}" oninput="onProdSearch(${i}, this.value)" onfocus="onProdSearch(${i}, this.value)" onblur="hideProdSuggest(${i})" style="width:100%"><div class="oi-suggest" data-i="${i}" style="display:none"></div><select class="oi-prod" data-i="${i}" style="display:none">${orderProdOptions(it.prodId)}</select></div>`;
     const toggle = `<label class="lbl" style="font-size:11px;display:flex;align-items:center;gap:5px;margin-top:4px;cursor:pointer"><input type="checkbox" class="oi-manual" data-i="${i}" ${manual?"checked":""} onchange="toggleProdName(${i}, this.checked)"> Not in list / add new name</label>`;
-    const imgPrev = it.image ? `<img src="${it.image}" style="max-width:70px;max-height:70px;border-radius:8px;margin-top:6px;display:block">` : '';
+    const imgPrev = it.image ? `<img src="${it.image}" style="max-width:70px;max-height:70px;border-radius:8px;margin-top:6px;display:block"><span style="display:block;font-size:12px;color:#006300;margin-top:2px;word-break:break-all">✓ ${it.imageName||'Image uploaded'}</span>` : '';
     return `<div class="panel" style="background:var(--bg);border:1px solid var(--border);margin-bottom:10px" data-row="${i}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <strong class="lbl" style="font-size:12px">Product ${i+1}</strong>
@@ -1021,7 +1021,7 @@ function readOrderItems(){
     const qty=+((row.querySelector('.oi-qty')||{}).value)||1;
     const rate=+((row.querySelector('.oi-rate')||{}).value)||0;
     const spec=((row.querySelector('.oi-spec')||{}).value)||'';
-    window.__orderItems[i]={ type, prodId, product, manual, spec, image:cur.image||'', qty, rate };
+    window.__orderItems[i]={ type, prodId, product, manual, spec, image:cur.image||'', imageName:cur.imageName||'', qty, rate };
   });
 }
 function toggleProdName(i, checked){ readOrderItems(); const it=window.__orderItems[i]; if(it){ it.manual=!!checked; if(!checked){ it.prodId=''; } } renderOrderItems(); }
@@ -1036,7 +1036,7 @@ function onOrderImage(i, input){
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
       cv.getContext('2d').drawImage(img,0,0,w,h);
       const data=cv.toDataURL('image/jpeg',0.7);
-      readOrderItems(); if(window.__orderItems[i]) window.__orderItems[i].image=data; renderOrderItems();
+      readOrderItems(); if(window.__orderItems[i]) window.__orderItems[i].image=data; window.__orderItems[i].imageName=(f&&f.name)||''; renderOrderItems();
     };
     img.src=e.target.result;
   };
@@ -3402,7 +3402,7 @@ function bindAppEvents(){
       });
       var img = row.querySelector('.oi-img');
       if(img){
-        var hasImg = (img.files && img.files.length) || row.querySelector('.oi-img-prev, [data-imgset], img.oi-thumb');
+        var hasImg = (img.files && img.files.length) || row.querySelector('.oi-img-prev, [data-imgset], img.oi-thumb') || (window.__orderItems[ri] && window.__orderItems[ri].image);
         if(!hasImg) miss.push({ label:'Item Image (Product '+(parseInt(ri,10)+1)+')', node:img });
       }
     });
