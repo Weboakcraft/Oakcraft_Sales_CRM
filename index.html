@@ -314,6 +314,7 @@ const CLOUD = {
           if(cfg && cfg.data){ try{ localStorage.setItem(k, JSON.stringify(cfg.data)); }catch(e){ mem[k]=cfg.data; } }
         }
       });
+      try{ localStorage.removeItem('oc_syncHash'); }catch(e){}
       this.ready = true;
       return true;
     }catch(e){ console.warn('CLOUD pull failed', e); return false; }
@@ -901,7 +902,7 @@ modalBg.addEventListener('click',e=>{
     [{transform:'translateX(0)'},{transform:'translateX(-6px)'},{transform:'translateX(6px)'},{transform:'translateX(0)'}],
     {duration:220, easing:'ease'});
 });
-function openModal(html){modal.classList.remove('fb-wide');modal.innerHTML=html;modalBg.classList.add('show');}
+function openModal(html){modal.classList.remove('fb-wide');modal.innerHTML=html;modalBg.classList.add('show');try{modal.querySelectorAll('select[data-custsel]').forEach(function(s){renderCustPreview(s.id);});}catch(e){}}
 
 function openEnqModal(id){
   const e=id?DB.enquiries().find(x=>x.id===id):{};
@@ -1135,7 +1136,7 @@ function saveOrder(id){
   const first=items[0];
   const rec={
     customer:document.getElementById('o-cust').value,
-    custId:(DB.customers().find(c=>c.name===document.getElementById('o-cust').value)||{}).id,
+    custId:(custFromSel('o-cust')||{}).id,
     items,
     product: items.length>1 ? (first.product+' +'+(items.length-1)+' more') : first.product,
     prodId: first.prodId, orderType: first.type, qty: totalQty,
@@ -1161,7 +1162,7 @@ function saveEnq(id){
   const qty=+document.getElementById('m-qty').value||1;
   const rec={
     customer:document.getElementById('m-cust').value,
-    custId:DB.customers().find(c=>c.name===document.getElementById('m-cust').value)?.id,
+    custId:(custFromSel('m-cust')||{}).id,
     product:_pname, prodId:_pid, qty,
     source:document.getElementById('m-src').value, salesperson:document.getElementById('m-sales').value,
     priority:document.getElementById('m-prio').value, stage:document.getElementById('m-stage').value,
@@ -1888,7 +1889,7 @@ function openOrderDetail(id){
     <div class="modal-body">
       <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">${orderChip(o.status)}${payChip(o.payment)}</div>
       <div class="section-title" style="margin-top:0">Customer</div>
-      ${line('Company',o.customer)}${line('Contact',cust.contact||'—')}${line('Phone',cust.phone||'—')}${line('City',cust.city||'—')}
+      ${line('Company',o.customer)}${line('Contact',cust.contact||o._cContact||'—')}${line('Phone',cust.phone||o._cPhone||'—')}${line('City',cust.city||'—')}
       <div class="section-title">Order</div>
       ${line('Product',o.product)}${line('Quantity',o.qty+' '+(DB.products().find(p=>p.id===o.prodId)?.unit||'pc'))}${line('Order Value',money(o.amount))}${line('Order Date',o.date)}${line('Product Type',o.productType||orderProductTypeValue(o)||'—')}${line('Expected Delivery Date',o.expDispatch||'—')}${line('Salesperson',o.salesperson)}${quote?line('From Quotation',quote.id):''}
       <div class="section-title">Dispatch</div>
@@ -1997,7 +1998,7 @@ function stampOwner(rec){ const me=(AUTH.current()||{}).email; if(me && !rec.own
 
 /* ===== admin-only bulk delete (products) ===== */
 function toggleAllProd(cb){ document.querySelectorAll('.prod-chk').forEach(x=>{ x.checked=cb.checked; }); }
-function bulkDeleteProducts(){ if(!AUTH.isAdmin()){ toast('Admin only'); return; } const ids=[...document.querySelectorAll('.prod-chk:checked')].map(x=>x.value); if(!ids.length){ toast('Select products to delete'); return; } if(!confirm('Delete '+ids.length+' selected product(s)? This cannot be undone.')) return; const remaining=DB.products().filter(p=>!ids.includes(p.id)); DB.save('products', remaining); toast(ids.length+' product(s) deleted'); setView('products'); }
+function bulkDeleteProducts(){ if(!AUTH.isAdmin()){ toast('Admin only'); return; } const ids=[...document.querySelectorAll('.prod-chk:checked')].map(x=>x.value); if(!ids.length){ toast('Select products to delete'); return; } if(!confirm('Delete '+ids.length+' selected product(s)? This cannot be undone.')) return; const remaining=DB.products().filter(p=>!ids.includes(p.id)); DB.save('products', remaining); try{ if(typeof CLOUD!=='undefined' && typeof CLOUD.remove==='function') ids.forEach(function(pid){ CLOUD.remove('products', pid); }); }catch(e){} toast(ids.length+' product(s) deleted'); setView('products'); }
 
 function customerSelectHTML(selId, prefix, selectedCustId){
   let custs=DB.customers();
@@ -2006,9 +2007,10 @@ function customerSelectHTML(selId, prefix, selectedCustId){
     DB.enquiries().forEach(function(en){ if(en && String(en.stage||'').toLowerCase()==='won' && en.custId) wonIds[en.custId]=1; });
     custs=custs.filter(function(c){ return c.origin!=='enquiry' || wonIds[c.id] || c.id===selectedCustId; });
   }
-  const opts=custs.map(c=>`<option value="${c.name.replace(/"/g,"&quot;")}" ${selectedCustId===c.id?"selected":""}>${c.name}</option>`).join("");
-  return `<div style="display:flex;gap:6px;align-items:center"><select id="${selId}" style="flex:1"><option value="">-- Select customer --</option>${opts}</select>
+  const opts=custs.map(c=>`<option value="${c.name.replace(/"/g,"&quot;")}" data-cid="${c.id}" ${selectedCustId===c.id?"selected":""}>${c.name}</option>`).join("");
+  return `<div style="display:flex;gap:6px;align-items:center"><select id="${selId}" data-custsel="1" onchange="renderCustPreview('${selId}')" style="flex:1"><option value="">-- Select customer --</option>${opts}</select>
     <button type="button" class="btn ghost sm" data-prefix="${prefix}" onclick="toggleNewCust(this.dataset.prefix)">+ New</button></div>
+    <div id="${selId}-info" style="display:none"></div>
     <div id="${prefix}-box" style="display:none;border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px;background:var(--bg)">
       <div style="font-weight:700;font-size:12.5px;margin-bottom:8px">Add New Customer</div>
       <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
@@ -2032,6 +2034,41 @@ function customerSelectHTML(selId, prefix, selectedCustId){
 }
 
 function toggleNewCust(prefix){ const b=document.getElementById(prefix+'-box'); if(b) b.style.display=(b.style.display==='none'?'':'none'); }
+/* ---------- Customer details preview (order / enquiry form) ----------
+   Pehle dropdown sirf naam rakhta tha aur custId naam ke exact match se
+   nikalta tha -- same naam wale do customers par galat record uthta tha
+   aur thoda sa farq hone par custId khali reh jaata tha (phir detail
+   modal me sab "-" dikhta tha). Ab har option par data-cid hai. */
+function custFromSel(selId){
+  var sel = document.getElementById(selId); if(!sel) return null;
+  var list = DB.customers() || [];
+  var opt = sel.options ? sel.options[sel.selectedIndex] : null;
+  var cid = opt ? opt.getAttribute("data-cid") : "";
+  var c = null, i;
+  if(cid){ for(i=0;i<list.length;i++){ if(String(list[i].id) === String(cid)){ c = list[i]; break; } } }
+  if(!c){
+    var nm = String(sel.value || "").trim().toLowerCase();
+    for(i=0;i<list.length;i++){ if(String(list[i].name || "").trim().toLowerCase() === nm){ c = list[i]; break; } }
+  }
+  return c;
+}
+function renderCustPreview(selId){
+  var box = document.getElementById(selId + "-info"); if(!box) return;
+  var c = custFromSel(selId);
+  if(!c){ box.style.display = "none"; box.innerHTML = ""; return; }
+  function row(a, b){
+    if(!b) return "";
+    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0"><span style="color:var(--text-2)">' + a +
+           '</span><span style="font-weight:650;text-align:right">' + String(b) + '</span></div>';
+  }
+  var html = row("Contact person", c.contact) + row("Phone", c.phone || c.mobile) + row("Email", c.email) +
+             row("City", c.city) + row("GSTIN", c.gstin) + row("Type", c.type) +
+             row("Billing address", c.c_msg1tc8d) + row("Shipping address", c.c_msg1ttd9);
+  if(!html){ box.style.display = "none"; box.innerHTML = ""; return; }
+  box.style.display = "";
+  box.innerHTML = '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:8px;background:var(--surface-2);font-size:12px">' +
+    '<div style="font-weight:700;margin-bottom:6px">Customer details</div>' + html + '</div>';
+}
 function syncInlineShip(prefix){
   const chk=document.getElementById(prefix+'-sameaddr');
   const bill=document.getElementById(prefix+'-billaddr');
@@ -2052,7 +2089,7 @@ function saveInlineCust(selId, prefix){
   const rec={ id:uid('CUST-'), name, contact:g('contact'), city:g('city'), email:g('email'), phone:g('phone'), gstin:g('gst'), type:g('type')||'SMB', c_msg1tc8d:g('billaddr'), c_msg1ttd9:g('shipaddr'), origin:(prefix==='enqc'?'enquiry':'order'), since:new Date().getFullYear() };
   stampOwner(rec);
   const list=DB.customers(); list.unshift(rec); DB.save('customers', list);
-  const sel=document.getElementById(selId); if(sel){ const o=document.createElement('option'); o.value=rec.name; o.textContent=rec.name; o.selected=true; sel.insertBefore(o, sel.children[1]||null); sel.value=rec.name; }
+  const sel=document.getElementById(selId); if(sel){ const o=document.createElement('option'); o.value=rec.name; o.setAttribute('data-cid', rec.id); o.textContent=rec.name; o.selected=true; sel.insertBefore(o, sel.children[1]||null); sel.value=rec.name; try{ renderCustPreview(selId); }catch(e){} }
   const b=document.getElementById(prefix+'-box'); if(b) b.style.display='none'; toast('Customer added');
 }
 
