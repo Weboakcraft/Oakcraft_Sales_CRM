@@ -5743,5 +5743,90 @@ console.log('[oc v7] row-safe save active');
 })();
 </script>
 
-<script>(function(){if(window.__ocEditFix2)return;window.__ocEditFix2=true;function isHttp(v){return typeof v==='string'&&/^https?:\/\//i.test(v);}function isFake(v){return typeof v==='string'&&v.indexOf('fakepath')>-1;}function realVal(v){return v&&!isFake(v);}function fldFileList(which){try{var ff=JSON.parse(localStorage.getItem('formfields'));return (ff[which]||[]).filter(function(f){return f.type==='file';});}catch(e){return [];}}function fname(v){if(typeof v!=='string')return '';var m=v.match(/;name=([^;]+);base64,/);if(m){try{return decodeURIComponent(m[1]);}catch(e){return m[1];}}if(isHttp(v))return (v.split('/').pop().split('?')[0])||'file';if(isFake(v))return v.split('\').pop().split('/').pop();return '';}var base=window.readCustomFields;if(typeof base==='function'){window.readCustomFields=function(which){var out=base.apply(this,arguments)||{};try{var rec=window.__ocEditRec;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id)||document.getElementById('cf-'+f.id);if(el&&el.__ocData){out[f.id]=el.__ocData;return;}var saved=rec&&rec.custom?rec.custom[f.id]:undefined;if(realVal(saved)){out[f.id]=saved;return;}if(isFake(out[f.id]))out[f.id]='';});}catch(e){}return out;};}function decorate(){var modal=document.getElementById('modal');if(!modal)return;var which=modal.querySelector('[id^="cf-order-"]')?'order':(modal.querySelector('[id^="cf-enquiry-"]')?'enquiry':null);if(!which)return;var rec=window.__ocEditRec;if(!rec||!rec.custom)return;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id);if(!el)return;var saved=rec.custom[f.id];if(realVal(saved))el.__ocData=saved;if(el.parentNode.querySelector('.oc-prev-hint'))return;var nm=fname(saved);if(!saved&&!nm)return;var h=document.createElement('div');h.className='oc-prev-hint';h.style.cssText='font-size:12px;margin-top:4px;color:#006300;word-break:break-all';if(isHttp(saved)){h.innerHTML='\u2713 Pehle uploaded: <a href="'+saved+'" target="_blank" style="color:#1a73e8;text-decoration:underline">'+(nm||'file dekhein')+'</a> <span style="color:#888">(nayi file chunne par replace hogi)</span>';}else if(nm){h.innerHTML='\u2713 Pehle: '+nm+' <span style="color:#888">(preserve rahega; nayi file chunne par replace hogi)</span>';}else{return;}el.parentNode.appendChild(h);});}['openOrderModal','openEnqModal','openEnquiryModal'].forEach(function(fn){if(typeof window[fn]!=='function')return;var orig=window[fn];window[fn]=function(id){try{if(!id){window.__ocEditRec=null;}else{var recs=(fn==='openOrderModal')?DB.orders():((DB.enquiries?DB.enquiries():(DB.leads?DB.leads():[])));window.__ocEditRec=recs.find(function(x){return x.id===id;})||null;}}catch(e){window.__ocEditRec=null;}var r=orig.apply(this,arguments);setTimeout(decorate,60);setTimeout(decorate,250);return r;};});try{var mo=new MutationObserver(function(){if(window.__ocEditRec)decorate();});mo.observe(document.getElementById('modal')||document.body,{childList:true,subtree:true});}catch(e){}})();</script><script>(function(){if(window.__ocFileGuard)return;window.__ocFileGuard=true;function isFake(v){return typeof v==='string'&&(v.indexOf('fakepath')>-1||/^[A-Za-z]:\/.test(v));}function cleanStore(key){try{var arr=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(arr))return 0;var n=0;arr.forEach(function(o){if(isFake(o.image)){o.image='';n++;}(o.items||[]).forEach(function(it){if(isFake(it.image)){it.image='';n++;}});var c=o.custom||{};Object.keys(c).forEach(function(k){if(isFake(c[k])){c[k]='';n++;}});});if(n)localStorage.setItem(key,JSON.stringify(arr));return n;}catch(e){return 0;}}window.__ocCleanFakepaths=function(){return cleanStore('orders')+cleanStore('enquiries');};function guard(origName){var orig=window[origName];if(typeof orig!=='function'||orig.__ocGuarded)return;var wrapped=function(){var pending=[];document.querySelectorAll('#modal input[type=file]').forEach(function(inp){var picked=inp.files&&inp.files.length>0;if(picked&&!inp.__ocData){var lbl=(inp.closest('label')||inp.parentNode);pending.push((lbl&&lbl.textContent||'').trim().slice(0,40)||'a file field');}});if(pending.length){if(window.toast)window.toast('Please wait \u2014 file abhi Google Drive par upload ho rahi hai: '+pending.join(', '));else alert('File abhi upload ho rahi hai, thodi der ruko.');return false;}return orig.apply(this,arguments);};wrapped.__ocGuarded=true;window[origName]=wrapped;}guard('saveOrder');guard('saveEnq');try{window.__ocCleanFakepaths();}catch(e){}})();</script><script>(function(){if(window.__ocKeepLocal)return;window.__ocKeepLocal=true;var KEYS={orders:'__ocPend_orders',enquiries:'__ocPend_enq'};var WINDOW_MS=24*60*60*1000;var __rawSet=localStorage.setItem.bind(localStorage);function load(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}function jset(k,o){try{__rawSet(k,JSON.stringify(o));}catch(e){}}function idOf(r){return r&&(r.id||r.enqId||r.leadId);}function prevIds(kind){try{var a=JSON.parse(localStorage.getItem(kind)||'[]');var m={};a.forEach(function(r){var id=idOf(r);if(id)m[id]=r;});return m;}catch(e){return {};}}localStorage.setItem=function(k,v){if(k==='orders'||k==='enquiries'){try{var incoming=JSON.parse(v);if(Array.isArray(incoming)){var before=prevIds(k);var reg=load(KEYS[k]);var now=Date.now();var incIds={};var changed=false;incoming.forEach(function(r){var id=idOf(r);if(id)incIds[id]=true;});Object.keys(before).forEach(function(id){if(!incIds[id]&&!reg[id]){reg[id]={rec:before[id],t:now};changed=true;}});Object.keys(reg).forEach(function(id){var e=reg[id];if(now-e.t>WINDOW_MS){delete reg[id];changed=true;return;}if(incIds[id]){delete reg[id];changed=true;return;}incoming.push(e.rec);});if(changed)jset(KEYS[k],reg);v=JSON.stringify(incoming);}}catch(e){}}return __rawSet(k,v);};window.__ocKeepLocalRestore=function(){localStorage.setItem=__rawSet;};})();</script></body>
+<script>(function(){if(window.__ocEditFix2)return;window.__ocEditFix2=true;function isHttp(v){return typeof v==='string'&&/^https?:\/\//i.test(v);}function isFake(v){return typeof v==='string'&&v.indexOf('fakepath')>-1;}function realVal(v){return v&&!isFake(v);}function fldFileList(which){try{var ff=JSON.parse(localStorage.getItem('formfields'));return (ff[which]||[]).filter(function(f){return f.type==='file';});}catch(e){return [];}}function fname(v){if(typeof v!=='string')return '';var m=v.match(/;name=([^;]+);base64,/);if(m){try{return decodeURIComponent(m[1]);}catch(e){return m[1];}}if(isHttp(v))return (v.split('/').pop().split('?')[0])||'file';if(isFake(v))return v.split('\').pop().split('/').pop();return '';}var base=window.readCustomFields;if(typeof base==='function'){window.readCustomFields=function(which){var out=base.apply(this,arguments)||{};try{var rec=window.__ocEditRec;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id)||document.getElementById('cf-'+f.id);if(el&&el.__ocData){out[f.id]=el.__ocData;return;}var saved=rec&&rec.custom?rec.custom[f.id]:undefined;if(realVal(saved)){out[f.id]=saved;return;}if(isFake(out[f.id]))out[f.id]='';});}catch(e){}return out;};}function decorate(){var modal=document.getElementById('modal');if(!modal)return;var which=modal.querySelector('[id^="cf-order-"]')?'order':(modal.querySelector('[id^="cf-enquiry-"]')?'enquiry':null);if(!which)return;var rec=window.__ocEditRec;if(!rec||!rec.custom)return;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id);if(!el)return;var saved=rec.custom[f.id];if(realVal(saved))el.__ocData=saved;if(el.parentNode.querySelector('.oc-prev-hint'))return;var nm=fname(saved);if(!saved&&!nm)return;var h=document.createElement('div');h.className='oc-prev-hint';h.style.cssText='font-size:12px;margin-top:4px;color:#006300;word-break:break-all';if(isHttp(saved)){h.innerHTML='\u2713 Pehle uploaded: <a href="'+saved+'" target="_blank" style="color:#1a73e8;text-decoration:underline">'+(nm||'file dekhein')+'</a> <span style="color:#888">(nayi file chunne par replace hogi)</span>';}else if(nm){h.innerHTML='\u2713 Pehle: '+nm+' <span style="color:#888">(preserve rahega; nayi file chunne par replace hogi)</span>';}else{return;}el.parentNode.appendChild(h);});}['openOrderModal','openEnqModal','openEnquiryModal'].forEach(function(fn){if(typeof window[fn]!=='function')return;var orig=window[fn];window[fn]=function(id){try{if(!id){window.__ocEditRec=null;}else{var recs=(fn==='openOrderModal')?DB.orders():((DB.enquiries?DB.enquiries():(DB.leads?DB.leads():[])));window.__ocEditRec=recs.find(function(x){return x.id===id;})||null;}}catch(e){window.__ocEditRec=null;}var r=orig.apply(this,arguments);setTimeout(decorate,60);setTimeout(decorate,250);return r;};});try{var mo=new MutationObserver(function(){if(window.__ocEditRec)decorate();});mo.observe(document.getElementById('modal')||document.body,{childList:true,subtree:true});}catch(e){}})();</script><script>(function(){if(window.__ocFileGuard)return;window.__ocFileGuard=true;function isFake(v){return typeof v==='string'&&(v.indexOf('fakepath')>-1||/^[A-Za-z]:\/.test(v));}function cleanStore(key){try{var arr=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(arr))return 0;var n=0;arr.forEach(function(o){if(isFake(o.image)){o.image='';n++;}(o.items||[]).forEach(function(it){if(isFake(it.image)){it.image='';n++;}});var c=o.custom||{};Object.keys(c).forEach(function(k){if(isFake(c[k])){c[k]='';n++;}});});if(n)localStorage.setItem(key,JSON.stringify(arr));return n;}catch(e){return 0;}}window.__ocCleanFakepaths=function(){return cleanStore('orders')+cleanStore('enquiries');};function guard(origName){var orig=window[origName];if(typeof orig!=='function'||orig.__ocGuarded)return;var wrapped=function(){var pending=[];document.querySelectorAll('#modal input[type=file]').forEach(function(inp){var picked=inp.files&&inp.files.length>0;if(picked&&!inp.__ocData){var lbl=(inp.closest('label')||inp.parentNode);pending.push((lbl&&lbl.textContent||'').trim().slice(0,40)||'a file field');}});if(pending.length){if(window.toast)window.toast('Please wait \u2014 file abhi Google Drive par upload ho rahi hai: '+pending.join(', '));else alert('File abhi upload ho rahi hai, thodi der ruko.');return false;}return orig.apply(this,arguments);};wrapped.__ocGuarded=true;window[origName]=wrapped;}guard('saveOrder');guard('saveEnq');try{window.__ocCleanFakepaths();}catch(e){}})();</script><script>(function(){if(window.__ocKeepLocal)return;window.__ocKeepLocal=true;var KEYS={orders:'__ocPend_orders',enquiries:'__ocPend_enq'};var WINDOW_MS=24*60*60*1000;var __rawSet=localStorage.setItem.bind(localStorage);function load(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}function jset(k,o){try{__rawSet(k,JSON.stringify(o));}catch(e){}}function idOf(r){return r&&(r.id||r.enqId||r.leadId);}function prevIds(kind){try{var a=JSON.parse(localStorage.getItem(kind)||'[]');var m={};a.forEach(function(r){var id=idOf(r);if(id)m[id]=r;});return m;}catch(e){return {};}}localStorage.setItem=function(k,v){if(k==='orders'||k==='enquiries'){try{var incoming=JSON.parse(v);if(Array.isArray(incoming)){var before=prevIds(k);var reg=load(KEYS[k]);var now=Date.now();var incIds={};var changed=false;incoming.forEach(function(r){var id=idOf(r);if(id)incIds[id]=true;});Object.keys(before).forEach(function(id){if(!incIds[id]&&!reg[id]){reg[id]={rec:before[id],t:now};changed=true;}});Object.keys(reg).forEach(function(id){var e=reg[id];if(now-e.t>WINDOW_MS){delete reg[id];changed=true;return;}if(incIds[id]){delete reg[id];changed=true;return;}incoming.push(e.rec);});if(changed)jset(KEYS[k],reg);v=JSON.stringify(incoming);}}catch(e){}}return __rawSet(k,v);};window.__ocKeepLocalRestore=function(){localStorage.setItem=__rawSet;};})();</script>
+<script>
+/* ===== OAKCRAFT STICKY-DELETE PATCH (2026-08-12) =====
+   Problem: keep-local layer kisi bhi gaayab hue record ko 24h tak wapas inject kar deti thi,
+   isliye jaan-boojh kar delete kiya hua order Google Sheet se hatne ke baad bhi ghost ban kar
+   list me wapas aa jaata tha (aur pending queue se sheet me dobara upsert bhi ho jaata tha).
+   Fix: delete karte waqt id ek tombstone list (oc_delIds) me chali jaati hai. Tombstoned id
+   30 din tak na local list me restore hoti hai, na pending queue se sheet par push hoti hai. */
+(function(){
+  if(window.__ocDelSticky) return; window.__ocDelSticky = true;
+  try{ if(typeof window.__ocKeepLocalRestore === "function") window.__ocKeepLocalRestore(); }catch(e){}
+  var RAW = localStorage.setItem.bind(localStorage);
+  var KEYS = { orders:"__ocPend_orders", enquiries:"__ocPend_enq" };
+  var WINDOW_MS = 24*60*60*1000;
+  var TOMB_KEY = "oc_delIds", TOMB_MS = 30*24*60*60*1000, INTENT_MS = 8000;
+  var SEED = ["ORD1930252828","ORD1930253928","ORD1930394372"];
+  function load(k){ try{ return JSON.parse(localStorage.getItem(k) || "{}"); }catch(e){ return {}; } }
+  function jset(k,o){ try{ RAW(k, JSON.stringify(o)); }catch(e){} }
+  function idOf(r){ return r && (r.id || r.enqId || r.leadId); }
+  function tombGet(){ var t = load(TOMB_KEY), now = Date.now(), ch = false;
+    Object.keys(t).forEach(function(id){ if(now - t[id] > TOMB_MS){ delete t[id]; ch = true; } });
+    if(ch) jset(TOMB_KEY, t); return t; }
+  function tombAdd(ids){ var t = tombGet(), now = Date.now(), ch = false;
+    (ids || []).forEach(function(id){ id = String(id || ""); if(id && !t[id]){ t[id] = now; ch = true; } });
+    if(ch) jset(TOMB_KEY, t); return t; }
+  window.__ocTombAdd = tombAdd;
+  window.__ocTombList = function(){ return Object.keys(tombGet()); };
+  window.__ocTombUndo = function(id){ var t = tombGet(); delete t[String(id)]; jset(TOMB_KEY, t); };
+  tombAdd(SEED);
+  var intentAt = 0;
+  window.__ocMarkDelete = function(id){ intentAt = Date.now(); if(id) tombAdd([id]); };
+  function intent(){ return (Date.now() - intentAt) < INTENT_MS; }
+  ["deleteOrderAdmin","delRow","bulkDeleteProducts","ocPruneRetiredOrders","delUser"].forEach(function(fn){
+    var orig = window[fn];
+    if(typeof orig !== "function" || orig.__ocDelWrapped) return;
+    var w = function(){ intentAt = Date.now();
+      if(fn === "deleteOrderAdmin" && arguments[0]) tombAdd([arguments[0]]);
+      return orig.apply(this, arguments); };
+    w.__ocDelWrapped = true; window[fn] = w;
+  });
+  localStorage.setItem = function(k, v){
+    if(k === "orders" || k === "enquiries"){
+      try{
+        var incoming = JSON.parse(v);
+        if(Array.isArray(incoming)){
+          var tb = tombGet();
+          incoming = incoming.filter(function(r){ return !tb[String(idOf(r))]; });
+          var prev = []; try{ prev = JSON.parse(localStorage.getItem(k) || "[]") || []; }catch(e2){}
+          var before = {}; prev.forEach(function(r){ var id = idOf(r); if(id) before[String(id)] = r; });
+          var reg = load(KEYS[k]), now = Date.now(), changed = false, incIds = {};
+          incoming.forEach(function(r){ var id = idOf(r); if(id) incIds[String(id)] = 1; });
+          Object.keys(before).forEach(function(id){
+            if(incIds[id] || tb[id]) return;
+            if(intent()){ tombAdd([id]); tb[id] = now; if(reg[id]){ delete reg[id]; changed = true; } return; }
+            if(!reg[id]){ reg[id] = { rec: before[id], t: now }; changed = true; }
+          });
+          Object.keys(reg).forEach(function(id){
+            var e3 = reg[id];
+            if(!e3 || tb[id] || incIds[id] || (now - e3.t) > WINDOW_MS){ delete reg[id]; changed = true; return; }
+            incoming.push(e3.rec);
+          });
+          if(changed) jset(KEYS[k], reg);
+          v = JSON.stringify(incoming);
+        }
+      }catch(e){}
+    }
+    if(k === "__ocPend_orders" || k === "__ocPend_enq"){
+      try{ var o = JSON.parse(v), tb2 = tombGet(), ch2 = false;
+        Object.keys(o).forEach(function(id){ if(tb2[id]){ delete o[id]; ch2 = true; } });
+        if(ch2) v = JSON.stringify(o);
+      }catch(e){}
+    }
+    return RAW(k, v);
+  };
+  try{
+    ["orders","enquiries"].forEach(function(k){
+      var a = JSON.parse(localStorage.getItem(k) || "[]");
+      if(Array.isArray(a)) localStorage.setItem(k, JSON.stringify(a));
+    });
+    ["__ocPend_orders","__ocPend_enq"].forEach(function(k){
+      var o = localStorage.getItem(k); if(o) localStorage.setItem(k, o);
+    });
+  }catch(e){}
+})();
+</script>
+</body>
 </html>
