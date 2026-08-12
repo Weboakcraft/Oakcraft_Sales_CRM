@@ -976,7 +976,11 @@ function recalcExpectedDelivery(){
         : 'Choose a Product Type - the expected delivery date is filled in automatically.';
     }
     function orderProdOptions(sel){
-  return DB.products().map(p=>`<option ${sel===p.id?'selected':''} data-price="${p.price}" data-id="${p.id}">${p.name}</option>`).join('');
+  /* Pehla <option> hamesha KHALI rakha jaata hai. Warna jab kisi row me
+     abhi tak koi product choose nahi hua (prodId khali hai), browser apne
+     aap list ka PEHLA product select kar deta tha -- yahi wajah thi ki
+     doosra product add karte hi Product 1 me '108 black' aa jaata tha. */
+  return '<option value=""></option>' + DB.products().map(p=>`<option ${sel===p.id?'selected':''} data-price="${p.price}" data-id="${p.id}">${p.name}</option>`).join('');
 }
 function renderOrderItems(){
   const wrap=document.getElementById('o-items'); if(!wrap) return;
@@ -1015,7 +1019,20 @@ function readOrderItems(){
     const nameInp=row.querySelector('.oi-name');
     let prodId='', product='', manual=!!cur.manual;
     if(nameInp){ product=nameInp.value.trim(); prodId=''; manual=true; }
-    else if(sel){ const opt=sel.selectedOptions[0]; prodId=opt?(opt.dataset.id||''):''; product=sel.value; manual=false; }
+    else if(sel){
+      /* Source of truth ab wahi hai jo user ko dikh raha hai: .oi-search box.
+         Hidden <select> se sirf id nikaali jaati hai, naam nahi -- isse
+         re-render par kabhi bhi galat product name copy nahi hoga. */
+      const inp = row.querySelector('.oi-search');
+      const typed = inp ? String(inp.value||'').trim() : '';
+      let opt = null;
+      for(const o of sel.options){
+        if(o.value && o.value.trim().toLowerCase() === typed.toLowerCase()){ opt = o; break; }
+      }
+      product = typed;
+      prodId  = opt ? (opt.dataset.id||'') : '';
+      manual  = false;
+    }
     const qty=+((row.querySelector('.oi-qty')||{}).value)||1;
     const rate=+((row.querySelector('.oi-rate')||{}).value)||0;
     const spec=((row.querySelector('.oi-spec')||{}).value)||'';
@@ -3468,7 +3485,10 @@ function bindAppEvents(){
       var ri = row.getAttribute('data-row');
       var checks = [
         ['.oi-type','Order Type'],
-        [(row.querySelector('.oi-name')?'.oi-name':'.oi-prod'),'Product Name'],
+        /* Pehle yahan hidden .oi-prod check hota tha jo hamesha bhara
+           mila karta tha (default pehla product). Ab jo field user ko
+           dikhti hai wahi check hoti hai. */
+        [(row.querySelector('.oi-name') ? '.oi-name' : (row.querySelector('.oi-search') ? '.oi-search' : '.oi-prod')),'Product Name'],
         ['.oi-qty','Qty'],
         ['.oi-rate','Rate (without GST)'],
         ['.oi-spec','Product Specification']
