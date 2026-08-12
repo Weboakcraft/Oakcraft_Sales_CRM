@@ -843,7 +843,7 @@ function paintTable(bodyId){
     html=rows.map(x=>`<tr><td class="strong tabular">${x.id}</td><td class="sub tabular">${x.date}</td><td>${userCell(x.customer)}</td>
       <td>${x.product} <span class="sub">×${x.qty}</span></td><td class="strong tabular">${money(x.amount)}</td>
       <td class="tabular">${x.discount}%</td><td class="sub tabular">${x.validTill}</td><td>${x.salesperson.split(' ')[0]}</td><td>${quoChip(x.status)}</td>
-      <td><div class="row-actions" style="display:flex"><button onclick="convertQuote('${x.id}')" title="Convert to Order">${I.arrow}</button><button onclick="delRow('quotations','${x.id}')">${I.trash}</button></div></td></tr>`).join('')||emptyRow(10);
+      <td><div class="row-actions" style="display:flex"><button onclick="delRow('quotations','${x.id}')">${I.trash}</button></div></td></tr>`).join('')||emptyRow(10);
   }
   body.innerHTML=html;
 }
@@ -876,16 +876,13 @@ function advanceOrder(id){
   } else toast('Order moved to '+o.status);
   refreshBadges(); paintTable('ord-body');
 }
+/* --- Quote -> Order conversion DISABLED ---
+   Quotation ka data ab kabhi bhi Orders section me nahi jayega,
+   chahe uska status 'Accepted' ho jaye. Ye function sirf ek
+   no-op guard ke roop me rakha gaya hai taaki purani koi call
+   (bookmark / old markup) bhi order create na kar sake. */
 function convertQuote(id){
-  const quo=DB.quotations(); const q=quo.find(x=>x.id===id); if(!q)return;
-  const ord=DB.orders();
-  if(ord.find(o=>o.quoteId===id)){toast('Order already exists for this quote');return;}
-  q.status='Accepted'; DB.save('quotations',quo);
-  ord.push({id:uid('ORD-'),quoteId:q.id,customer:q.customer,custId:q.custId,product:q.product,qty:q.qty,
-    amount:q.amount,date:today(),status:'Confirmed',salesperson:q.salesperson,payment:'Pending',expDispatch:addDays(today(),10)});
-  DB.save('orders',ord);
-  toast('Quote converted to order ✓'); refreshBadges();
-  if(state.view==='quotations')paintTable('quo-body'); else setView('orders');
+  toast('Quote to Order conversion band hai — quotation sirf Quotations me rahegi');
 }
 function delRow(key,id){
   if(!confirm('Delete this record?'))return;
