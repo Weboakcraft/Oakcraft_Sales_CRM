@@ -3366,7 +3366,10 @@ function bindAppEvents(){
     advance:   /^advance( payment)?( amount| amt)?$/,
     full:      /^full( payment)?( amount| amt)?$/,
     fullproof: /^full( payment)?( amount| amt)? proof$/,
-    balance:   /balance/
+    balance:   /balance/,
+    /* Naye fields: Number of Boxes aur Box Amount (without GST) */
+    boxes:     /^(number of |no of |total )?box(es)?$/,
+    boxamt:    /^box(es)? amount( without gst| excl gst| ex gst)?$/
   };
   function oform(){ try{ return getForm('order') || []; }catch(e){ return []; } }
   function fidOf(kind){
@@ -3399,10 +3402,24 @@ function bindAppEvents(){
     const v = NORM((document.getElementById('o-stat')||{}).value);
     return v === 'dispatched' || v === 'delivered';
   }
+  function boxCount(){ const n = cfEl(fidOf('boxes')); return n ? money(n.value) : 0; }
+  /* Box Amount (without GST) sirf tab kaam ka hai jab Number of Boxes
+     0 se zyada ho. 0 ya khali hone par field chhup jaata hai aur uska
+     amount Total me bhi nahi jodha jaata. */
+  function boxAmount(){
+    const n = cfEl(fidOf('boxamt'));
+    if(!n || !(boxCount() > 0)) return 0;
+    return money(n.value);
+  }
+  function toggleBoxAmount(){
+    const r = cfRow(cfEl(fidOf('boxamt')));
+    if(r) r.style.display = (boxCount() > 0) ? '' : 'none';
+  }
   function recalcMoney(){
     const t  = cfEl(fidOf('total')),   b  = cfEl(fidOf('billing')), f = cfEl(fidOf('freight'));
     const bl = cfEl(fidOf('balance')), a  = cfEl(fidOf('advance')), u = cfEl(fidOf('full'));
-    const total = money(b && b.value) + money(f && f.value);
+    toggleBoxAmount();
+    const total = money(b && b.value) + money(f && f.value) + boxAmount();
     if(t)  t.value  = fmt(total);
     if(bl) bl.value = fmt(total - money(a && a.value) - money(u && u.value));
   }
@@ -3416,14 +3433,15 @@ function bindAppEvents(){
   }
   function initOrderForm(){
     if(!document.getElementById('o-items')) return;
-    lockField(cfEl(fidOf('total')),   '(auto: Billing + Freight)');
+    lockField(cfEl(fidOf('total')),   '(auto: Billing + Freight + Box Amount)');
     lockField(cfEl(fidOf('balance')), '(auto: Total - Advance - Full Payment)');
-    ['billing','freight','advance','full'].forEach(function(k){
+    ['billing','freight','advance','full','boxes','boxamt'].forEach(function(k){
       const n = cfEl(fidOf(k));
       if(n && !n.dataset.ocBound){ n.dataset.ocBound = '1'; n.addEventListener('input', recalcMoney); n.addEventListener('change', recalcMoney); }
     });
     const st = document.getElementById('o-stat');
     if(st && !st.dataset.ocBound){ st.dataset.ocBound = '1'; st.addEventListener('change', toggleFullPayment); }
+    toggleBoxAmount();
     toggleFullPayment();
   }
 
@@ -4386,16 +4404,25 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
     var amt = Number(o.amount) || 0;
     var fFreight = fieldBy(/freight\s*amount/i);
     var freight = fFreight ? (Number(cv[fFreight.id]) || 0) : 0;
+    /* Freight ke theek neeche Number of Boxes aur Box Amount (without GST).
+       Box Amount tabhi dikhta hai jab boxes 0 se zyada ho, aur wahi amount
+       Total Amount me bhi jud jaata hai. */
+    var fBoxes  = fieldBy(/^\s*(number of|no\.?\s*of)?\s*box(es)?\s*$/i);
+    var boxes   = fBoxes ? (Number(cv[fBoxes.id]) || 0) : 0;
+    var fBoxAmt = fieldBy(/box(es)?\s*amount/i);
+    var boxAmt  = (fBoxAmt && boxes > 0) ? (Number(cv[fBoxAmt.id]) || 0) : 0;
     var bill = amt * 1.18;
 
     var pay = row('Products Total (excl. GST)', inr(amt))
             + row('GST 18%', inr(amt * 0.18))
             + row('Billing Amount (incl. 18% GST)', inr(bill), true)
             + row('Freight Amount', inr(freight))
-            + row('Total Amount', inr(bill + freight), true);
+            + row((fBoxes && fBoxes.label) || 'Number of Boxes', boxes)
+            + (boxes > 0 ? row((fBoxAmt && fBoxAmt.label) || 'Box Amount (without GST)', inr(boxAmt)) : '')
+            + row('Total Amount', inr(bill + freight + boxAmt), true);
 
     var moneyRe = /(amount|amt|balance|paid|price|value|charge)/i;
-    var skipRe  = /^(billing amount|freight amount|total amount)$/i;
+    var skipRe  = /^(billing amount|freight amount|total amount|number of boxes|box(es)? amount(\s*\(without gst\))?)$/i;
     fields.forEach(function(f){
       if(!f || f.type === 'file') return;
       var lab = S(f.label).trim();
