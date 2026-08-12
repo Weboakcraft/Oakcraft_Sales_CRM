@@ -2588,6 +2588,52 @@ function bindAppEvents(){
       return out;
     };
   }
+  /* ---- UNIVERSAL DELETE PROPAGATION ---------------------------------
+     Delete alag-alag jagah se hota hai: delRow, bulkDeleteProducts,
+     deleteOrderAdmin, retired-id prune, waghera. Sheet ka saveMany sirf
+     UPSERT karta hai, isliye array se nikla hua record sheet me zinda
+     reh jaata tha aur agle pull par wapas aa jaata tha (ghost record).
+     store.set ko wrap karke hum khud dekh lete hain ki kaun si id gayab
+     hui, aur uske liye sheet par explicit delete bhej dete hain.
+     Sirf local array ka pehle-baad comparison hota hai, isliye scoped
+     (sirf apne records wale) user ke data par bhi ye safe hai. */
+  (function(){
+    if(window.__ocDelProp) return; window.__ocDelProp = true;
+
+    /* ek hi id do baar delete na ho -- warna doosri call done:0 laut kar
+       jhoothi "delete nahi ho paaya" warning dikha deti hai */
+    var _rm = CLOUD.remove, _recent = {};
+    CLOUD.remove = function(coll, id){
+      var k = coll + "|" + id, now = Date.now();
+      if(_recent[k] && (now - _recent[k]) < 20000) return Promise.resolve(true);
+      _recent[k] = now;
+      return _rm.call(CLOUD, coll, id);
+    };
+
+    var TRACK = ["enquiries","quotations","orders","dispatch","customers","products"];
+    var _set = store.set.bind(store);
+    store.set = function(k, val){
+      var gone = [];
+      try{
+        if(TRACK.indexOf(k) >= 0 && Array.isArray(val)){
+          var before = store.get(k, []) || [], now = {}, i, id;
+          for(i = 0; i < val.length; i++){ if(val[i] && val[i].id) now[String(val[i].id)] = 1; }
+          for(i = 0; i < before.length; i++){
+            id = before[i] && before[i].id;
+            if(id && !now[String(id)]) gone.push(String(id));
+          }
+        }
+      }catch(e){}
+      var out = _set(k, val);
+      try{
+        if(gone.length){
+          console.log("[oc] sheet delete ->", k, gone.join(", "));
+          gone.forEach(function(id){ CLOUD.remove(k, id); });
+        }
+      }catch(e){}
+      return out;
+    };
+  })();
 
   /* delUser: users sheet me ek hi email ki duplicate rows ho sakti hain,
      isliye server se list lekar us email ki saari rows delete karte hain. */
