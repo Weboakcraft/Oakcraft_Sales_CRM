@@ -1511,8 +1511,12 @@ window.addEventListener('focus', ()=>{
   window.downloadPDF = async function(){
     var btn = document.getElementById('dlBtn');
     var label = btn ? btn.textContent : '';
+    /* rep ka naam aur number zaroori hain \u2014 ye quotation par print hote hain */
+    if(typeof repMissing === 'function' && repMissing()) return;
     if(btn){ btn.disabled = true; btn.textContent = 'Preparing PDF\u2026'; }
     try{
+      /* PI number ko yahin lock kar do, warna counter kabhi aage nahi badhega */
+      if(typeof reserveNumber === 'function') await reserveNumber();
       if(typeof R === 'function') R();                 // latest data se page dobara render
       if(document.fonts && document.fonts.ready) { try{ await document.fonts.ready; }catch(e){} }
       /* saari images load hone do warna PDF me miss ho jaayengi */
