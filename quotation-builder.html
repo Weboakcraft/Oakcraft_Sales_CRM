@@ -113,6 +113,9 @@ body{
 }
 .f input:focus, .f select:focus, .f textarea:focus{outline:none; border-color:var(--gold)}
 .f input.err, .f select.err{border-color:var(--err); background:#FDF1EE}
+.f input.locked, .f input[readonly]{background:#F1EEE7; color:var(--muted); cursor:not-allowed; border-style:dashed}
+.f input.locked:focus{border-color:var(--line)}
+.lockbadge{font-size:10px; color:var(--muted); letter-spacing:.02em}
 .frow{display:flex; gap:8px}
 .frow .f{flex:1}
 .item-card{
@@ -461,7 +464,7 @@ body.exporting .page{transform:none !important}
           <option value="amount">Add freight amount (₹)</option>
         </select>
       </div>
-      <div class="f"><label>Warranty</label><input id="inWar" oninput="S.warranty=this.value; R()"></div>
+      <div class="f"><label>Warranty <span class="lockbadge" title="Locked">🔒 Locked</span></label><input id="inWar" class="locked" readonly tabindex="-1" title="Warranty is locked and cannot be edited"></div>
     </div>
     <div class="f" id="frAmtWrap" style="display:none"><label>Freight amount (₹, ex-GST — added to taxable value)</label><input type="number" id="inFreight" value="0" oninput="S.freight=parseFloat(this.value)||0; R()"></div>
     <div class="f"><label>Payment terms</label><input id="inPay" oninput="S.payTerms=this.value; R()"></div>
