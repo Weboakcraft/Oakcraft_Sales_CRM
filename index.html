@@ -5828,5 +5828,1106 @@ console.log('[oc v7] row-safe save active');
   }catch(e){}
 })();
 </script>
+<script>
+/* ==============================================================================
+   META LEADS  —  SHEET STRUCTURE VIEW + BULK LEAD UPLOAD          build 2026-08-26
+   ------------------------------------------------------------------------------
+   Kya add hua:
+   1. Meta section ab wahi structure dikhata hai jo backend Google Sheet me aata
+      hai — created_time_ist | platform | full_name | phone_number | city_state |
+      lead_status | assigned_to  (Kanban board ki jagah ek proper sheet table).
+   2. lead_status ek alag field hai jo pipeline stage se dono taraf auto-link hai
+      (CREATED <-> New, CONTACTED <-> Contacted, ... ). Ek badlo, doosra khud
+      update ho jaata hai.
+   3. Bulk Lead Upload — .xlsx file, .csv file, ya seedha Google Sheet ka link.
+      Header apne aap map hota hai, duplicate phone skip hote hain, preview milta
+      hai upload se pehle.
+   4. Purane saare Meta fields (Name, Phone, Email, City, Product, Platform,
+      Campaign, Lead form, Stage, Assign to, Note) jaise the waise hi hain —
+      Add/Edit form me sab maujood hain, sirf naye fields saath me jud gaye.
+   5. Records backend sheet me bhi in hi column names ke saath push hote hain.
+   ============================================================================== */
+(function(){
+  'use strict';
+  if(!window.ML || typeof window.renderMetaLeads !== 'function') return;
+
+  /* ---------------------------------------------------------------- *
+   * 0. chhote helpers                                                 *
+   * ---------------------------------------------------------------- */
+  var _lc  = function(s){ return String(s == null ? '' : s).trim().toLowerCase(); };
+  var esc  = function(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); };
+  var pad2 = function(n){ return (n < 10 ? '0' : '') + n; };
+
+  function lsGet(k, def){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : def; }catch(e){ return def; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+  function meEmail(){ try{ var u = AUTH.current(); return u ? _lc(u.email) : ''; }catch(e){ return ''; } }
+  function meIsAdmin(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+
+  function mlAll(){ var a = lsGet('metaLeads', []); return Array.isArray(a) ? a : []; }
+  function mlSave(arr){ memoReset(); try{ store.set('metaLeads', arr); }catch(e){ lsSet('metaLeads', arr); } }
+  function mlId(){ return 'ML-' + Math.random().toString(36).slice(2, 8).toUpperCase(); }
+
+  /* hazaaron leads par har row ke liye localStorage baar-baar parse na ho —
+     ek render ke andar roster / stages / status list ek hi baar nikalte hain. */
+  var _memo = {};
+  function memoReset(){ _memo = {}; }
+
+  var META_STAGES_DEFAULT = ['New','Contacted','Qualified','Proposal','Won','Lost'];
+  function metaCfg(){
+    if(_memo.cfg) return _memo.cfg;
+    var ff = lsGet('formfields', {}) || {};
+    var c  = ff.__metaPipeline || {};
+    _memo.cfg = { stages: (Array.isArray(c.stages) && c.stages.length) ? c.stages.slice() : META_STAGES_DEFAULT.slice() };
+    return _memo.cfg;
+  }
+
+  function roster(){
+    if(_memo.roster) return _memo.roster;
+    var u = lsGet('users', []);
+    _memo.roster = (Array.isArray(u) ? u : []).filter(function(x){ return x && x.email; });
+    return _memo.roster;
+  }
+  function nameOf(email){
+    var e = _lc(email), r = roster();
+    for(var i = 0; i < r.length; i++) if(_lc(r[i].email) === e) return r[i].name || email;
+    return email || '';
+  }
+  /* naam ya email se roster ka email nikaalo (bulk upload ke assigned_to ke liye) */
+  function emailOfName(v){
+    var s = _lc(v); if(!s) return '';
+    var r = roster(), i;
+    for(i = 0; i < r.length; i++) if(_lc(r[i].email) === s) return _lc(r[i].email);
+    for(i = 0; i < r.length; i++) if(_lc(r[i].name) === s) return _lc(r[i].email);
+    /* pehla naam bhi chalega — "Ujala" -> "Ujala Rajput" */
+    for(i = 0; i < r.length; i++){
+      var n = _lc(r[i].name);
+      if(n && (n.split(' ')[0] === s || n.indexOf(s) === 0)) return _lc(r[i].email);
+    }
+    return '';
+  }
+
+  /* ---------------------------------------------------------------- *
+   * 1. sheet ka structure                                             *
+   * ---------------------------------------------------------------- */
+  var SHEET_COLS = ['created_time_ist','platform','full_name','phone_number','city_state','lead_status','assigned_to'];
+  window.ML_SHEET_COLS = SHEET_COLS.slice();
+
+  var PLAT_LABEL = { fb:'Facebook', ig:'Instagram', wa:'WhatsApp', ms:'Messenger' };
+  function platCode(p){
+    var s = _lc(p).replace(/[^a-z]/g, '');
+    if(!s) return '';
+    if(s === 'ig' || s.indexOf('insta') === 0) return 'ig';
+    if(s === 'fb' || s.indexOf('face') === 0)  return 'fb';
+    if(s === 'wa' || s.indexOf('whats') === 0) return 'wa';
+    if(s === 'ms' || s.indexOf('messen') === 0) return 'ms';
+    return _lc(p);
+  }
+
+  function statusCode(s){ return String(s == null ? '' : s).trim().toUpperCase().replace(/\s+/g, '_'); }
+  var STATUS_STAGE = {
+    CREATED:'New', NEW:'New', OPEN:'New', FRESH:'New',
+    CONTACTED:'Contacted', FOLLOW_UP:'Contacted', FOLLOWUP:'Contacted', CALLED:'Contacted',
+    QUALIFIED:'Qualified', INTERESTED:'Qualified',
+    PROPOSAL:'Proposal', QUOTED:'Proposal', QUOTATION:'Proposal',
+    WON:'Won', CONVERTED:'Won', CLOSED_WON:'Won',
+    LOST:'Lost', CLOSED:'Lost', REJECTED:'Lost', NOT_INTERESTED:'Lost', CLOSED_LOST:'Lost'
+  };
+  function statusToStage(st){
+    var stages = metaCfg().stages, v = statusCode(st), i;
+    if(!v) return stages[0] || 'New';
+    for(i = 0; i < stages.length; i++) if(statusCode(stages[i]) === v) return stages[i];
+    var s = STATUS_STAGE[v];
+    if(s && stages.indexOf(s) >= 0) return s;
+    return stages[0] || 'New';
+  }
+  function stageToStatus(stage){
+    var v = String(stage == null ? '' : stage).trim();
+    if(!v) return 'CREATED';
+    if(/^new$/i.test(v)) return 'CREATED';
+    return statusCode(v);
+  }
+  function statusOptions(){
+    if(_memo.so) return _memo.so;
+    var seen = {}, out = [];
+    function add(s){ s = statusCode(s); if(s && !seen[s]){ seen[s] = 1; out.push(s); } }
+    metaCfg().stages.forEach(function(s){ add(stageToStatus(s)); });
+    ['CREATED','CONTACTED','QUALIFIED','PROPOSAL','WON','LOST'].forEach(add);
+    mlAll().forEach(function(l){ add(l && l.lead_status); });
+    _memo.so = out;
+    return out;
+  }
+  function statusClass(s){
+    s = statusCode(s);
+    if(s === 'WON' || s === 'CONVERTED') return 'c-won';
+    if(s === 'LOST' || s === 'REJECTED' || s === 'NOT_INTERESTED') return 'c-lost';
+    if(s === 'QUALIFIED' || s === 'INTERESTED') return 'c-ship';
+    if(s === 'PROPOSAL' || s === 'QUOTED') return 'c-quo';
+    if(s === 'CONTACTED' || s === 'FOLLOW_UP') return 'c-prog';
+    return 'c-new';
+  }
+  /* inline <select> ke liye — chip class ka background yahan kaam nahi karta,
+     isliye seedha colour lagate hain (inline style sabse upar jeetta hai). */
+  function statusColor(s){
+    s = statusCode(s);
+    if(s === 'WON' || s === 'CONVERTED') return 'var(--good-ink)';
+    if(s === 'LOST' || s === 'REJECTED' || s === 'NOT_INTERESTED') return 'var(--crit)';
+    if(s === 'QUALIFIED' || s === 'INTERESTED') return '#0b7a92';
+    if(s === 'PROPOSAL' || s === 'QUOTED') return '#7a2fa8';
+    if(s === 'CONTACTED' || s === 'FOLLOW_UP') return '#b06a00';
+    return 'var(--brand)';
+  }
+
+  /* ---- created_time_ist : DD-MM-YYYY HH:MM:SS ---- */
+  function fmtIST(d){
+    if(!(d instanceof Date) || isNaN(d.getTime())) return '';
+    return pad2(d.getDate()) + '-' + pad2(d.getMonth() + 1) + '-' + d.getFullYear()
+         + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  }
+  function normTime(v){
+    if(v == null || v === '') return '';
+    if(v instanceof Date) return fmtIST(v);
+    var s = String(v).trim();
+    if(!s) return '';
+    if(/^\d{2}-\d{2}-\d{4}(\s+\d{1,2}:\d{2}(:\d{2})?)?$/.test(s)) return s;   /* pehle se sahi */
+    var m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if(m) return pad2(+m[1]) + '-' + pad2(+m[2]) + '-' + m[3] + ' ' + pad2(+(m[4] || 0)) + ':' + (m[5] || '00') + ':' + (m[6] || '00');
+    var y = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if(y) return y[3] + '-' + y[2] + '-' + y[1] + ' ' + (y[4] || '00') + ':' + (y[5] || '00') + ':' + (y[6] || '00');
+    if(/^\d+(\.\d+)?$/.test(s)){                                              /* Excel serial */
+      var n = parseFloat(s);
+      if(n > 20000 && n < 80000){
+        var dt = new Date(Math.round((n - 25569) * 86400000));
+        return pad2(dt.getUTCDate()) + '-' + pad2(dt.getUTCMonth() + 1) + '-' + dt.getUTCFullYear()
+             + ' ' + pad2(dt.getUTCHours()) + ':' + pad2(dt.getUTCMinutes()) + ':' + pad2(dt.getUTCSeconds());
+      }
+    }
+    var p = new Date(s);
+    return isNaN(p.getTime()) ? s : fmtIST(p);
+  }
+  /* sort ke liye comparable number */
+  function timeKey(s){
+    var m = String(s || '').match(/^(\d{2})-(\d{2})-(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if(!m) return 0;
+    return +(m[3] + m[2] + m[1] + pad2(+(m[4] || 0)) + (m[5] || '00') + (m[6] || '00'));
+  }
+
+  function phoneKey(p){
+    var d = String(p == null ? '' : p).replace(/\D/g, '');
+    return d.length > 10 ? d.slice(-10) : d;
+  }
+
+  /* ---------------------------------------------------------------- *
+   * 2. record normalise — naye sheet fields aur purane fields dono    *
+   *    ek doosre se sync rehte hain, kuch bhi toota nahi.             *
+   * ---------------------------------------------------------------- */
+  function mlNorm(r){
+    if(!r || typeof r !== 'object') return r;
+
+    r.full_name    = String(r.full_name    || r.name  || '').trim();
+    r.name         = r.name  || r.full_name;
+    r.phone_number = String(r.phone_number || r.phone || '').trim();
+    r.phone        = r.phone || r.phone_number;
+    r.city_state   = String(r.city_state   || r.city  || '').trim();
+    r.city         = r.city || r.city_state;
+
+    r.platform = platCode(r.platform) || 'fb';
+
+    if(!r.created_time_ist) r.created_time_ist = normTime(r.createdAt || r.updatedAt || new Date());
+    else                    r.created_time_ist = normTime(r.created_time_ist);
+
+    /* stage <-> lead_status auto-link */
+    if(r.lead_status && !r.stage)       r.stage = statusToStage(r.lead_status);
+    else if(!r.lead_status && r.stage)  r.lead_status = stageToStatus(r.stage);
+    else if(!r.lead_status && !r.stage){ r.stage = metaCfg().stages[0] || 'New'; r.lead_status = stageToStatus(r.stage); }
+    else r.lead_status = statusCode(r.lead_status);
+
+    /* assigned_to <-> owner */
+    if(!r.assigned_to && r.owner) r.assigned_to = nameOf(r.owner);
+    if(!r.owner && r.assigned_to){ var e = emailOfName(r.assigned_to); if(e) r.owner = e; }
+    r.assigned_to = String(r.assigned_to || '').trim();
+
+    r.source = r.source || 'Meta';
+    if(!r.id) r.id = mlId();
+    return r;
+  }
+  /* poore store ko ek baar normalise kar do (purane leads bhi naye structure me) */
+  function mlNormAll(persist){
+    var arr = mlAll(), changed = false;
+    arr.forEach(function(r){
+      var before = r.full_name + '|' + r.phone_number + '|' + r.city_state + '|' + r.lead_status + '|' + r.created_time_ist + '|' + r.assigned_to + '|' + r.platform;
+      mlNorm(r);
+      if(before !== (r.full_name + '|' + r.phone_number + '|' + r.city_state + '|' + r.lead_status + '|' + r.created_time_ist + '|' + r.assigned_to + '|' + r.platform)) changed = true;
+    });
+    if(changed && persist !== false) mlSave(arr);
+    return arr;
+  }
+  window.ML_normalise = mlNorm;
+
+  /* ---------------------------------------------------------------- *
+   * 3. styles                                                         *
+   * ---------------------------------------------------------------- */
+  function sheetStyle(){
+    if(document.getElementById('mlSheetStyle')) return;
+    var s = document.createElement('style');
+    s.id = 'mlSheetStyle';
+    s.textContent = [
+      '.mls-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}',
+      '.mls-tools input.mls-q{flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;font:inherit;background:var(--surface-2);color:var(--text)}',
+      '.mls-tools select.mls-f{padding:8px 10px;border:1px solid var(--border);border-radius:9px;font:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)}',
+      '.mls-kpi{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}',
+      '.mls-kpi div{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:11.5px;font-weight:600;color:var(--muted);min-width:82px}',
+      '.mls-kpi div b{display:block;font-size:19px;color:var(--text);letter-spacing:-.4px;margin-top:1px}',
+      '.mls-wrap{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow);overflow:auto;max-height:calc(100vh - 330px);min-height:260px}',
+      '.mls{width:100%;border-collapse:separate;border-spacing:0;min-width:1020px}',
+      '.mls thead th{position:sticky;top:0;z-index:3;background:var(--surface-2);border-bottom:1px solid var(--border);padding:10px 12px;text-align:left;',
+        'font:600 11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:0;text-transform:none;color:var(--text-2);white-space:nowrap}',
+      '.mls tbody td{padding:9px 12px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle;white-space:nowrap}',
+      '.mls tbody td.wrap{white-space:normal;min-width:150px}',
+      '.mls tbody tr:hover{background:var(--surface-2)}',
+      '.mls tbody tr.sel{background:rgba(42,120,214,.09)}',
+      '.mls .num{font-variant-numeric:tabular-nums;color:var(--text-2);font-size:12.5px}',
+      '.mls .cbx{width:34px;text-align:center}',
+      '.mls select.inl{border:1px solid transparent;background:transparent;color:inherit;font:inherit;font-size:12px;font-weight:600;padding:3px 5px;border-radius:7px;max-width:150px}',
+      '.mls select.inl:hover,.mls select.inl:focus{border-color:var(--border);background:var(--surface-2);outline:none}',
+      '.mls .rowact{display:flex;gap:4px}',
+      '.mls .rowact button{font:inherit;font-size:11px;padding:3px 8px;border:1px solid var(--border);background:var(--surface-2);border-radius:7px;cursor:pointer;color:var(--text-2)}',
+      '.mls .rowact button:hover{background:var(--bg);color:var(--text)}',
+      '.mls .rowact button.dz:hover{color:var(--crit);border-color:var(--crit)}',
+      '.mls-empty{padding:34px 20px;text-align:center;color:var(--muted);font-size:13px}',
+      '.mls-bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--brand);border-radius:10px;padding:9px 12px;margin-bottom:12px}',
+      '.mls-bulkbar b{font-size:13px}',
+      '.mls-foot{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:var(--muted)}',
+      /* bulk upload modal */
+      '.bu-tabs{display:flex;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--border)}',
+      '.bu-tabs button{font:inherit;font-size:13px;font-weight:600;padding:8px 14px;border:none;background:none;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}',
+      '.bu-tabs button.on{color:var(--brand);border-bottom-color:var(--brand)}',
+      '.bu-drop{border:1.5px dashed var(--border);border-radius:12px;padding:26px 18px;text-align:center;background:var(--surface-2);cursor:pointer;transition:.12s}',
+      '.bu-drop:hover,.bu-drop.over{border-color:var(--brand);background:rgba(42,120,214,.06)}',
+      '.bu-drop b{display:block;font-size:14px;margin-bottom:4px;color:var(--text)}',
+      '.bu-drop span{font-size:12px;color:var(--muted)}',
+      '.bu-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}',
+      '.bu-row label{font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}',
+      '.bu-row select,.bu-row input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface-2);color:var(--text);box-sizing:border-box}',
+      '.bu-prev{margin-top:14px;border:1px solid var(--border);border-radius:10px;overflow:auto;max-height:230px}',
+      '.bu-prev table{width:100%;border-collapse:collapse;min-width:760px}',
+      '.bu-prev th{position:sticky;top:0;background:var(--surface-2);font:600 10.5px ui-monospace,Menlo,monospace;text-align:left;padding:7px 9px;border-bottom:1px solid var(--border);white-space:nowrap;text-transform:none;letter-spacing:0;color:var(--text-2)}',
+      '.bu-prev td{padding:6px 9px;border-bottom:1px solid var(--border);font-size:12px;white-space:nowrap}',
+      '.bu-note{font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55}',
+      '.bu-stat{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}',
+      '.bu-stat span{font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:20px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}',
+      '.bu-stat span.ok{color:var(--good-ink);border-color:rgba(12,163,12,.35)}',
+      '.bu-stat span.dup{color:#b06a00;border-color:rgba(237,161,0,.4)}',
+      /* Add/Edit form grid — pehle ye purane mlStyle() se aata tha, ab yahin hai */
+      '.ml-f{display:grid;grid-template-columns:1fr 1fr;gap:10px}',
+      '.ml-f label{font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}',
+      '.ml-f input,.ml-f select,.ml-f textarea{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font:inherit;box-sizing:border-box;background:var(--surface-2);color:var(--text)}',
+      '.ml-f .wide{grid-column:1 / -1}',
+      '@media(max-width:860px){.bu-row{grid-template-columns:1fr}.ml-f{grid-template-columns:1fr}}'
+    ].join('');
+    document.head.appendChild(s);
+  }
+
+  /* ---------------------------------------------------------------- *
+   * 4. SHEET VIEW  (Kanban ki jagah)                                  *
+   * ---------------------------------------------------------------- */
+  var PAGE = 100;
+  window.__mlQ    = window.__mlQ    || '';
+  window.__mlSel  = window.__mlSel  || {};
+  window.__mlLim  = window.__mlLim  || PAGE;
+  window.__mlFilt = window.__mlFilt || { platform:'', status:'', owner:'' };
+  window.__mlSort = window.__mlSort || { k:'created_time_ist', dir:-1 };
+
+  function visibleLeads(){
+    var all = mlNormAll(false);
+    var list = (typeof scope === 'function') ? scope(all) : all;
+    var f = window.__mlFilt, q = _lc(window.__mlQ);
+    return list.filter(function(l){
+      if(f.platform && platCode(l.platform) !== f.platform) return false;
+      if(f.status   && statusCode(l.lead_status) !== f.status) return false;
+      if(f.owner === '__none__'){ if(l.assigned_to || l.owner) return false; }
+      else if(f.owner && _lc(l.owner) !== _lc(f.owner) && _lc(l.assigned_to) !== _lc(nameOf(f.owner))) return false;
+      if(!q) return true;
+      return [l.created_time_ist, l.platform, l.full_name, l.phone_number, l.city_state,
+              l.lead_status, l.assigned_to, l.email, l.product, l.campaign, l.note]
+             .join(' ').toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  function sortList(list){
+    var s = window.__mlSort, k = s.k, dir = s.dir;
+    return list.slice().sort(function(a, b){
+      var av, bv;
+      if(k === 'created_time_ist'){ av = timeKey(a.created_time_ist); bv = timeKey(b.created_time_ist); }
+      else { av = _lc(a[k]); bv = _lc(b[k]); }
+      if(av < bv) return -1 * dir;
+      if(av > bv) return  1 * dir;
+      return 0;
+    });
+  }
+
+  window.renderMetaLeads = function(){
+    sheetStyle();
+    memoReset();
+    mlNormAll(true);
+
+    var admin  = meIsAdmin();
+    var all    = (typeof scope === 'function') ? scope(mlAll()) : mlAll();
+    var list   = sortList(visibleLeads());
+    var lim    = Math.min(window.__mlLim, list.length);
+    var rows   = list.slice(0, lim);
+    var selIds = Object.keys(window.__mlSel).filter(function(id){ return window.__mlSel[id]; });
+
+    /* ---- KPI ---- */
+    var byStatus = {};
+    list.forEach(function(l){ var s = statusCode(l.lead_status) || 'CREATED'; byStatus[s] = (byStatus[s] || 0) + 1; });
+    var unassigned = list.filter(function(l){ return !l.assigned_to && !l.owner; }).length;
+    var kpi = '<div class="mls-kpi"><div>Total<b>' + list.length + '</b></div>'
+      + statusOptions().filter(function(s){ return byStatus[s]; }).map(function(s){
+          return '<div>' + esc(s) + '<b>' + byStatus[s] + '</b></div>';
+        }).join('')
+      + (admin ? '<div>Unassigned<b>' + unassigned + '</b></div>' : '')
+      + '</div>';
+
+    /* ---- toolbar ---- */
+    var platsPresent = {}; all.forEach(function(l){ var p = platCode(l.platform); if(p) platsPresent[p] = 1; });
+    var tools = '<div class="mls-tools">'
+      + '<input class="mls-q" id="mlSearch" placeholder="Search name / phone / city / status…" value="' + esc(window.__mlQ) + '">'
+      + '<select class="mls-f" id="mlFPlat"><option value="">All platforms</option>'
+        + Object.keys(platsPresent).map(function(p){
+            return '<option value="' + esc(p) + '"' + (window.__mlFilt.platform === p ? ' selected' : '') + '>' + esc(p) + (PLAT_LABEL[p] ? ' · ' + PLAT_LABEL[p] : '') + '</option>';
+          }).join('') + '</select>'
+      + '<select class="mls-f" id="mlFStat"><option value="">All status</option>'
+        + statusOptions().map(function(s){
+            return '<option value="' + esc(s) + '"' + (window.__mlFilt.status === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+          }).join('') + '</select>'
+      + (admin ? '<select class="mls-f" id="mlFOwn"><option value="">All owners</option><option value="__none__"' + (window.__mlFilt.owner === '__none__' ? ' selected' : '') + '>— Unassigned —</option>'
+          + roster().map(function(u){
+              return '<option value="' + esc(u.email) + '"' + (_lc(window.__mlFilt.owner) === _lc(u.email) ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>';
+            }).join('') + '</select>' : '')
+      + '<button class="btn primary" onclick="ML.bulkBox()">⬆ Bulk Upload</button>'
+      + '<button class="btn" onclick="ML.form()">+ Add Lead</button>'
+      + '<button class="btn" onclick="ML.importBox()">Import from Meta</button>'
+      + '<button class="btn" onclick="ML.exportSheet()">Export</button>'
+      + (admin ? '<button class="btn" onclick="ML.stageBox()">Stages</button>' : '')
+      + (admin ? '<button class="btn" onclick="ML.syncSheet()">Sync to Sheet</button>' : '')
+      + '</div>';
+
+    /* ---- selection bar ---- */
+    var bulkbar = '';
+    if(selIds.length){
+      bulkbar = '<div class="mls-bulkbar"><b>' + selIds.length + ' selected</b>'
+        + '<select class="mls-f" id="mlSelStat"><option value="">Set lead_status…</option>'
+          + statusOptions().map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('')
+        + '</select>'
+        + (admin ? '<select class="mls-f" id="mlSelOwn"><option value="">Assign to…</option><option value="__none__">— Unassign —</option>'
+            + roster().map(function(u){ return '<option value="' + esc(u.email) + '">' + esc(u.name || u.email) + '</option>'; }).join('')
+            + '</select>' : '')
+        + '<button class="btn sm" onclick="ML.selConvert()">→ Enquiry</button>'
+        + '<button class="btn sm" onclick="ML.selDelete()">Delete</button>'
+        + '<button class="btn sm" onclick="ML.selClear()">Clear</button>'
+        + '</div>';
+    }
+
+    /* ---- table ---- */
+    function th(k){
+      var on = window.__mlSort.k === k;
+      var arrow = on ? (window.__mlSort.dir === 1 ? ' ▲' : ' ▼') : '';
+      return '<th style="cursor:pointer" onclick="ML.sort(\'' + k + '\')" title="Sort">' + k + arrow + '</th>';
+    }
+    var allOn = rows.length && rows.every(function(l){ return window.__mlSel[l.id]; });
+    var head = '<thead><tr>'
+      + '<th class="cbx"><input type="checkbox" id="mlChkAll"' + (allOn ? ' checked' : '') + ' onclick="ML.selPage(this.checked)"></th>'
+      + '<th>#</th>'
+      + SHEET_COLS.map(th).join('')
+      + '<th>actions</th></tr></thead>';
+
+    var body = rows.map(function(l, i){
+      var sel = !!window.__mlSel[l.id];
+      var canEdit = (typeof canTouch === 'function') ? canTouch(l) : true;
+      var st = statusCode(l.lead_status) || 'CREATED';
+      var statusCell = canEdit
+        ? '<select class="inl" style="color:' + statusColor(st) + '" onchange="ML.setStatus(\'' + l.id + '\',this.value)">'
+            + statusOptions().map(function(s){ return '<option value="' + esc(s) + '"' + (s === st ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
+          + '</select>'
+        : '<span class="chip ' + statusClass(st) + '">' + esc(st) + '</span>';
+      var ownCell = admin
+        ? '<select class="inl" onchange="ML.setAssign(\'' + l.id + '\',this.value)">'
+            + '<option value="">— Unassigned —</option>'
+            + roster().map(function(u){
+                var on = _lc(u.email) === _lc(l.owner) || _lc(u.name) === _lc(l.assigned_to);
+                return '<option value="' + esc(u.email) + '"' + (on ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>';
+              }).join('')
+            + (l.assigned_to && !emailOfName(l.assigned_to) ? '<option value="" selected>' + esc(l.assigned_to) + ' (not in team)</option>' : '')
+          + '</select>'
+        : esc(l.assigned_to || nameOf(l.owner) || '—');
+
+      return '<tr class="' + (sel ? 'sel' : '') + '">'
+        + '<td class="cbx"><input type="checkbox"' + (sel ? ' checked' : '') + ' onclick="ML.selOne(\'' + l.id + '\',this.checked)"></td>'
+        + '<td class="num">' + (i + 1) + '</td>'
+        + '<td class="num">' + esc(l.created_time_ist || '—') + '</td>'
+        + '<td>' + (l.platform ? '<span class="chip c-neutral" title="' + esc(PLAT_LABEL[l.platform] || l.platform) + '">' + esc(l.platform) + '</span>' : '—') + '</td>'
+        + '<td class="wrap"><span class="strong">' + esc(l.full_name || '—') + '</span>'
+            + (l.product ? '<div class="sub">' + esc(l.product) + '</div>' : '') + '</td>'
+        + '<td class="num">' + esc(l.phone_number || '—') + '</td>'
+        + '<td class="wrap">' + esc(l.city_state || '—') + '</td>'
+        + '<td>' + statusCell + '</td>'
+        + '<td>' + ownCell + '</td>'
+        + '<td><div class="rowact">'
+            + '<button onclick="ML.form(\'' + l.id + '\')">Edit</button>'
+            + '<button onclick="ML.convert(\'' + l.id + '\')" title="Enquiry banao">→ Enq</button>'
+            + (canEdit ? '<button class="dz" onclick="ML.del(\'' + l.id + '\')" title="Delete">✕</button>' : '')
+          + '</div></td>'
+        + '</tr>';
+    }).join('');
+
+    var table = rows.length
+      ? '<div class="mls-wrap"><table class="mls">' + head + '<tbody>' + body + '</tbody></table></div>'
+      : '<div class="mls-wrap"><table class="mls">' + head + '</table>'
+        + '<div class="mls-empty">' + (all.length
+            ? 'Is filter par koi lead nahi mili.'
+            : 'Abhi koi Meta lead nahi hai. <b>Bulk Upload</b> se apni sheet ka Excel / CSV / Google Sheet link daaliye, ya <b>+ Add Lead</b> se ek lead banaiye.')
+        + '</div></div>';
+
+    var foot = '<div class="mls-foot"><div>Showing <b>' + rows.length + '</b> of <b>' + list.length + '</b> leads'
+      + (list.length !== all.length ? ' (filtered from ' + all.length + ')' : '') + '</div>'
+      + (lim < list.length ? '<button class="btn sm" onclick="ML.more()">Load ' + Math.min(PAGE, list.length - lim) + ' more</button>' : '')
+      + '</div>';
+
+    content.innerHTML = tools + kpi + bulkbar + table + foot;
+
+    /* ---- listeners ---- */
+    var si = document.getElementById('mlSearch');
+    if(si){
+      si.oninput = function(){
+        window.__mlQ = si.value;
+        clearTimeout(window.__mlT);
+        window.__mlT = setTimeout(function(){
+          var pos = si.selectionStart;
+          window.__mlLim = PAGE;
+          renderMetaLeads();
+          var n = document.getElementById('mlSearch');
+          if(n){ n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} }
+        }, 220);
+      };
+    }
+    function bindFilter(id, key){
+      var el = document.getElementById(id);
+      if(el) el.onchange = function(){ window.__mlFilt[key] = el.value; window.__mlLim = PAGE; renderMetaLeads(); };
+    }
+    bindFilter('mlFPlat', 'platform');
+    bindFilter('mlFStat', 'status');
+    bindFilter('mlFOwn',  'owner');
+
+    var ss = document.getElementById('mlSelStat');
+    if(ss) ss.onchange = function(){ if(ss.value) ML.selStatus(ss.value); };
+    var so = document.getElementById('mlSelOwn');
+    if(so) so.onchange = function(){ if(so.value) ML.selAssign(so.value === '__none__' ? '' : so.value); };
+  };
+
+  /* ---------------------------------------------------------------- *
+   * 5. row / selection actions                                        *
+   * ---------------------------------------------------------------- */
+  function findLead(arr, id){ for(var i = 0; i < arr.length; i++) if(arr[i].id === id) return arr[i]; return null; }
+
+  ML.sort = function(k){
+    if(window.__mlSort.k === k) window.__mlSort.dir *= -1;
+    else window.__mlSort = { k:k, dir: (k === 'created_time_ist' ? -1 : 1) };
+    renderMetaLeads();
+  };
+  ML.more     = function(){ window.__mlLim += PAGE; renderMetaLeads(); };
+  ML.selOne   = function(id, on){ if(on) window.__mlSel[id] = 1; else delete window.__mlSel[id]; renderMetaLeads(); };
+  ML.selClear = function(){ window.__mlSel = {}; renderMetaLeads(); };
+  ML.selPage  = function(on){
+    sortList(visibleLeads()).slice(0, window.__mlLim).forEach(function(l){
+      if(on) window.__mlSel[l.id] = 1; else delete window.__mlSel[l.id];
+    });
+    renderMetaLeads();
+  };
+  function selectedIds(){ return Object.keys(window.__mlSel).filter(function(id){ return window.__mlSel[id]; }); }
+
+  ML.setStatus = function(id, val){
+    var arr = mlAll(), l = findLead(arr, id);
+    if(!l) return;
+    if(typeof canTouch === 'function' && !canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+    l.lead_status = statusCode(val);
+    l.stage       = statusToStage(l.lead_status);      /* auto-link */
+    l.updatedAt   = new Date().toISOString();
+    mlSave(arr); renderMetaLeads();
+  };
+  ML.setAssign = function(id, email){
+    if(!meIsAdmin()) return;
+    var arr = mlAll(), l = findLead(arr, id);
+    if(!l) return;
+    l.owner       = _lc(email);
+    l.assigned_to = email ? nameOf(email) : '';
+    l.updatedAt   = new Date().toISOString();
+    mlSave(arr); toast(email ? 'Assigned to ' + l.assigned_to : 'Unassigned'); renderMetaLeads();
+  };
+  ML.del = function(id){
+    var arr = mlAll(), l = findLead(arr, id);
+    if(!l) return;
+    if(typeof canTouch === 'function' && !canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+    if(!confirm('Ye lead delete kar dein?\n\n' + (l.full_name || l.phone_number || l.id))) return;
+    mlSave(arr.filter(function(x){ return x.id !== id; }));
+    delete window.__mlSel[id];
+    toast('Lead delete ho gaya'); renderMetaLeads();
+  };
+  ML.selStatus = function(val){
+    var ids = selectedIds(); if(!ids.length) return;
+    var arr = mlAll(), n = 0;
+    arr.forEach(function(l){
+      if(ids.indexOf(l.id) < 0) return;
+      if(typeof canTouch === 'function' && !canTouch(l)) return;
+      l.lead_status = statusCode(val);
+      l.stage       = statusToStage(l.lead_status);
+      l.updatedAt   = new Date().toISOString();
+      n++;
+    });
+    mlSave(arr); toast(n + ' leads ka status ' + statusCode(val) + ' hua'); renderMetaLeads();
+  };
+  ML.selAssign = function(email){
+    if(!meIsAdmin()) return;
+    var ids = selectedIds(); if(!ids.length) return;
+    var arr = mlAll(), n = 0;
+    arr.forEach(function(l){
+      if(ids.indexOf(l.id) < 0) return;
+      l.owner = _lc(email); l.assigned_to = email ? nameOf(email) : '';
+      l.updatedAt = new Date().toISOString(); n++;
+    });
+    mlSave(arr); toast(n + ' leads ' + (email ? 'assign hue ' + nameOf(email) + ' ko' : 'unassign hue')); renderMetaLeads();
+  };
+  ML.selDelete = function(){
+    var ids = selectedIds(); if(!ids.length) return;
+    if(!confirm(ids.length + ' leads delete kar dein? Ye wapas nahi aayenge.')) return;
+    var arr = mlAll();
+    var keep = arr.filter(function(l){
+      if(ids.indexOf(l.id) < 0) return true;
+      if(typeof canTouch === 'function' && !canTouch(l)) return true;
+      return false;
+    });
+    var gone = arr.length - keep.length;
+    mlSave(keep); window.__mlSel = {};
+    toast(gone + ' leads delete ho gaye'); renderMetaLeads();
+  };
+  ML.selConvert = function(){
+    var ids = selectedIds(); if(!ids.length) return;
+    var n = 0;
+    ids.forEach(function(id){ try{ ML.convert(id); n++; }catch(e){} });
+    window.__mlSel = {};
+    toast(n + ' leads ki enquiry ban gayi'); renderMetaLeads();
+  };
+  ML.syncSheet = function(){
+    if(!meIsAdmin()) return;
+    var arr = mlNormAll(true);
+    try{ CLOUD.push('metaLeads', arr); toast('Backend sheet par ' + arr.length + ' leads push ho rahe hain…'); }
+    catch(e){ toast('Sync fail hua — internet check kijiye'); }
+  };
+
+  /* ---------------------------------------------------------------- *
+   * 6. Add / Edit form  — purane saare fields + naye sheet fields      *
+   * ---------------------------------------------------------------- */
+  ML.form = function(id){
+    sheetStyle();
+    memoReset();
+    var arr = mlAll();
+    var l = id ? findLead(arr, id) : null;
+    if(id && !l) return;
+    if(l && typeof canTouch === 'function' && !canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+    var cfg = metaCfg(), admin = meIsAdmin();
+    l = mlNorm(l || { platform:'fb', stage: cfg.stages[0], lead_status:'CREATED', created_time_ist: fmtIST(new Date()) });
+
+    var ownSel = admin
+      ? '<div><label>Assign to (assigned_to)</label><select id="mlOwner"><option value="">— Unassigned —</option>'
+        + roster().map(function(u){
+            var on = _lc(u.email) === _lc(l.owner) || _lc(u.name) === _lc(l.assigned_to);
+            return '<option value="' + esc(u.email) + '"' + (on ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>';
+          }).join('') + '</select></div>'
+      : '';
+
+    openModal(
+      '<h3 style="margin:0 0 4px">' + (id ? 'Edit Meta Lead' : 'New Meta Lead') + '</h3>'
+      + '<p class="bu-note">Sheet wale columns upar hain, purane Meta fields neeche — dono save hote hain.</p>'
+      + '<div class="ml-f">'
+      + '<div><label>created_time_ist</label><input id="mlCreated" value="' + esc(l.created_time_ist) + '" placeholder="DD-MM-YYYY HH:MM:SS"></div>'
+      + '<div><label>platform</label><select id="mlPlat">'
+        + ['fb','ig','wa','ms'].map(function(p){ return '<option value="' + p + '"' + (p === l.platform ? ' selected' : '') + '>' + p + ' · ' + PLAT_LABEL[p] + '</option>'; }).join('')
+        + (l.platform && ['fb','ig','wa','ms'].indexOf(l.platform) < 0 ? '<option value="' + esc(l.platform) + '" selected>' + esc(l.platform) + '</option>' : '')
+        + '</select></div>'
+      + '<div><label>full_name</label><input id="mlName" value="' + esc(l.full_name) + '"></div>'
+      + '<div><label>phone_number</label><input id="mlPhone" value="' + esc(l.phone_number) + '"></div>'
+      + '<div><label>city_state</label><input id="mlCity" value="' + esc(l.city_state) + '"></div>'
+      + '<div><label>lead_status</label><select id="mlStatus">'
+        + statusOptions().map(function(s){ return '<option value="' + esc(s) + '"' + (s === statusCode(l.lead_status) ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
+        + '</select></div>'
+      + ownSel
+      + '<div><label>Stage (pipeline)</label><select id="mlStage">'
+        + cfg.stages.map(function(s){ return '<option' + (s === (l.stage || cfg.stages[0]) ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
+        + '</select></div>'
+      + '<div><label>Email</label><input id="mlEmail" value="' + esc(l.email) + '"></div>'
+      + '<div><label>Product / Interest</label><input id="mlProd" value="' + esc(l.product) + '"></div>'
+      + '<div><label>Campaign</label><input id="mlCamp" value="' + esc(l.campaign) + '"></div>'
+      + '<div><label>Lead form</label><input id="mlForm" value="' + esc(l.adForm) + '"></div>'
+      + '<div class="wide"><label>Note</label><textarea id="mlNote" rows="3">' + esc(l.note) + '</textarea></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+      + '<button class="btn" onclick="closeModal()">Cancel</button>'
+      + '<button class="btn primary" onclick="ML.save(' + (id ? "'" + id + "'" : 'null') + ')">Save</button>'
+      + '</div>'
+    );
+
+    /* lead_status <-> stage dono taraf auto-link, live */
+    var stEl = document.getElementById('mlStatus'), sgEl = document.getElementById('mlStage');
+    if(stEl && sgEl){
+      stEl.onchange = function(){ var s = statusToStage(stEl.value); if(s) sgEl.value = s; };
+      sgEl.onchange = function(){
+        var v = stageToStatus(sgEl.value), has = false;
+        for(var i = 0; i < stEl.options.length; i++) if(stEl.options[i].value === v) has = true;
+        if(!has){ var o = document.createElement('option'); o.value = o.textContent = v; stEl.appendChild(o); }
+        stEl.value = v;
+      };
+    }
+  };
+
+  ML.save = function(id){
+    var arr = mlAll(), admin = meIsAdmin();
+    var v = function(x){ var e = document.getElementById(x); return e ? String(e.value).trim() : ''; };
+    var rec = id ? findLead(arr, id) : null;
+    var isNew = !rec;
+    if(isNew) rec = { id: mlId(), source:'Meta', createdAt: new Date().toISOString().slice(0, 10) };
+
+    rec.full_name        = v('mlName');
+    rec.phone_number     = v('mlPhone');
+    rec.city_state       = v('mlCity');
+    rec.platform         = platCode(v('mlPlat')) || 'fb';
+    rec.created_time_ist = normTime(v('mlCreated')) || fmtIST(new Date());
+    rec.lead_status      = statusCode(v('mlStatus'));
+    rec.stage            = v('mlStage') || statusToStage(rec.lead_status);
+    /* legacy fields — jaise the waise rehte hain */
+    rec.name    = rec.full_name;
+    rec.phone   = rec.phone_number;
+    rec.city    = rec.city_state;
+    rec.email   = v('mlEmail');
+    rec.product = v('mlProd');
+    rec.campaign= v('mlCamp');
+    rec.adForm  = v('mlForm');
+    rec.note    = v('mlNote');
+    rec.updatedAt = new Date().toISOString();
+
+    if(!rec.full_name && !rec.phone_number && !rec.email){ toast('Name, phone ya email me se kuch to daaliye.'); return; }
+
+    if(admin){ rec.owner = _lc(v('mlOwner')); rec.assigned_to = rec.owner ? nameOf(rec.owner) : ''; }
+    else if(!rec.owner){ rec.owner = meEmail(); rec.assigned_to = nameOf(rec.owner); }
+
+    mlNorm(rec);
+    if(isNew) arr.unshift(rec);
+    mlSave(arr);
+    closeModal();
+    toast(isNew ? 'Lead add ho gaya' : 'Lead update ho gaya');
+    renderMetaLeads();
+  };
+
+  /* ---------------------------------------------------------------- *
+   * 7. BULK LEAD UPLOAD                                               *
+   * ---------------------------------------------------------------- */
+  var BULK_MAP = {
+    created_time_ist: ['created_time_ist','created_time','createdtime','created_at','created','date','datetime','date_time','timestamp','time','lead_created_time'],
+    platform:         ['platform','source','channel','network','media','ad_platform'],
+    full_name:        ['full_name','fullname','name','lead_name','customer_name','client_name','person_name'],
+    phone_number:     ['phone_number','phone','phone_no','mobile','mobile_number','mobile_no','whatsapp','whatsapp_number','contact','contact_number','contact_no'],
+    city_state:       ['city_state','city','state','city_and_state','citystate','location','town','district','area','address','region'],
+    lead_status:      ['lead_status','status','stage','lead_stage','current_status'],
+    assigned_to:      ['assigned_to','assigned','assignee','owner','assigned_user','sales_person','salesperson','sales_executive','executive','agent'],
+    email:            ['email','email_address','e_mail','mail','emailid','email_id'],
+    product:          ['product','interested_in','requirement','product_interest','interest','enquiry_for','what_are_you_looking_for'],
+    campaign:         ['campaign_name','campaign','ad_name','adset_name','ad_set_name','adname'],
+    adForm:           ['form_name','form','lead_form','form_id','formname'],
+    note:             ['note','notes','message','comments','remarks','query','description']
+  };
+  function hkey(h){
+    return String(h == null ? '' : h).replace(/^﻿/, '').trim().toLowerCase()
+      .replace(/[\s\-\/\\.()]+/g, '_').replace(/[^a-z0-9_]/g, '').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  }
+  function guessSep(t){
+    var first = (String(t || '').split('\n')[0] || '');
+    var c = [[',', (first.match(/,/g) || []).length], ['\t', (first.match(/\t/g) || []).length], [';', (first.match(/;/g) || []).length]];
+    c.sort(function(a, b){ return b[1] - a[1]; });
+    return c[0][1] ? c[0][0] : ',';
+  }
+  function parseDelimited(text, sep){
+    text = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if(!sep) sep = guessSep(text);
+    var rows = [], row = [], cur = '', q = false;
+    for(var i = 0; i < text.length; i++){
+      var ch = text.charAt(i);
+      if(q){
+        if(ch === '"'){ if(text.charAt(i + 1) === '"'){ cur += '"'; i++; } else q = false; }
+        else cur += ch;
+      }
+      else if(ch === '"'){ q = true; }
+      else if(ch === sep){ row.push(cur); cur = ''; }
+      else if(ch === '\n'){ row.push(cur); rows.push(row); row = []; cur = ''; }
+      else cur += ch;
+    }
+    if(cur !== '' || row.length){ row.push(cur); rows.push(row); }
+    return rows.filter(function(r){
+      for(var j = 0; j < r.length; j++) if(String(r[j]).trim() !== '') return true;
+      return false;
+    });
+  }
+  /* header row dhoondo — kuch exports me upar 1-2 blank/title rows hote hain */
+  function findHeaderRow(rows){
+    for(var i = 0; i < Math.min(rows.length, 8); i++){
+      var idx = mapHeader(rows[i]);
+      if(idx.full_name != null || idx.phone_number != null || idx.email != null) return i;
+    }
+    return 0;
+  }
+  function mapHeader(headRow){
+    var hs = (headRow || []).map(hkey), idx = {};
+    for(var f in BULK_MAP){
+      var alts = BULK_MAP[f];
+      for(var a = 0; a < alts.length; a++){
+        var p = hs.indexOf(alts[a]);
+        if(p >= 0){ idx[f] = p; break; }
+      }
+    }
+    return idx;
+  }
+  function rowsToLeads(rows){
+    if(!rows || rows.length < 2) return { leads:[], cols:[], head:[] };
+    var hi   = findHeaderRow(rows);
+    var head = rows[hi] || [];
+    var idx  = mapHeader(head);
+    var got  = Object.keys(idx);
+    if(!got.length) return { leads:[], cols:[], head:head };
+    var out = [];
+    for(var i = hi + 1; i < rows.length; i++){
+      var r = rows[i], o = {};
+      for(var f in idx) o[f] = String(r[idx[f]] == null ? '' : r[idx[f]]).trim();
+      if(!o.full_name && !o.phone_number && !o.email) continue;
+      out.push(o);
+    }
+    return { leads: out, cols: got, head: head };
+  }
+
+  /* ---- Google Sheet link -> CSV endpoints ---- */
+  function sheetCsvCandidates(url){
+    url = String(url || '').trim();
+    if(!url) return [];
+    if(/output=csv|tqx=out:csv|format=csv/i.test(url)) return [url];
+    var m  = url.match(/\/spreadsheets\/d\/(e\/)?([a-zA-Z0-9\-_]+)/);
+    if(!m) return [url];
+    var pub = !!m[1], id = m[2];
+    var gid = (url.match(/[#&?]gid=(\d+)/) || [])[1] || '0';
+    if(pub) return ['https://docs.google.com/spreadsheets/d/e/' + id + '/pub?gid=' + gid + '&single=true&output=csv'];
+    return [
+      'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq?tqx=out:csv&gid=' + gid,
+      'https://docs.google.com/spreadsheets/d/' + id + '/export?format=csv&gid=' + gid
+    ];
+  }
+
+  var BU = { rows:[], parsed:null, mode:'file', srcName:'' };
+
+  ML.bulkBox = function(){
+    sheetStyle();
+    memoReset();
+    BU = { rows:[], parsed:null, mode:'file', srcName:'' };
+    var admin = meIsAdmin();
+    openModal(
+      '<h3 style="margin:0 0 6px">Bulk Lead Upload</h3>'
+      + '<p class="bu-note">Sheet ka structure: <code>created_time_ist, platform, full_name, phone_number, city_state, lead_status, assigned_to</code>.'
+      + ' Column ke naam apne aap match ho jaate hain — order alag ho ya extra columns hon, koi dikkat nahi.</p>'
+      + '<div class="bu-tabs">'
+        + '<button id="buTabF" class="on" onclick="ML.buTab(\'file\')">Excel / CSV file</button>'
+        + '<button id="buTabU" onclick="ML.buTab(\'url\')">Google Sheet link</button>'
+      + '</div>'
+      + '<div id="buFile">'
+        + '<input type="file" id="buInput" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt" style="display:none">'
+        + '<div class="bu-drop" id="buDrop" onclick="document.getElementById(\'buInput\').click()">'
+          + '<b>Excel ya CSV file yahan chhodiye</b>'
+          + '<span>ya click karke choose kijiye · .xlsx  .xls  .csv  .tsv</span>'
+        + '</div>'
+      + '</div>'
+      + '<div id="buUrl" style="display:none">'
+        + '<label style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px">Google Sheet URL</label>'
+        + '<div style="display:flex;gap:8px;margin-top:4px">'
+          + '<input id="buUrlIn" placeholder="https://docs.google.com/spreadsheets/d/…" style="flex:1;padding:9px 11px;border:1px solid var(--border);border-radius:9px;font:inherit;background:var(--surface-2);color:var(--text)">'
+          + '<button class="btn" onclick="ML.buFetch()">Fetch</button>'
+        + '</div>'
+        + '<p class="bu-note" style="margin-top:8px">Sheet <b>&ldquo;Anyone with the link – Viewer&rdquo;</b> honi chahiye (ya File → Share → Publish to web). Jis tab ka link hoga wahi tab padha jaayega.</p>'
+      + '</div>'
+      + '<div id="buBody"></div>'
+      + '<div class="bu-row" id="buOpts" style="display:none">'
+        + (admin ? '<div><label>Assign all to</label><select id="buOwn"><option value="">— sheet ka assigned_to use karo —</option>'
+            + roster().map(function(u){ return '<option value="' + esc(u.email) + '">' + esc(u.name || u.email) + '</option>'; }).join('')
+            + '</select></div>' : '')
+        + '<div><label>Default lead_status</label><select id="buStat">'
+            + statusOptions().map(function(s){ return '<option value="' + esc(s) + '"' + (s === 'CREATED' ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
+          + '</select></div>'
+        + '<div class="wide" style="grid-column:1/-1"><label style="text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--text-2)">'
+            + '<input type="checkbox" id="buDedup" checked style="width:auto;margin-right:6px;vertical-align:-1px">Duplicate phone / email wale leads skip karo</label></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+        + '<button class="btn" onclick="closeModal()">Cancel</button>'
+        + '<button class="btn primary" id="buGo" onclick="ML.buApply()" disabled style="opacity:.5">Upload</button>'
+      + '</div>'
+    );
+
+    var inp = document.getElementById('buInput');
+    if(inp) inp.onchange = function(){ if(inp.files && inp.files[0]) ML.buRead(inp.files[0]); };
+    var drop = document.getElementById('buDrop');
+    if(drop){
+      ['dragenter','dragover'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
+      ['dragleave','drop'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('over'); }); });
+      drop.addEventListener('drop', function(e){
+        var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if(f) ML.buRead(f);
+      });
+    }
+  };
+
+  ML.buTab = function(m){
+    BU.mode = m;
+    var f = document.getElementById('buFile'), u = document.getElementById('buUrl');
+    var tf = document.getElementById('buTabF'), tu = document.getElementById('buTabU');
+    if(f) f.style.display = (m === 'file' ? '' : 'none');
+    if(u) u.style.display = (m === 'url'  ? '' : 'none');
+    if(tf) tf.className = (m === 'file' ? 'on' : '');
+    if(tu) tu.className = (m === 'url'  ? 'on' : '');
+  };
+
+  ML.buRead = function(file){
+    BU.srcName = file.name || 'file';
+    var isCsv = /\.(csv|tsv|txt)$/i.test(file.name || '');
+    var body  = document.getElementById('buBody');
+    if(body) body.innerHTML = '<p class="bu-note" style="margin-top:14px">Reading <b>' + esc(BU.srcName) + '</b>…</p>';
+
+    if(isCsv){
+      var fr = new FileReader();
+      fr.onload = function(){ buSetRows(parseDelimited(String(fr.result || ''))); };
+      fr.onerror = function(){ buErr('File padhi nahi ja saki.'); };
+      fr.readAsText(file);
+      return;
+    }
+    ensureXLSX().then(function(){
+      var fr = new FileReader();
+      fr.onload = function(){
+        try{
+          var wb = XLSX.read(new Uint8Array(fr.result), { type:'array', cellDates:true });
+          var ws = wb.Sheets[wb.SheetNames[0]];
+          var rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'', blankrows:false });
+          buSetRows(rows.map(function(r){ return (r || []).map(function(c){ return c == null ? '' : String(c); }); }));
+        }catch(e){ buErr('Excel padhi nahi ja saki — file check kijiye.'); }
+      };
+      fr.onerror = function(){ buErr('File padhi nahi ja saki.'); };
+      fr.readAsArrayBuffer(file);
+    }).catch(function(){ buErr('Excel library load nahi hui — internet check kijiye, ya CSV try kijiye.'); });
+  };
+
+  ML.buFetch = function(){
+    var el = document.getElementById('buUrlIn');
+    var url = el ? el.value.trim() : '';
+    if(!url){ toast('Sheet ka link daaliye.'); return; }
+    var cands = sheetCsvCandidates(url);
+    if(!cands.length){ buErr('Ye Google Sheet ka link nahi lag raha.'); return; }
+    BU.srcName = 'Google Sheet';
+    var body = document.getElementById('buBody');
+    if(body) body.innerHTML = '<p class="bu-note" style="margin-top:14px">Sheet fetch ho rahi hai…</p>';
+
+    (function tryNext(i){
+      if(i >= cands.length){
+        buErr('Sheet fetch nahi hui. Sheet ko <b>Anyone with the link – Viewer</b> kijiye, ya <b>File → Share → Publish to web → CSV</b> ka link paste kijiye. '
+            + 'Ya phir sheet ko CSV/Excel download karke <b>file wala tab</b> use kar lijiye.');
+        return;
+      }
+      fetch(cands[i], { redirect:'follow' })
+        .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function(t){
+          if(/^\s*</.test(t)) throw new Error('html');     /* login/permission page aaya */
+          buSetRows(parseDelimited(t));
+        })
+        .catch(function(){ tryNext(i + 1); });
+    })(0);
+  };
+
+  function buErr(msg){
+    var body = document.getElementById('buBody');
+    if(body) body.innerHTML = '<p class="bu-note" style="margin-top:14px;color:var(--crit)">' + msg + '</p>';
+    var opts = document.getElementById('buOpts'); if(opts) opts.style.display = 'none';
+    var go = document.getElementById('buGo'); if(go){ go.disabled = true; go.style.opacity = .5; }
+  }
+
+  function buSetRows(rows){
+    BU.rows = rows || [];
+    var p = rowsToLeads(BU.rows);
+    BU.parsed = p;
+    var body = document.getElementById('buBody');
+    var opts = document.getElementById('buOpts');
+    var go   = document.getElementById('buGo');
+
+    if(!p.leads.length){
+      buErr('Koi lead nahi mili. Pehli row me column headers hone chahiye — kam se kam <code>full_name</code> ya <code>phone_number</code>.'
+          + (p.head && p.head.length ? '<br>Jo headers mile: <code>' + esc(p.head.slice(0, 12).join(', ')) + '</code>' : ''));
+      return;
+    }
+
+    /* duplicate detection */
+    var seen = {};
+    mlAll().forEach(function(l){
+      var k1 = phoneKey(l.phone_number || l.phone); if(k1) seen[k1] = 1;
+      var k2 = _lc(l.email); if(k2) seen['e:' + k2] = 1;
+    });
+    var inFile = {}, dup = 0, fresh = 0;
+    p.leads.forEach(function(o){
+      var k = phoneKey(o.phone_number) || ('e:' + _lc(o.email));
+      if(k && (seen[k] || inFile[k])){ o.__dup = true; dup++; }
+      else { o.__dup = false; fresh++; if(k) inFile[k] = 1; }
+    });
+    BU.dup = dup; BU.fresh = fresh;
+
+    var missing = SHEET_COLS.filter(function(c){ return p.cols.indexOf(c) < 0; });
+    var prevCols = SHEET_COLS.filter(function(c){ return p.cols.indexOf(c) >= 0; });
+    var prev = p.leads.slice(0, 6);
+
+    body.innerHTML =
+      '<div class="bu-stat">'
+        + '<span>' + esc(BU.srcName) + '</span>'
+        + '<span>' + p.leads.length + ' rows</span>'
+        + '<span class="ok">' + fresh + ' new</span>'
+        + (dup ? '<span class="dup">' + dup + ' duplicate</span>' : '')
+        + '<span>mapped: ' + esc(p.cols.filter(function(c){ return SHEET_COLS.indexOf(c) >= 0; }).join(', ') || 'none') + '</span>'
+      + '</div>'
+      + (missing.length ? '<p class="bu-note" style="margin-top:10px">In columns ka data nahi mila, default bhar diya jaayega: <code>' + esc(missing.join(', ')) + '</code></p>' : '')
+      + '<div class="bu-prev"><table><thead><tr>' + prevCols.map(function(c){ return '<th>' + c + '</th>'; }).join('') + '<th>&nbsp;</th></tr></thead><tbody>'
+      + prev.map(function(o){
+          return '<tr>' + prevCols.map(function(c){
+            var v = o[c] || '';
+            if(c === 'created_time_ist') v = normTime(v);
+            if(c === 'platform') v = platCode(v);
+            if(c === 'lead_status') v = statusCode(v);
+            return '<td>' + esc(v || '—') + '</td>';
+          }).join('') + '<td>' + (o.__dup ? '<span class="chip c-lost">dup</span>' : '<span class="chip c-won">new</span>') + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + (p.leads.length > prev.length ? '<p class="bu-note" style="margin-top:8px">…aur ' + (p.leads.length - prev.length) + ' rows</p>' : '');
+
+    if(opts) opts.style.display = '';
+    if(go){ go.disabled = false; go.style.opacity = 1; go.textContent = 'Upload ' + p.leads.length + ' rows'; }
+  }
+
+  ML.buApply = function(){
+    var p = BU.parsed;
+    if(!p || !p.leads.length){ toast('Pehle file ya sheet load kijiye.'); return; }
+    var admin  = meIsAdmin(), my = meEmail();
+    var forceOwn = admin ? (document.getElementById('buOwn') ? document.getElementById('buOwn').value : '') : my;
+    var defStat  = document.getElementById('buStat') ? document.getElementById('buStat').value : 'CREATED';
+    var dedup    = document.getElementById('buDedup') ? document.getElementById('buDedup').checked : true;
+
+    var arr = mlAll();
+    var seen = {};
+    arr.forEach(function(l){
+      var k1 = phoneKey(l.phone_number || l.phone); if(k1) seen[k1] = 1;
+      var k2 = _lc(l.email); if(k2) seen['e:' + k2] = 1;
+    });
+
+    var added = 0, skipped = 0, now = fmtIST(new Date());
+    p.leads.forEach(function(o){
+      var k = phoneKey(o.phone_number) || ('e:' + _lc(o.email));
+      if(dedup && k && seen[k]){ skipped++; return; }
+      if(k) seen[k] = 1;
+
+      var owner = '';
+      if(forceOwn) owner = _lc(forceOwn);
+      else if(o.assigned_to) owner = emailOfName(o.assigned_to);
+      if(!owner && !admin) owner = my;
+
+      var rec = {
+        id: mlId(),
+        source: 'Meta',
+        created_time_ist: normTime(o.created_time_ist) || now,
+        platform:    platCode(o.platform) || 'fb',
+        full_name:   o.full_name || '',
+        phone_number:o.phone_number || '',
+        city_state:  o.city_state || '',
+        lead_status: statusCode(o.lead_status) || statusCode(defStat) || 'CREATED',
+        assigned_to: forceOwn ? nameOf(forceOwn) : (o.assigned_to || (owner ? nameOf(owner) : '')),
+        owner:       owner,
+        email:       o.email || '',
+        product:     o.product || '',
+        campaign:    o.campaign || '',
+        adForm:      o.adForm || '',
+        note:        o.note || '',
+        createdAt:   new Date().toISOString().slice(0, 10),
+        updatedAt:   new Date().toISOString(),
+        importedFrom: BU.srcName || 'bulk upload'
+      };
+      rec.stage = statusToStage(rec.lead_status);
+      mlNorm(rec);
+      arr.unshift(rec);
+      added++;
+    });
+
+    mlSave(arr);
+    closeModal();
+    window.__mlLim = PAGE;
+    toast(added + ' leads upload hue' + (skipped ? ', ' + skipped + ' duplicate skip kiye' : ''));
+    renderMetaLeads();
+  };
+
+  /* ---------------------------------------------------------------- *
+   * 8. Export — bilkul sheet ke structure me                          *
+   * ---------------------------------------------------------------- */
+  ML.exportSheet = function(){
+    var list = sortList(visibleLeads());
+    if(!list.length){ toast('Export karne ke liye koi lead nahi hai.'); return; }
+    var aoa = [SHEET_COLS.slice()].concat(list.map(function(l){
+      return [l.created_time_ist || '', l.platform || '', l.full_name || '', l.phone_number || '',
+              l.city_state || '', statusCode(l.lead_status) || '', l.assigned_to || nameOf(l.owner) || ''];
+    }));
+    ensureXLSX().then(function(){
+      var wb = XLSX.utils.book_new();
+      var ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [{wch:20},{wch:10},{wch:26},{wch:18},{wch:24},{wch:14},{wch:20}];
+      XLSX.utils.book_append_sheet(wb, ws, 'Meta');
+      var d = new Date();
+      XLSX.writeFile(wb, 'meta_leads_' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '.xlsx');
+      toast(list.length + ' leads export ho gaye');
+    }).catch(function(){
+      /* xlsx na chale to CSV fallback */
+      var csv = aoa.map(function(r){ return r.map(function(c){ return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); }).join('\n');
+      var a = document.createElement('a');
+      a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+      a.download = 'meta_leads.csv'; a.click();
+      toast(list.length + ' leads CSV me export ho gaye');
+    });
+  };
+
+  /* ---------------------------------------------------------------- *
+   * 9. purani "Import from Meta" paste box waisi hi rahegi, bas naye  *
+   *    fields normalise ho jaayenge.                                  *
+   * ---------------------------------------------------------------- */
+  var _doImport = ML.doImport;
+  if(typeof _doImport === 'function'){
+    ML.doImport = function(){
+      _doImport.apply(ML, arguments);
+      try{ mlNormAll(true); renderMetaLeads(); }catch(e){}
+    };
+  }
+
+  /* page ka subtitle ab sheet view ko darshata hai */
+  try{ if(typeof PAGE_META !== 'undefined') PAGE_META.metaLeads = ['Meta Leads','Backend sheet structure \u00b7 bulk lead upload']; }catch(e){}
+  try{
+    var _sub = document.getElementById('pageSub');
+    if(_sub && typeof state !== 'undefined' && state.view === 'metaLeads') _sub.textContent = PAGE_META.metaLeads[1];
+  }catch(e){}
+
+  /* startup par ek baar normalise — purane leads naye structure me aa jaayein */
+  try{ mlNormAll(true); }catch(e){}
+  try{ if(state && state.view === 'metaLeads') renderMetaLeads(); }catch(e){}
+
+})();
+</script>
+
 </body>
 </html>
