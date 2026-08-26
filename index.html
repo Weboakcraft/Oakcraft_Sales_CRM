@@ -6118,6 +6118,9 @@ console.log('[oc v7] row-safe save active');
       '.bu-stat span{font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:20px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}',
       '.bu-stat span.ok{color:var(--good-ink);border-color:rgba(12,163,12,.35)}',
       '.bu-stat span.dup{color:#b06a00;border-color:rgba(237,161,0,.4)}',
+      '.bu-tpl{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:rgba(42,120,214,.07);border:1px dashed var(--brand);border-radius:10px;padding:10px 12px;margin:0 0 14px;font-size:12.5px;color:var(--text-2);line-height:1.5}',
+      '.bu-tpl b{color:var(--text)}',
+      '.bu-tpl-btns{display:flex;gap:8px;flex-wrap:wrap}',
       /* Add/Edit form grid — pehle ye purane mlStyle() se aata tha, ab yahin hai */
       '.ml-f{display:grid;grid-template-columns:1fr 1fr;gap:10px}',
       '.ml-f label{font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}',
@@ -6638,6 +6641,13 @@ console.log('[oc v7] row-safe save active');
       '<h3 style="margin:0 0 6px">Bulk Lead Upload</h3>'
       + '<p class="bu-note">Sheet ka structure: <code>created_time_ist, platform, full_name, phone_number, city_state, lead_status, assigned_to</code>.'
       + ' Column ke naam apne aap match ho jaate hain — order alag ho ya extra columns hon, koi dikkat nahi.</p>'
+      + '<div class="bu-tpl">'
+        + '<div><b>Pehli baar?</b> Ready-made template download kijiye — saare 7 columns aur 2 SAMPLE rows ke saath. Excel wale me <b>&ldquo;Kaise bharein&rdquo;</b> guide sheet bhi hai jisme har column ka matlab likha hai. SAMPLE rows hata kar apne leads bhariye.</div>'
+        + '<div class="bu-tpl-btns">'
+        + '<button type="button" class="btn sm primary" onclick="ML.buTemplate(\'xlsx\')">&#11015; Excel template</button>'
+        + '<button type="button" class="btn sm" onclick="ML.buTemplate(\'csv\')">&#11015; CSV template</button>'
+        + '</div>'
+      + '</div>'
       + '<div class="bu-tabs">'
         + '<button id="buTabF" class="on" onclick="ML.buTab(\'file\')">Excel / CSV file</button>'
         + '<button id="buTabU" onclick="ML.buTab(\'url\')">Google Sheet link</button>'
@@ -6761,13 +6771,23 @@ console.log('[oc v7] row-safe save active');
   function buSetRows(rows){
     BU.rows = rows || [];
     var p = rowsToLeads(BU.rows);
+    /* template ki SAMPLE rows galti se import na ho jaayein */
+    var tplSkip = 0;
+    p.leads = p.leads.filter(function(o){
+      var k = phoneKey(o.phone_number);
+      if(k === '9000000001' || k === '9000000002' || /^sample\b/i.test(o.full_name || '')){ tplSkip++; return false; }
+      return true;
+    });
+    BU.tplSkip = tplSkip;
     BU.parsed = p;
     var body = document.getElementById('buBody');
     var opts = document.getElementById('buOpts');
     var go   = document.getElementById('buGo');
 
     if(!p.leads.length){
-      buErr('Koi lead nahi mili. Pehli row me column headers hone chahiye — kam se kam <code>full_name</code> ya <code>phone_number</code>.'
+      buErr(tplSkip
+          ? 'Is file me sirf template ki SAMPLE rows mili (' + tplSkip + '). SAMPLE rows ki jagah apne asli leads bhar kar dobara upload kijiye.'
+          : 'Koi lead nahi mili. Pehli row me column headers hone chahiye — kam se kam <code>full_name</code> ya <code>phone_number</code>.'
           + (p.head && p.head.length ? '<br>Jo headers mile: <code>' + esc(p.head.slice(0, 12).join(', ')) + '</code>' : ''));
       return;
     }
@@ -6796,6 +6816,7 @@ console.log('[oc v7] row-safe save active');
         + '<span>' + p.leads.length + ' rows</span>'
         + '<span class="ok">' + fresh + ' new</span>'
         + (dup ? '<span class="dup">' + dup + ' duplicate</span>' : '')
+        + (BU.tplSkip ? '<span class="dup">' + BU.tplSkip + ' SAMPLE row skip</span>' : '')
         + '<span>mapped: ' + esc(p.cols.filter(function(c){ return SHEET_COLS.indexOf(c) >= 0; }).join(', ') || 'none') + '</span>'
       + '</div>'
       + (missing.length ? '<p class="bu-note" style="margin-top:10px">In columns ka data nahi mila, default bhar diya jaayega: <code>' + esc(missing.join(', ')) + '</code></p>' : '')
@@ -6873,6 +6894,49 @@ console.log('[oc v7] row-safe save active');
     window.__mlLim = PAGE;
     toast(added + ' leads upload hue' + (skipped ? ', ' + skipped + ' duplicate skip kiye' : ''));
     renderMetaLeads();
+  };
+
+  /* ---------------------------------------------------------------- *
+   * 7b. Sample template download — Excel / CSV                        *
+   * ---------------------------------------------------------------- */
+  var TPL_ROWS = [
+    ['03-08-2026 14:12:10','fb','SAMPLE Ramesh Kumar','+919000000001','Jaipur, Rajasthan','CREATED','Ujala Rajput'],
+    ['04-08-2026 15:19:39','ig','SAMPLE Priya Sharma','+919000000002','Indore, MP','CONTACTED','Amira Sheikh']
+  ];
+  var TPL_GUIDE = [
+    ['column','zaroori ya optional','kya bharna hai','example'],
+    ['created_time_ist','optional','Lead aane ka date-time, DD-MM-YYYY HH:MM:SS format me. Khali chhodenge to upload ka time lag jayega.','03-08-2026 14:12:10'],
+    ['platform','optional','fb / ig / wa / ms (Facebook, Instagram, WhatsApp, Messenger). Khali = fb.','ig'],
+    ['full_name','in dono me se EK zaroori','Lead ka poora naam.','Ramesh Kumar'],
+    ['phone_number','in dono me se EK zaroori','Mobile number, +91 ke saath ya bina. Duplicate check isi number se hota hai.','+919876543210'],
+    ['city_state','optional','City ya state.','Jaipur, Rajasthan'],
+    ['lead_status','optional','CREATED / CONTACTED / QUALIFIED / PROPOSAL / WON / LOST. Khali = CREATED.','CREATED'],
+    ['assigned_to','optional','Jis team member ko lead deni hai uska naam (wahi jo CRM users me hai). Khali = unassigned.','Ujala Rajput'],
+    ['','','',''],
+    ['NOTE','','SAMPLE wali 2 rows hata kar apne leads bhariye. Extra columns (email, product, campaign, note) bhi rakh sakte hain — wo bhi save ho jaate hain.','']
+  ];
+  ML.buTemplate = function(fmt){
+    var aoa = [SHEET_COLS.slice()].concat(TPL_ROWS.map(function(r){ return r.slice(); }));
+    if(fmt === 'csv'){
+      var csv = aoa.map(function(r){ return r.map(function(c){ return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); }).join('\r\n');
+      var a = document.createElement('a');
+      a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFF' + csv);
+      a.download = 'meta_leads_template.csv';
+      a.click();
+      toast('CSV template download ho gaya — SAMPLE rows hata kar apne leads bhariye.');
+      return;
+    }
+    ensureXLSX().then(function(){
+      var wb = XLSX.utils.book_new();
+      var ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [{wch:20},{wch:9},{wch:26},{wch:16},{wch:20},{wch:13},{wch:18}];
+      XLSX.utils.book_append_sheet(wb, ws, 'Leads');
+      var gs = XLSX.utils.aoa_to_sheet(TPL_GUIDE);
+      gs['!cols'] = [{wch:17},{wch:26},{wch:72},{wch:20}];
+      XLSX.utils.book_append_sheet(wb, gs, 'Kaise bharein');
+      XLSX.writeFile(wb, 'meta_leads_template.xlsx');
+      toast('Excel template download ho gaya — andar "Kaise bharein" sheet me har column ki hint hai.');
+    }).catch(function(){ ML.buTemplate('csv'); });
   };
 
   /* ---------------------------------------------------------------- *
