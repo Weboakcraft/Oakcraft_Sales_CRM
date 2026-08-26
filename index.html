@@ -212,8 +212,8 @@ td .sub{color:var(--muted);font-size:12px}
       <div class="nav-label">Sales Pipeline</div>
       <a data-view="enquiries" data-icon="inbox"><span>Enquiries / Leads</span><span class="badge" id="nb-enq">0</span></a>
       <a data-view="pipeline" data-icon="flow"><span>Pipeline Board</span></a>
-      <a data-view="metaLeads" data-icon="flow"><span>Meta Leads</span></a>
-      <a data-view="quotations" data-icon="doc"><span>Quotations</span></a>
+      <a data-view="metaLeads" data-icon="flow"><span>Meta Leads</span><span class="badge" id="nb-meta">0</span></a>
+      <a data-view="quotations" data-icon="doc"><span>Quotations</span><span class="badge" id="nb-quo">0</span></a>
       <a data-view="orders" data-icon="cart"><span>Orders</span><span class="badge" id="nb-ord">0</span></a>
       <a data-view="dispatch" data-icon="truck"><span>Dispatch</span><span class="badge" id="nb-dis">0</span></a>
       <div class="nav-label">Masters</div>
@@ -1928,7 +1928,20 @@ function refreshBadges(){
   document.getElementById('nb-enq').textContent=DB.enquiries().length;
   document.getElementById('nb-ord').textContent=DB.orders().length;
   document.getElementById('nb-dis').textContent=DB.dispatch().filter(d=>d.status!=='Delivered').length;
+  try{ var _q=document.getElementById('nb-quo'); if(_q) _q.textContent=DB.quotations().length; }catch(e){}
+  try{ var _m=document.getElementById('nb-meta'); if(_m){ var _a=JSON.parse(localStorage.getItem('metaLeads')||'[]'); _m.textContent=Array.isArray(_a)?_a.length:0; } }catch(e){}
 }
+/* Jab bhi in collections me save ho, sidebar ke badge turant update ho jayein
+   (quotation builder, meta bulk upload, cloud sync - sab isi store.set se guzarte hain). */
+(function(){
+  var _origSet = store.set.bind(store);
+  store.set = function(k, v){
+    _origSet(k, v);
+    try{
+      if(['enquiries','orders','dispatch','quotations','metaLeads'].indexOf(k) >= 0 && typeof refreshBadges === 'function') refreshBadges();
+    }catch(e){}
+  };
+})();
 function applyTheme(){ document.getElementById('themeBtn').innerHTML=isDark()?I.sun:I.moon; }
 
 /* ---------- init ---------- */
