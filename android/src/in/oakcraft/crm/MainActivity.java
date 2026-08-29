@@ -522,6 +522,9 @@ public class MainActivity extends Activity {
             } });
         }
         @JavascriptInterface public String getVersion() { return versionName(); }
+        @JavascriptInterface public int getVersionCode() {
+            try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception e) { return 0; }
+        }
         @JavascriptInterface public String getPlatform() { return "android"; }
     }
 }
