@@ -57,9 +57,12 @@ jobs:
         run: |
           export BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0" ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
           if [ "$HAS_KEYSTORE" = "true" ]; then export KEYSTORE="$RUNNER_TEMP/release.jks"; fi
-          export VERSION_NAME="1.0.$(date +%Y%m%d).${{ github.run_number }}"
+          export VERSION_CODE="$(date +%y%m%d%H)"
+          export VERSION_NAME="1.1.$(date +%Y%m%d).${{ github.run_number }}"
           bash android/build.sh
           echo "APK_PATH=$(ls android/build/*.apk)" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -73,6 +76,9 @@ jobs:
           tag_name: apk-${{ github.run_number }}
           name: OakCraft CRM APK build ${{ github.run_number }}
           body: |
+            versionCode: ${{ env.VERSION_CODE }}
+            versionName: ${{ env.VERSION_NAME }}
             Auto-built from commit ${{ github.sha }}.
             Signing: ${{ env.HAS_KEYSTORE == 'true' && 'release keystore' || 'DEBUG key (add ANDROID_KEYSTORE_* secrets for release signing)' }}
+            (The app's in-app "Update available" banner only offers builds signed with the release keystore.)
           files: android/build/*.apk
