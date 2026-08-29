@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OakCraft CRM</string>
+    <string name="choose_file">Choose file</string>
+    <string name="press_back_again">Press back again to exit</string>
+    <string name="saved_to">Saved: %1$s</string>
+    <string name="save_failed">Could not save file</string>
+    <string name="no_app">No app found to open this link</string>
+</resources>
