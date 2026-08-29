@@ -1,0 +1,78 @@
+name: Build Android APK
+
+# Har push par (jab CRM ki files ya android/ badle) ek fresh APK ban kar
+# "Actions > artifacts" me aur ek GitHub Release (tag apk-<run>) me attach ho jaati hai.
+#
+# Release signing (optional, recommended): repo Settings > Secrets > Actions me add karein
+#   ANDROID_KEYSTORE_B64  = base64 of oakcraft-crm-release.jks   (linux: base64 -w0 file.jks)
+#   ANDROID_KEYSTORE_PASS = keystore password
+#   ANDROID_KEY_ALIAS     = oakcraft
+# Secrets na hon to APK ek throw-away debug key se sign hoti hai (install to hogi, par
+# purani release-signed app ke upar update nahi hogi - pehle uninstall karna padega).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - quotation-builder.html
+      - manifest.webmanifest
+      - "logo*.png"
+      - "lib/**"
+      - "icons/**"
+      - "android/**"
+      - .github/workflows/android-apk.yml
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android build-tools + platform
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+          "$SDKM" "build-tools;34.0.0" "platforms;android-34" >/dev/null
+          ls "$ANDROID_HOME/build-tools/34.0.0/aapt" "$ANDROID_HOME/platforms/android-34/android.jar"
+
+      - name: Restore release keystore
+        if: env.HAS_KEYSTORE == 'true'
+        run: echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build APK
+        env:
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          export BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0" ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
+          if [ "$HAS_KEYSTORE" = "true" ]; then export KEYSTORE="$RUNNER_TEMP/release.jks"; fi
+          export VERSION_NAME="1.0.$(date +%Y%m%d).${{ github.run_number }}"
+          ./android/build.sh
+          echo "APK_PATH=$(ls android/build/*.apk)" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OakCraft-CRM-apk
+          path: android/build/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: OakCraft CRM APK build ${{ github.run_number }}
+          body: |
+            Auto-built from commit ${{ github.sha }}.
+            Signing: ${{ env.HAS_KEYSTORE == 'true' && 'release keystore' || 'DEBUG key (add ANDROID_KEYSTORE_* secrets for release signing)' }}
+          files: android/build/*.apk
