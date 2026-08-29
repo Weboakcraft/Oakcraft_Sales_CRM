@@ -7771,6 +7771,52 @@ guardDelete('bulkDeleteProducts', 'products');
   }, true);
 })();
 
+/* ====================================================================== *
+ * 10. IN-APP UPDATE CHECK (Android app only)                              *
+ *     GitHub Releases se latest build dekhta hai; agar app se naya aur     *
+ *     release-key se signed hai to upar "Update available" banner dikhata *
+ *     hai. Web par kuch nahi karta.                                        *
+ * ====================================================================== */
+(function(){
+  var A = window.OakAndroid;
+  if(!A || typeof A.getVersionCode !== 'function') return;
+  var API = 'https://api.github.com/repos/Weboakcraft/Oakcraft_Sales_CRM/releases/latest';
+  var KEY = 'oc_appUpdate', EVERY = 4 * 3600e3;
+  function ls(){ try{ return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; }catch(e){ return {}; } }
+  function save(o){ try{ localStorage.setItem(KEY, JSON.stringify(o)); }catch(e){} }
+  function mine(){ try{ return +A.getVersionCode() || 0; }catch(e){ return 0; } }
+  function banner(info){
+    var old = $('ocUpdateBar'); if(old) old.remove();
+    var b = document.createElement('div'); b.id = 'ocUpdateBar';
+    b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:300;background:#0f1729;color:#fff;padding:10px 14px;font:600 13px var(--sans);display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 4px 14px rgba(0,0,0,.35)';
+    b.innerHTML = '<span style="flex:1;min-width:160px">\ud83d\udd14 App ka naya version available hai <b>v' + esc(info.versionName) + '</b></span>'
+      + '<button class="btn primary sm" id="ocUpdGo">Download & Update</button>'
+      + '<button class="btn sm" id="ocUpdLater" style="background:transparent;color:#cdd5e6;border-color:rgba(255,255,255,.25)">Baad me</button>';
+    document.body.appendChild(b);
+    document.body.style.paddingTop = b.offsetHeight + 'px';
+    $('ocUpdGo').onclick = function(){ try{ A.openExternal(info.url); }catch(e){} };
+    $('ocUpdLater').onclick = function(){ var o = ls(); o.snooze = Date.now() + 24 * 3600e3; save(o); b.remove(); document.body.style.paddingTop = ''; };
+  }
+  window.ocCheckUpdate = function(force){
+    var st = ls(), now = Date.now();
+    if(!force && st.t && (now - st.t) < EVERY){ if(st.info && st.info.code > mine() && !(st.snooze && st.snooze > now)) banner(st.info); return; }
+    fetch(API, { headers: { 'Accept': 'application/vnd.github+json' } }).then(function(r){ return r.json(); }).then(function(rel){
+      var body = S(rel && rel.body), m = /versionCode:\s*(\d+)/i.exec(body), n = /versionName:\s*([\w.\-]+)/i.exec(body);
+      var apk = ((rel && rel.assets) || []).filter(function(a){ return /\.apk$/i.test(S(a.name)); })[0];
+      var info = (m && apk && /release keystore/i.test(body)) ? { code: +m[1], versionName: n ? n[1] : S(rel.tag_name), url: apk.browser_download_url } : null;
+      save({ t: now, info: info, snooze: st.snooze });
+      if(info && info.code > mine() && !(st.snooze && st.snooze > now)) banner(info);
+      else if(force) say(info && info.code <= mine() ? 'App already latest hai (v' + S(A.getVersion()) + ')' : 'Koi release-signed update nahi mila');
+    }).catch(function(){ if(force) say('Update check fail — internet check kijiye'); });
+  };
+  setTimeout(function(){ try{ window.ocCheckUpdate(false); }catch(e){} }, 5000);
+  /* sidebar me version + manual check */
+  try{
+    var brand = document.querySelector('.brand span');
+    if(brand){ brand.innerHTML = 'App v' + esc(S(A.getVersion())) + ' \u00b7 <a href="#" onclick="event.preventDefault();ocCheckUpdate(true)" style="color:#7b88a8;text-decoration:underline">check update</a>'; }
+  }catch(e){}
+})();
+
 /* ---- boot ---- */
 try{ if(AUTH.session && AUTH.session()){ applyNavPerms(); } }catch(e){}
 console.log('[oc v9] completeness pass active');
