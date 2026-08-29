@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OakCraft — Pro Forma Quotation Builder</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- jsPDF bundled locally (lib/) so the builder also works inside the Android app / offline; CDN is the fallback -->
+<script src="lib/jspdf.umd.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';document.head.appendChild(s)"></script>
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+<meta name="theme-color" content="#B4802F">
 <!-- CRM ka server session (sid) yahan bhi bhejo. Same origin hai isliye
      localStorage shared hai. Isse quote numbering bhi authenticated ho
      jaati hai aur token kabhi URL me nahi jaata. -->
@@ -387,6 +390,7 @@ body.exporting .page{transform:none !important}
 <body>
 
 <div id="toolbar">
+  <a class="btn" href="index.html" title="Back to CRM" style="text-decoration:none">← CRM</a>
   <div class="brand"><b>Oak</b>Craft <span style="opacity:.55">· Quotation Builder</span></div>
   <div class="qbadge" id="tbQno">—</div>
   <div class="spacer"></div>
@@ -533,7 +537,7 @@ const FY = fyPrefix(today);
 const STORE_KEY = 'oakcraft-qno-' + FY;
 
 let S = {
-  qno: 1001, date: today.toISOString().slice(0,10), valid: 15, gst: 18,
+  qno: 1001, date: (function(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })(today), valid: 15, gst: 18,
   rep: "", repPh: "",
   co: "", attn: "", addr: "", cgstin: "", cph: "", state: "Delhi", shipTo: "",
   items: [], freight: 0, freightMode: "none",

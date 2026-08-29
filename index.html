@@ -1,17 +1,25 @@
-o<!DOCTYPE html><!-- build 2026-08-07a -->
+<!DOCTYPE html><!-- build 2026-08-29 v9 -->
 
 <html lang="en" data-theme="light">
 <head>
 <script>try{var _t=localStorage.getItem('oc_theme');if(_t==='dark'||_t==='light'){document.documentElement.setAttribute('data-theme',_t);}}catch(e){}</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OakCraft Sales CRM — Enquiry to Dispahtch</title>
+<title>OakCraft Sales CRM — Enquiry to Dispatch</title>
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-<link rel="dns-prefetch" href="https://cdnjs.clouhdflare.com">
-<!-- Chart.js is deferred so it never blocks HTML parsing. init() runs on DOMContentLoaded,
-     which fires after deferred scripts, so Chart is guaranteed to be ready by then. -->
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+<meta name="theme-color" content="#0f1729">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="OakCraft CRM">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<!-- Chart.js is bundled locally (lib/) so the app also works inside the Android APK / offline;
+     the CDN copy is only a fallback. It is deferred so it never blocks HTML parsing. -->
+<script defer src="lib/chart.umd.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';document.head.appendChild(s)"></script>
 <!-- xlsx (~900KB) is no longer loaded on every page load. ensureXLSX() fetches it
      on demand, the first time you actually export or import an Excel file. -->
 <style>
@@ -191,6 +199,55 @@ td .sub{color:var(--muted);font-size:12px}
 @media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.grid-2,.grid-3{grid-template-columns:1fr}.pipeline{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:760px){.app{grid-template-columns:1fr}.sidebar{display:none}}
 
+/* ===== v9: mobile drawer navigation, pipeline drag & drop, bottom-sheet modals ===== */
+.menu-btn{display:none;flex:none}
+.nav-backdrop{display:none;position:fixed;inset:0;background:rgba(8,8,12,.5);z-index:150}
+.nav-backdrop.show{display:block}
+.pipeline{grid-template-columns:repeat(6,minmax(180px,1fr))}
+.lead-card[draggable="true"]{cursor:grab}
+.lead-card.dragging{opacity:.45}
+.stage-col.drop-over{outline:2px dashed var(--brand);outline-offset:-2px;background:rgba(42,120,214,.06)}
+.lead-card .lc-act{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
+.lead-card .lc-act button{font:inherit;font-size:11px;padding:3px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-2);display:inline-flex;align-items:center;gap:3px}
+.lead-card .lc-act button svg{width:13px;height:13px}
+.lead-card .lc-act button:hover{background:var(--bg);color:var(--brand)}
+.topbar .page-title{min-width:0}
+@media(max-width:1100px){.pipeline{grid-template-columns:repeat(3,minmax(180px,1fr))}}
+@media(max-width:760px){
+  .menu-btn{display:grid}
+  .sidebar{display:flex;position:fixed;top:0;bottom:0;left:0;width:264px;max-width:86vw;z-index:160;transform:translateX(-105%);transition:transform .22s ease;box-shadow:0 10px 40px rgba(0,0,0,.45)}
+  .sidebar.open{transform:translateX(0)}
+  body.nav-open{overflow:hidden}
+  .topbar{height:auto;min-height:58px;padding:8px 12px;gap:8px;flex-wrap:wrap}
+  .topbar img{width:32px!important;height:32px!important;margin-right:0!important}
+  .topbar .page-title{font-size:16px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topbar .page-title small{display:none}
+  .search{margin-left:0;flex:1 1 100%;order:10}
+  .search input{width:100%}
+  .btn.primary#quickAdd{padding:8px 11px;font-size:12.5px}
+  .content{padding:14px 12px 90px}
+  .kpi-grid{grid-template-columns:1fr 1fr!important;gap:10px!important}
+  .kpi{padding:14px}
+  .kpi .val{font-size:22px}
+  .grid-2,.grid-3{gap:12px}
+  .panel{padding:14px}
+  .card-head{padding:12px 14px}
+  .card-head .tools{margin-left:0;width:100%}
+  thead th,tbody td{padding:10px 12px}
+  .pipeline{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch}
+  .stage-col{min-width:230px;flex:0 0 230px}
+  .modal-bg{padding:0;align-items:end}
+  .modal{max-width:100%;max-height:96vh;border-radius:16px 16px 0 0}
+  .modal.fb-wide{max-width:100%}
+  .modal-head,.modal-body,.modal-foot{padding-left:16px;padding-right:16px}
+  .modal-foot{flex-wrap:wrap}
+  .modal-foot .btn{flex:1 1 auto;justify-content:center}
+  .form-row.two{grid-template-columns:1fr}
+  .toast{left:12px;right:12px;bottom:14px;text-align:center}
+  .funnel-row .fl{width:76px;font-size:11.5px}
+  #syncPill{bottom:auto!important;top:8px!important;right:8px!important;font-size:11px!important;padding:5px 9px!important}
+}
+
 .oi-suggest{position:absolute;left:0;right:0;top:100%;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(11,11,11,.12);max-height:220px;overflow:auto;margin-top:2px}
 .oi-sug-item{padding:7px 10px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--border)}
 .oi-sug-item:last-child{border-bottom:none}
@@ -203,7 +260,7 @@ td .sub{color:var(--muted);font-size:12px}
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo">O</div>
+      <img class="logo" src="icons/icon-48.png" alt="CRM" width="38" height="38" style="object-fit:cover;background:#0b0b0b">
       <div><h1>OakCraft CRM</h1><span>Sales Pipeline Suite</span></div>
     </div>
     <nav class="nav" id="nav">
@@ -231,7 +288,8 @@ td .sub{color:var(--muted);font-size:12px}
   <!-- MAIN -->
   <div class="main">
     <header class="topbar">
-      <img src="logo.png" alt="OakCraft" width="40" height="40" decoding="async" fetchpriority="low" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:8px;padding:3px;margin-right:6px;flex:none;">
+      <button class="icon-btn menu-btn" id="menuBtn" title="Menu" aria-label="Open menu"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <img src="logo-sm.png" alt="OakCraft" width="40" height="40" decoding="async" fetchpriority="low" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:8px;padding:3px;margin-right:6px;flex:none;">
       <div class="page-title" id="pageTitle">Dashboard<small id="pageSub">Sales performance overview</small></div>
       <div class="search" id="searchBox"><input id="globalSearch" placeholder="Search customers, orders…"></div>
       <button class="icon-btn" id="themeBtn" title="Toggle theme"></button>
@@ -241,6 +299,7 @@ td .sub{color:var(--muted);font-size:12px}
   </div>
 </div>
 
+<div class="nav-backdrop" id="navBackdrop"></div>
 <div class="modal-bg" id="modalBg"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 
@@ -350,7 +409,7 @@ const CLOUD = {
 const money = n => '₹' + Number(n||0).toLocaleString('en-IN');
 const short = n => n>=1e7 ? '₹'+(n/1e7).toFixed(2)+'Cr' : n>=1e5 ? '₹'+(n/1e5).toFixed(2)+'L' : n>=1e3 ? '₹'+(n/1e3).toFixed(1)+'K' : '₹'+n;
 const uid = p => p + Date.now().toString(36).slice(-4).toUpperCase() + Math.floor(Math.random()*90+10);
-const today = () => new Date().toISOString().slice(0,10);
+const today = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
     /* ---------- Order date + working-day helpers ----------
        Working week is Monday to Saturday. Sunday is a non-working day and is always skipped. */
     const isoLocal = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -518,7 +577,19 @@ function renderDashboard(){
   const openOrders=ord.filter(o=>!['Delivered','Cancelled'].includes(o.status)).length;
   const revenue=ord.filter(o=>o.status!=='Cancelled').reduce((s,o)=>s+o.amount,0);
   const pendingDis=ord.filter(o=>o.status==='Ready'||o.status==='Confirmed'||o.status==='In Production').length;
-  const pipelineVal=enq.filter(e=>!['Won','Lost'].includes(e.stage)).reduce((s,e)=>s+e.value,0);
+  const pipelineVal=enq.filter(e=>!['Won','Lost'].includes(e.stage)).reduce((s,e)=>s+(+e.value||0),0);
+  /* Real month-over-month deltas (this calendar month vs last month). Earlier these were
+     hard-coded demo values (+12%, +4.2% ...) that never changed. */
+  const _mk=d=>{ const x=new Date(String(d||'').slice(0,10)+'T00:00:00'); return isNaN(x)?'':x.getFullYear()+'-'+x.getMonth(); };
+  const _now=new Date(), _cur=_now.getFullYear()+'-'+_now.getMonth(), _pd=new Date(_now.getFullYear(),_now.getMonth()-1,1), _prev=_pd.getFullYear()+'-'+_pd.getMonth();
+  const _cnt=(list,key)=>list.filter(r=>_mk(r.date)===key).length;
+  const _sum=(list,key)=>list.filter(r=>_mk(r.date)===key).reduce((a,o)=>a+(+o.amount||0),0);
+  const mom=(cur,prev,pct)=>{ if(!prev&&!cur) return ['','up']; if(!prev) return ['new','up']; const d=cur-prev; if(!d) return ['0'+(pct?'%':''),'up']; return [(d>0?'+':'')+(pct?Math.round(d/prev*100)+'%':d),(d>0?'up':'down')]; };
+  const dEnq=mom(_cnt(enq,_cur),_cnt(enq,_prev),true);
+  const _convOf=key=>{ const l=enq.filter(r=>_mk(r.date)===key); return l.length?Math.round(l.filter(e=>e.stage==='Won').length/l.length*100):0; };
+  const dConv=(function(){ const c=_convOf(_cur), p=_convOf(_prev); if(!_cnt(enq,_prev)) return ['','up']; const d=c-p; return [(d>0?'+':'')+d+' pts', d>=0?'up':'down']; })();
+  const dOrd=mom(_cnt(ord.filter(o=>o.status!=='Cancelled'),_cur),_cnt(ord.filter(o=>o.status!=='Cancelled'),_prev),false);
+  const dRev=mom(_sum(ord.filter(o=>o.status!=='Cancelled'),_cur),_sum(ord.filter(o=>o.status!=='Cancelled'),_prev),true);
 
   const kpi=(ico,iconBg,iconcol,val,lbl,delta,dir)=>`
     <div class="kpi">
@@ -529,11 +600,11 @@ function renderDashboard(){
   let iconcol;
   content.innerHTML=`
     <div class="kpi-grid">
-      ${dcard('inbox','rgba(42,120,214,.12)','#2a78d6',totalEnq,'Total Enquiries','+12%','up')}
-      ${dcard('flow','rgba(27,175,122,.14)','#1baf7a',conv+'%','Conversion Rate','+4.2%','up')}
-      ${dcard('cart','rgba(237,161,0,.14)','#b06a00',openOrders,'Open Orders','+3','up')}
-      ${dcard('money','rgba(12,163,12,.13)','#0ca30c',short(revenue),'Revenue (Delivered+)','+18%','up')}
-      ${dcard('truck','rgba(208,59,59,.12)','#d03b3b',pendingDis,'Pending Dispatch','-2','down')}
+      ${dcard('inbox','rgba(42,120,214,.12)','#2a78d6',totalEnq,'Total Enquiries',dEnq[0],dEnq[1])}
+      ${dcard('flow','rgba(27,175,122,.14)','#1baf7a',conv+'%','Conversion Rate',dConv[0],dConv[1])}
+      ${dcard('cart','rgba(237,161,0,.14)','#b06a00',openOrders,'Open Orders',dOrd[0],dOrd[1])}
+      ${dcard('money','rgba(12,163,12,.13)','#0ca30c',short(revenue),'Revenue (excl. cancelled)',dRev[0],dRev[1])}
+      ${dcard('truck','rgba(208,59,59,.12)','#d03b3b',pendingDis,'Pending Dispatch','','up')}
     </div>
 
     <div class="grid-2">
@@ -555,13 +626,13 @@ function renderDashboard(){
     <div class="card">
       <div class="card-head"><h3>Recent Orders</h3><div class="tools"><button class="btn sm" onclick="setView('orders')">View all ${I.arrow}</button></div></div>
       <div style="overflow-x:auto"><table><thead><tr><th>Order</th><th>Customer</th><th>Product</th><th>Amount</th><th>Payment</th><th>Status</th></tr></thead>
-      <tbody>${ord.slice(-6).reverse().map(o=>`<tr>
+      <tbody>${ord.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||''))).slice(0,6).map(o=>`<tr style="cursor:pointer" onclick="openOrderDetail('${o.id}')">
         <td class="strong tabular">${o.id}</td>
         <td>${userCell(o.customer)}</td>
         <td>${o.product} <span class="sub">×${o.qty}</span></td>
-        <td class="strong tabular">${money(o.amount)}</td>
+        <td class="strong tabular">${money(Math.round((+o.amount||0)*1.18))} <span class="sub">incl. GST</span></td>
         <td>${payChip(o.payment)}</td>
-        <td>${orderChip(o.status)}</td></tr>`).join('')}</tbody></table></div>
+        <td>${orderChip(o.status)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No orders yet.</td></tr>'}</tbody></table></div>
     </div>`;
 
   // charts (guarded — funnel is pure HTML so always renders)
@@ -570,8 +641,9 @@ function renderDashboard(){
   else { document.querySelectorAll('.chart-wrap').forEach(c=>{ if(!c.querySelector('.funnel')) c.innerHTML='<div class="empty" style="padding:30px">Charts load when online (Chart.js CDN)</div>'; }); }
 }
 function dcard(ico,bg,col,val,lbl,delta,dir){
+  const dl = delta ? (delta==='new' ? `<span class="delta up" title="No data for last month">new</span>` : `<span class="delta ${dir}" title="vs last month">${dir==='up'?I.up:I.down}${delta}</span>`) : '';
   return `<div class="kpi"><div class="k-top"><div class="k-ico" style="background:${bg};color:${col}">${I[ico]}</div>
-    <span class="delta ${dir}">${dir==='up'?I.up:I.down}${delta}</span></div>
+    ${dl}</div>
     <div class="val tabular">${val}</div><div class="lbl">${lbl}</div></div>`;
 }
 
@@ -588,10 +660,10 @@ function drawRevenue(ord){
   const sums={};
   ord.forEach(o=>{ const d=o.date?new Date(o.date):null; if(!d||isNaN(d))return; const key=d.getFullYear()+'-'+d.getMonth(); if(sums[key]===undefined)sums[key]=0; sums[key]+=(Number(o.amount)||0); });
   const data=keys.map(k=>+(( (sums[k]||0)/100000 ).toFixed(2)));
-  const mx=Math.max(...data,1); const target=data.map((v,i)=>+(( mx*0.6 + mx*0.08*i ).toFixed(2)));
+  const dataGst=data.map(v=>+((v*1.18).toFixed(2)));
   state.charts.rev=new Chart(ctx,{type:'line',data:{labels:months,datasets:[
-    {label:'Actual',data,borderColor:'#2a78d6',backgroundColor:ctx=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,240);g.addColorStop(0,'rgba(42,120,214,.25)');g.addColorStop(1,'rgba(42,120,214,0)');return g;},fill:true,tension:.35,borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#2a78d6',pointBorderColor:'#fff',pointBorderWidth:2},
-    {label:'Target',data:target,borderColor:'#898781',borderDash:[5,5],borderWidth:1.8,pointRadius:0,tension:.35,fill:false}
+    {label:'Order value (excl. GST)',data,borderColor:'#2a78d6',backgroundColor:ctx=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,240);g.addColorStop(0,'rgba(42,120,214,.25)');g.addColorStop(1,'rgba(42,120,214,0)');return g;},fill:true,tension:.35,borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#2a78d6',pointBorderColor:'#fff',pointBorderWidth:2},
+    {label:'Billing (incl. 18% GST)',data:dataGst,borderColor:'#1baf7a',borderDash:[5,5],borderWidth:1.8,pointRadius:0,tension:.35,fill:false}
   ]},options:baseOpts({legend:true,yFmt:v=>'₹'+v+'L'})});
 }
 function drawFunnel(enq,quo,ord,dis){
@@ -623,8 +695,10 @@ function drawStatus(ord){
 }
 function drawSources(enq){
   const ctx=document.getElementById('ch-src'); if(!ctx)return;
-  const counts=SOURCES.map(s=>enq.filter(e=>e.source===s).length);
-  state.charts.src=new Chart(ctx,{type:'bar',data:{labels:SOURCES,datasets:[{data:counts,backgroundColor:'#2a78d6',borderRadius:6,barThickness:18}]},
+  /* labels = configured sources + any other source actually present in the data (e.g. Meta Ads) */
+  const labels=SOURCES.slice(); enq.forEach(e=>{ const s=String(e.source||'').trim(); if(s && labels.indexOf(s)<0) labels.push(s); });
+  const counts=labels.map(s=>enq.filter(e=>e.source===s).length);
+  state.charts.src=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[{data:counts,backgroundColor:'#2a78d6',borderRadius:6,barThickness:18}]},
     options:baseOpts({horizontal:true})});
 }
 function drawSalesBy(enq){
@@ -690,7 +764,7 @@ function prioTag(p){return `<span class="prio p-${(p||'').toLowerCase()}">${p}</
 /* ---------- Enquiries ---------- */
 let enqFilter={q:'',stage:'',sales:''};
 function renderEnquiries(){
-  const list=DB.enquiries();
+  const list=scope(DB.enquiries());
   content.innerHTML=`
     <div class="card">
       <div class="card-head"><h3>Enquiries <span class="chip c-neutral" style="margin-left:4px">${list.length}</span></h3>
@@ -782,13 +856,13 @@ function renderCustomers(){
 /* ---------- Products ---------- */
 function renderProducts(){
   const list=DB.products();
-  const totalStockVal=list.reduce((s,p)=>s+p.price*p.stock,0);
+  const totalStockVal=list.reduce((s,p)=>s+(+p.price||0)*(+p.stock||0),0);
   content.innerHTML=`
     <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">
-      ${dcard('box','rgba(42,120,214,.12)','#2a78d6',list.length,'Total SKUs','+2','up')}
-      ${dcard('money','rgba(12,163,12,.13)','#0ca30c',short(totalStockVal),'Inventory Value','+6%','up')}
-      ${dcard('cart','rgba(237,161,0,.14)','#b06a00',list.filter(p=>p.stock>0&&p.stock<10).length,'Low Stock','','up').replace('<span class="delta up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 15 6-6 6 6"/></svg></span>','')}
-      ${dcard('truck','rgba(208,59,59,.12)','#d03b3b',list.filter(p=>p.stock===0).length,'Out of Stock','','up').replace('<span class="delta up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 15 6-6 6 6"/></svg></span>','')}
+      ${dcard('box','rgba(42,120,214,.12)','#2a78d6',list.length,'Total SKUs','','up')}
+      ${dcard('money','rgba(12,163,12,.13)','#0ca30c',short(totalStockVal),'Inventory Value','','up')}
+      ${dcard('cart','rgba(237,161,0,.14)','#b06a00',list.filter(p=>p.stock>0&&p.stock<10).length,'Low Stock','','up')}
+      ${dcard('truck','rgba(208,59,59,.12)','#d03b3b',list.filter(p=>p.stock===0).length,'Out of Stock','','up')}
     </div>
     <input type="file" id="bulkFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleBulk(this)">
     <div class="card"><div class="card-head"><h3>Product Catalog</h3>
@@ -1168,7 +1242,7 @@ function saveOrder(id){
     custom:readOrderCustom()
   };
   const list=DB.orders();
-  if(id){Object.assign(list.find(x=>x.id===id),rec);} else {rec.id=uid('ORD-');rec.date=todayLocal();stampOwner(rec);list.unshift(rec);}
+  if(id){ const ex=list.find(x=>x.id===id); if(!ex){ toast('Order not found'); return; } Object.assign(ex,rec);} else {rec.id=uid('ORD-');rec.date=todayLocal();stampOwner(rec);list.unshift(rec);}
   DB.save('orders',list); closeModal(); toast(id?'Order updated':'Order added'); refreshBadges(); setView('orders');
 }
 function saveEnq(id){
@@ -1187,7 +1261,7 @@ function saveEnq(id){
     custom:readCustomFields('enquiry')
   };
   const list=DB.enquiries();
-  if(id){Object.assign(list.find(x=>x.id===id),rec);} else {rec.id=uid('ENQ-');rec.date=today();stampOwner(rec);list.unshift(rec);}
+  if(id){ const ex=list.find(x=>x.id===id); if(!ex){ toast('Enquiry not found'); return; } Object.assign(ex,rec);} else {rec.id=uid('ENQ-');rec.date=today();stampOwner(rec);list.unshift(rec);}
   { const _t=id||rec.id; const _r=list.find(x=>x.id===_t); if(_r){ _r.custom=_r.custom||{}; _r.custom['c_mrwd1293']=_t; } }
   DB.save('enquiries',list); closeModal(); toast(id?'Enquiry updated ✓':'Enquiry added ✓'); refreshBadges(); setView('enquiries');
 }
@@ -1197,17 +1271,23 @@ function openCustModal(id){
   openModal(`<div class="modal-head"><h3>${id?'Edit':'New'} Customer</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <div class="form-row"><label>Company Name</label><input id="c-name" value="${c.name||''}"></div>
-      <div class="form-row two"><div><label>Contact Person</label><input id="c-contact" value="${c.contact||''}"></div><div><label>City</label><select id="c-city">${CITIES.map(x=>`<option ${c.city===x?'selected':''}>${x}</option>`).join('')}</select></div></div>
+      <div class="form-row two"><div><label>Contact Person</label><input id="c-contact" value="${(c.contact||'').replace(/"/g,'&quot;')}"></div><div><label>City</label><input id="c-city" list="c-city-list" value="${(c.city||'').replace(/"/g,'&quot;')}" placeholder="City"><datalist id="c-city-list">${CITIES.concat(DB.customers().map(x=>x.city).filter(Boolean)).filter((x,i,a)=>a.indexOf(x)===i).map(x=>`<option value="${String(x).replace(/"/g,'&quot;')}">`).join('')}</datalist></div></div>
       <div class="form-row two"><div><label>Email</label><input id="c-email" value="${c.email||''}"></div><div><label>Phone</label><input id="c-phone" value="${c.phone||''}"></div></div>
       <div class="form-row"><label>GSTIN</label><input id="c-gstin" value="${c.gstin||''}" placeholder="15-digit GSTIN" style="text-transform:uppercase"></div>
-      <div class="form-row"><label>Type</label><select id="c-type">${['Enterprise','SMB','Retail'].map(x=>`<option ${c.type===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Type</label><select id="c-type">${['Enterprise','SMB','Retail','Unknown'].map(x=>`<option ${c.type===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Billing Address</label><textarea id="c-billaddr" rows="2">${String(c.c_msg1tc8d||(c.custom||{}).c_msg1tc8d||'').replace(/</g,'&lt;')}</textarea></div>
+      <div class="form-row"><label>Shipping Address</label><textarea id="c-shipaddr" rows="2">${String(c.c_msg1ttd9||(c.custom||{}).c_msg1ttd9||'').replace(/</g,'&lt;')}</textarea></div>
 ${customFieldsHTML('customer', c)}
     </div><div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveCust('${id||''}')">${I.check}Save</button></div>`);
 }
 function saveCust(id){
-  const rec={name:v('c-name'),contact:v('c-contact'),city:v('c-city'),email:v('c-email'),phone:v('c-phone'),type:v('c-type'),gstin:(v('c-gstin')||'').toUpperCase(),custom:readCustomFields('customer')};
+  if(!v('c-name').trim()){ toast('Company name is required'); return; }
+  const rec={name:v('c-name').trim(),contact:v('c-contact'),city:v('c-city').trim(),email:v('c-email'),phone:v('c-phone'),type:v('c-type'),gstin:(v('c-gstin')||'').toUpperCase().trim(),custom:readCustomFields('customer')};
+  /* addresses live both top-level (inline add-customer form) and as form-builder answers */
+  rec.c_msg1tc8d=v('c-billaddr'); rec.c_msg1ttd9=v('c-shipaddr');
+  if(rec.custom){ if(rec.custom.c_msg1tc8d!==undefined || getForm('customer').some(f=>f.id==='c_msg1tc8d')) rec.custom.c_msg1tc8d=rec.c_msg1tc8d; if(rec.custom.c_msg1ttd9!==undefined || getForm('customer').some(f=>f.id==='c_msg1ttd9')) rec.custom.c_msg1ttd9=rec.c_msg1ttd9; }
   const list=DB.customers();
-  if(id){Object.assign(list.find(x=>x.id===id),rec);}else{rec.id=uid('CUST-');rec.since=new Date().getFullYear();list.unshift(rec);}
+  if(id){ const ex=list.find(x=>x.id===id); if(!ex){ toast('Customer not found'); return; } Object.assign(ex,rec);}else{rec.id=uid('CUST-');rec.since=new Date().getFullYear();stampOwner(rec);list.unshift(rec);}
   DB.save('customers',list); closeModal(); toast('Customer saved ✓'); setView('customers');
 }
 function openProdModal(id){
@@ -1223,8 +1303,9 @@ ${customFieldsHTML('product', p)}
 }
 function saveProd(id){
   const rec={name:v('p-name'),sku:v('p-sku'),cat:v('p-cat'),price:+v('p-price')||0,stock:+v('p-stock')||0,unit:v('p-unit'),custom:readCustomFields('product')};
+  if(!rec.name.trim()){ toast('Product name is required'); return; }
   const list=DB.products();
-  if(id){Object.assign(list.find(x=>x.id===id),rec);}else{rec.id=uid('PRD-');list.unshift(rec);}
+  if(id){ const ex=list.find(x=>x.id===id); if(!ex){ toast('Product not found'); return; } Object.assign(ex,rec);}else{rec.id=uid('PRD-');list.unshift(rec);}
   DB.save('products',list); closeModal(); toast('Product saved ✓'); setView('products');
 }
 const v=id=>document.getElementById(id).value;
@@ -1250,7 +1331,7 @@ function openUserModal(email){
   const u = email ? DB_users().find(x=>x.email===email) : {};
   openModal(`<div class="modal-head"><h3>${email?'Edit':'Add'} User Login</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
-      <div style="font-size:12.5px;color:#b06a00;background:rgba(237,161,0,.12);padding:10px 12px;border-radius:10px;margin-bottom:14px">Preview mode: user is saved in this browser only. Real login (email + password) activates in the deployed app with Supabase connected.</div>
+      <div style="font-size:12.5px;color:#b06a00;background:rgba(237,161,0,.12);padding:10px 12px;border-radius:10px;margin-bottom:14px">User Google Sheet (users tab) me save hota hai. Password yahin set / reset kar sakte hain — user apna password baad me sidebar ke <b>Change password</b> se bhi badal sakta hai.</div>
       <div class="form-row two"><div><label>Full Name</label><input id="u-name" value="${u.name||''}"></div><div><label>Mobile Number</label><input id="u-phone" value="${u.phone||''}"></div></div>
       <div class="form-row"><label>Login Email / ID</label><input id="u-email" type="email" value="${u.email||''}" ${email?'readonly':''} placeholder="user@oakcraft.in"></div>
       <div class="form-row two"><div><label>Password ${email?'(leave blank to keep)':''}</label><div style="position:relative"><input id="u-pass" type="password" minlength="6" placeholder="••••••" style="width:100%;padding-right:38px"><button type="button" onclick="togglePw('u-pass',this)" title="Show password" aria-label="Show password" style="position:absolute;top:50%;right:6px;transform:translateY(-50%);width:30px;height:30px;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:none;cursor:pointer;color:var(--muted)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></div>
@@ -1496,6 +1577,8 @@ function customFieldsFor(which){
   const core = CORE_FIELD_IDS[which] || [];
   let list = getForm(which).filter(f=> f && !f.locked && core.indexOf(f.id)===-1);
   if(which === 'order') list = list.filter(f=> orderFieldGroup(f) !== 'hidden');
+  /* the customer form renders Billing / Shipping Address natively (see openCustModal) */
+  if(which === 'customer') list = list.filter(f=> f.id!=='c_msg1tc8d' && f.id!=='c_msg1ttd9');
   return list;
 }
 function customFieldsHTML(which, rec, group){
@@ -1732,11 +1815,15 @@ function ensureXLSX(){
   if(xlsxReady()) return Promise.resolve(true);
   if(!__xlsxPromise){
     __xlsxPromise = new Promise((resolve, reject)=>{
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-      s.onload = ()=>resolve(true);
-      s.onerror = ()=>{ __xlsxPromise = null; reject(new Error('xlsx load failed')); };
-      document.head.appendChild(s);
+      const load = (src, next)=>{
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = ()=>resolve(true);
+        s.onerror = ()=>{ if(next) next(); else { __xlsxPromise = null; reject(new Error('xlsx load failed')); } };
+        document.head.appendChild(s);
+      };
+      /* bundled copy first (works offline / inside the APK), CDN as fallback */
+      load('lib/xlsx.full.min.js', ()=>load('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', null));
     });
   }
   return __xlsxPromise;
@@ -1768,10 +1855,10 @@ async function exportExcel(section){
   if(!await awaitXLSX()) return;
   const q=(document.getElementById('globalSearch')?.value||'').toLowerCase();
   let rows=[], name=section;
-  if(section==='enquiries'){ rows=DB.enquiries().map(e=>({'Enquiry ID':e.id,Date:e.date,Customer:e.customer,Product:e.product,Qty:e.qty,Source:e.source,Salesperson:e.salesperson,Value:e.value,Priority:e.priority,Stage:e.stage,Note:e.note})); }
-  else if(section==='quotations'){ rows=DB.quotations().map(x=>({'Quote ID':x.id,Date:x.date,Customer:x.customer,Product:x.product,Qty:x.qty,Amount:x.amount,'Discount %':x.discount,'Valid Till':x.validTill,Salesperson:x.salesperson,Status:x.status})); }
-  else if(section==='orders'){ rows=DB.orders().map(o=>({'Order ID':o.id,Date:o.date,Customer:o.customer,Product:o.product,Qty:o.qty,Amount:o.amount,Payment:o.payment,'Exp. Dispatch':o.expDispatch,Status:o.status,Salesperson:o.salesperson})); }
-  else if(section==='dispatch'){ rows=DB.dispatch().map(d=>({'Dispatch ID':d.id,'Order ID':d.orderId,Customer:d.customer,Product:d.product,Qty:d.qty,Courier:d.courier,'Tracking No':d.tracking,Dispatched:d.dispatchedOn,ETA:d.eta,Status:d.status})); }
+  if(section==='enquiries'){ rows=scope(DB.enquiries()).map(e=>({'Enquiry ID':e.id,Date:e.date,Customer:e.customer,Product:e.product,Qty:e.qty,Source:e.source,Salesperson:e.salesperson,Value:e.value,Priority:e.priority,Stage:e.stage,Note:e.note})); }
+  else if(section==='quotations'){ rows=scope(DB.quotations()).map(x=>({'Quote ID':x.id,Date:x.date,Customer:x.customer,Product:x.product,Qty:x.qty,Amount:x.amount,'Discount %':x.discount,'Valid Till':x.validTill,Salesperson:x.salesperson,Status:x.status})); }
+  else if(section==='orders'){ rows=scope(DB.orders(),'orders').map(o=>({'Order ID':o.id,Date:o.date,'Fed On':(o.createdAt||''),Customer:o.customer,Salesperson:o.salesperson,Product:o.product,'Product Type':(o.productType||''),Qty:o.qty,'Amount (excl. GST)':o.amount,'Billing Amount (incl. 18% GST)':Math.round((+o.amount||0)*1.18*100)/100,Payment:o.payment,'Exp. Delivery':o.expDispatch,Status:o.status,Note:(o.note||'')})); }
+  else if(section==='dispatch'){ rows=scope(DB.dispatch()).map(d=>({'Dispatch ID':d.id,'Order ID':d.orderId,Customer:d.customer,Product:d.product,Qty:d.qty,Courier:d.courier,'Tracking No':d.tracking,Dispatched:d.dispatchedOn,ETA:d.eta,Status:d.status})); }
   else if(section==='customers'){ const ord=DB.orders(); rows=DB.customers().map(c=>{const co=ord.filter(o=>o.custId===c.id);return {'Customer ID':c.id,Company:c.name,'Contact Person':c.contact,Email:c.email,Phone:c.phone,City:c.city,Type:c.type,Orders:co.length,'Lifetime Value':co.reduce((s,o)=>s+o.amount,0)};}); }
   else if(section==='products'){ rows=DB.products().map(p=>({'Product ID':p.id,Name:p.name,SKU:p.sku,Category:p.cat,'Unit Price':p.price,Stock:p.stock,Unit:p.unit,'Stock Value':p.price*p.stock})); }
   if(!rows.length){ toast('Nothing to export'); return; }
@@ -1987,7 +2074,7 @@ function renderLogin(msg){
   let ov=document.getElementById('loginOverlay'); if(!ov){ ov=document.createElement('div'); ov.id='loginOverlay'; document.body.appendChild(ov); }
   ov.setAttribute('style', 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f1729,#1a2540);padding:20px');
   ov.innerHTML = `<div style="width:100%;max-width:380px;background:#fff;border-radius:16px;padding:30px;box-shadow:0 20px 60px rgba(0,0,0,.4)">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="width:38px;height:38px;border-radius:10px;background:#2a78d6;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px">O</div><div><div style="font-weight:800;font-size:18px;color:#111">OakCraft CRM</div><div style="font-size:12px;color:#888">Sales Pipeline Suite</div></div></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><img src="icons/icon-48.png" alt="CRM" width="42" height="42" style="width:42px;height:42px;border-radius:10px;object-fit:cover;background:#0b0b0b"><div><div style="font-weight:800;font-size:18px;color:#111">OakCraft CRM</div><div style="font-size:12px;color:#888">Sales Pipeline Suite</div></div></div>
     <h3 style="margin:18px 0 4px;color:#111">Sign in</h3>
     <div id="loginMsg" style="font-size:12.5px;color:#d03b3b;min-height:18px;margin-bottom:6px">${msg||''}</div>
     <label style="font-size:12px;color:#888">Email</label>
@@ -2093,7 +2180,7 @@ function renderCustPreview(selId){
   }
   var html = row("Contact person", c.contact) + row("Phone", c.phone || c.mobile) + row("Email", c.email) +
              row("City", c.city) + row("GSTIN", c.gstin) + row("Type", c.type) +
-             row("Billing address", c.c_msg1tc8d) + row("Shipping address", c.c_msg1ttd9);
+             row("Billing address", c.c_msg1tc8d || (c.custom||{}).c_msg1tc8d) + row("Shipping address", c.c_msg1ttd9 || (c.custom||{}).c_msg1ttd9);
   if(!html){ box.style.display = "none"; box.innerHTML = ""; return; }
   box.style.display = "";
   box.innerHTML = '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:8px;background:var(--surface-2);font-size:12px">' +
@@ -5074,7 +5161,7 @@ window.renderOrders = function(){
 
   content.innerHTML =
     '<div class="card"><div class="card-head">'
-    + '<h3>Orders <span class="chip c-neutral" style="margin-left:4px">' + all.length + '</span></h3>'
+    + '<h3>Orders <span class="chip c-neutral" style="margin-left:4px">' + mine.length + '</span></h3>'
     + '<div class="tools">'
     + '<select class="field" id="f-ostat" onchange="paintTable(&quot;ord-body&quot;)"><option value="">All Status</option>' + stats + '</select>'
     + '<select class="field" id="f-oemp" onchange="paintTable(&quot;ord-body&quot;)"><option value="">All Employees</option>' + empOpts + '</select>'
@@ -5737,7 +5824,7 @@ console.log('[oc v7] row-safe save active');
          so admins see everyone else's incentive dashboard but not his. */
   try{
     if(typeof window.ocSalesUsers === 'function'){
-      var _su = window.ocSalesUsers;h
+      var _su = window.ocSalesUsers;
       window.ocSalesUsers = function(){
         var rows = _su.apply(this, arguments) || [];
         return rows.filter(function(u){ return !isMayank(u && u.email); });
@@ -5756,7 +5843,7 @@ console.log('[oc v7] row-safe save active');
 })();
 </script>
 
-<script>(function(){if(window.__ocEditFix2)return;window.__ocEditFix2=true;function isHttp(v){return typeof v==='string'&&/^https?:\/\//i.test(v);}function isFake(v){return typeof v==='string'&&v.indexOf('fakepath')>-1;}function realVal(v){return v&&!isFake(v);}function fldFileList(which){try{var ff=JSON.parse(localStorage.getItem('formfields'));return (ff[which]||[]).filter(function(f){return f.type==='file';});}catch(e){return [];}}function fname(v){if(typeof v!=='string')return '';var m=v.match(/;name=([^;]+);base64,/);if(m){try{return decodeURIComponent(m[1]);}catch(e){return m[1];}}if(isHttp(v))return (v.split('/').pop().split('?')[0])||'file';if(isFake(v))return v.split('\').pop().split('/').pop();return '';}var base=window.readCustomFields;if(typeof base==='function'){window.readCustomFields=function(which){var out=base.apply(this,arguments)||{};try{var rec=window.__ocEditRec;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id)||document.getElementById('cf-'+f.id);if(el&&el.__ocData){out[f.id]=el.__ocData;return;}var saved=rec&&rec.custom?rec.custom[f.id]:undefined;if(realVal(saved)){out[f.id]=saved;return;}if(isFake(out[f.id]))out[f.id]='';});}catch(e){}return out;};}function decorate(){var modal=document.getElementById('modal');if(!modal)return;var which=modal.querySelector('[id^="cf-order-"]')?'order':(modal.querySelector('[id^="cf-enquiry-"]')?'enquiry':null);if(!which)return;var rec=window.__ocEditRec;if(!rec||!rec.custom)return;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id);if(!el)return;var saved=rec.custom[f.id];if(realVal(saved))el.__ocData=saved;if(el.parentNode.querySelector('.oc-prev-hint'))return;var nm=fname(saved);if(!saved&&!nm)return;var h=document.createElement('div');h.className='oc-prev-hint';h.style.cssText='font-size:12px;margin-top:4px;color:#006300;word-break:break-all';if(isHttp(saved)){h.innerHTML='\u2713 Pehle uploaded: <a href="'+saved+'" target="_blank" style="color:#1a73e8;text-decoration:underline">'+(nm||'file dekhein')+'</a> <span style="color:#888">(nayi file chunne par replace hogi)</span>';}else if(nm){h.innerHTML='\u2713 Pehle: '+nm+' <span style="color:#888">(preserve rahega; nayi file chunne par replace hogi)</span>';}else{return;}el.parentNode.appendChild(h);});}['openOrderModal','openEnqModal','openEnquiryModal'].forEach(function(fn){if(typeof window[fn]!=='function')return;var orig=window[fn];window[fn]=function(id){try{if(!id){window.__ocEditRec=null;}else{var recs=(fn==='openOrderModal')?DB.orders():((DB.enquiries?DB.enquiries():(DB.leads?DB.leads():[])));window.__ocEditRec=recs.find(function(x){return x.id===id;})||null;}}catch(e){window.__ocEditRec=null;}var r=orig.apply(this,arguments);setTimeout(decorate,60);setTimeout(decorate,250);return r;};});try{var mo=new MutationObserver(function(){if(window.__ocEditRec)decorate();});mo.observe(document.getElementById('modal')||document.body,{childList:true,subtree:true});}catch(e){}})();</script><script>(function(){if(window.__ocFileGuard)return;window.__ocFileGuard=true;function isFake(v){return typeof v==='string'&&(v.indexOf('fakepath')>-1||/^[A-Za-z]:\/.test(v));}function cleanStore(key){try{var arr=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(arr))return 0;var n=0;arr.forEach(function(o){if(isFake(o.image)){o.image='';n++;}(o.items||[]).forEach(function(it){if(isFake(it.image)){it.image='';n++;}});var c=o.custom||{};Object.keys(c).forEach(function(k){if(isFake(c[k])){c[k]='';n++;}});});if(n)localStorage.setItem(key,JSON.stringify(arr));return n;}catch(e){return 0;}}window.__ocCleanFakepaths=function(){return cleanStore('orders')+cleanStore('enquiries');};function guard(origName){var orig=window[origName];if(typeof orig!=='function'||orig.__ocGuarded)return;var wrapped=function(){var pending=[];document.querySelectorAll('#modal input[type=file]').forEach(function(inp){var picked=inp.files&&inp.files.length>0;if(picked&&!inp.__ocData){var lbl=(inp.closest('label')||inp.parentNode);pending.push((lbl&&lbl.textContent||'').trim().slice(0,40)||'a file field');}});if(pending.length){if(window.toast)window.toast('Please wait \u2014 file abhi Google Drive par upload ho rahi hai: '+pending.join(', '));else alert('File abhi upload ho rahi hai, thodi der ruko.');return false;}return orig.apply(this,arguments);};wrapped.__ocGuarded=true;window[origName]=wrapped;}guard('saveOrder');guard('saveEnq');try{window.__ocCleanFakepaths();}catch(e){}})();</script><script>(function(){if(window.__ocKeepLocal)return;window.__ocKeepLocal=true;var KEYS={orders:'__ocPend_orders',enquiries:'__ocPend_enq'};var WINDOW_MS=24*60*60*1000;var __rawSet=localStorage.setItem.bind(localStorage);function load(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}function jset(k,o){try{__rawSet(k,JSON.stringify(o));}catch(e){}}function idOf(r){return r&&(r.id||r.enqId||r.leadId);}function prevIds(kind){try{var a=JSON.parse(localStorage.getItem(kind)||'[]');var m={};a.forEach(function(r){var id=idOf(r);if(id)m[id]=r;});return m;}catch(e){return {};}}localStorage.setItem=function(k,v){if(k==='orders'||k==='enquiries'){try{var incoming=JSON.parse(v);if(Array.isArray(incoming)){var before=prevIds(k);var reg=load(KEYS[k]);var now=Date.now();var incIds={};var changed=false;incoming.forEach(function(r){var id=idOf(r);if(id)incIds[id]=true;});Object.keys(before).forEach(function(id){if(!incIds[id]&&!reg[id]){reg[id]={rec:before[id],t:now};changed=true;}});Object.keys(reg).forEach(function(id){var e=reg[id];if(now-e.t>WINDOW_MS){delete reg[id];changed=true;return;}if(incIds[id]){delete reg[id];changed=true;return;}incoming.push(e.rec);});if(changed)jset(KEYS[k],reg);v=JSON.stringify(incoming);}}catch(e){}}return __rawSet(k,v);};window.__ocKeepLocalRestore=function(){localStorage.setItem=__rawSet;};})();</script>
+<script>(function(){if(window.__ocEditFix2)return;window.__ocEditFix2=true;function isHttp(v){return typeof v==='string'&&/^https?:\/\//i.test(v);}function isFake(v){return typeof v==='string'&&v.indexOf('fakepath')>-1;}function realVal(v){return v&&!isFake(v);}function fldFileList(which){try{var ff=JSON.parse(localStorage.getItem('formfields'));return (ff[which]||[]).filter(function(f){return f.type==='file';});}catch(e){return [];}}function fname(v){if(typeof v!=='string')return '';var m=v.match(/;name=([^;]+);base64,/);if(m){try{return decodeURIComponent(m[1]);}catch(e){return m[1];}}if(isHttp(v))return (v.split('/').pop().split('?')[0])||'file';if(isFake(v))return v.split('\\').pop().split('/').pop();return '';}var base=window.readCustomFields;if(typeof base==='function'){window.readCustomFields=function(which){var out=base.apply(this,arguments)||{};try{var rec=window.__ocEditRec;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id)||document.getElementById('cf-'+f.id);if(el&&el.__ocData){out[f.id]=el.__ocData;return;}var saved=rec&&rec.custom?rec.custom[f.id]:undefined;if(realVal(saved)){out[f.id]=saved;return;}if(isFake(out[f.id]))out[f.id]='';});}catch(e){}return out;};}function decorate(){var modal=document.getElementById('modal');if(!modal)return;var which=modal.querySelector('[id^="cf-order-"]')?'order':(modal.querySelector('[id^="cf-enquiry-"]')?'enquiry':null);if(!which)return;var rec=window.__ocEditRec;if(!rec||!rec.custom)return;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id);if(!el)return;var saved=rec.custom[f.id];if(realVal(saved))el.__ocData=saved;if(el.parentNode.querySelector('.oc-prev-hint'))return;var nm=fname(saved);if(!saved&&!nm)return;var h=document.createElement('div');h.className='oc-prev-hint';h.style.cssText='font-size:12px;margin-top:4px;color:#006300;word-break:break-all';if(isHttp(saved)){h.innerHTML='\u2713 Pehle uploaded: <a href="'+saved+'" target="_blank" style="color:#1a73e8;text-decoration:underline">'+(nm||'file dekhein')+'</a> <span style="color:#888">(nayi file chunne par replace hogi)</span>';}else if(nm){h.innerHTML='\u2713 Pehle: '+nm+' <span style="color:#888">(preserve rahega; nayi file chunne par replace hogi)</span>';}else{return;}el.parentNode.appendChild(h);});}['openOrderModal','openEnqModal','openEnquiryModal'].forEach(function(fn){if(typeof window[fn]!=='function')return;var orig=window[fn];window[fn]=function(id){try{if(!id){window.__ocEditRec=null;}else{var recs=(fn==='openOrderModal')?DB.orders():((DB.enquiries?DB.enquiries():(DB.leads?DB.leads():[])));window.__ocEditRec=recs.find(function(x){return x.id===id;})||null;}}catch(e){window.__ocEditRec=null;}var r=orig.apply(this,arguments);setTimeout(decorate,60);setTimeout(decorate,250);return r;};});try{var mo=new MutationObserver(function(){if(window.__ocEditRec)decorate();});mo.observe(document.getElementById('modal')||document.body,{childList:true,subtree:true});}catch(e){}})();</script><script>(function(){if(window.__ocFileGuard)return;window.__ocFileGuard=true;function isFake(v){return typeof v==='string'&&(v.indexOf('fakepath')>-1||/^[A-Za-z]:\\/.test(v));}function cleanStore(key){try{var arr=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(arr))return 0;var n=0;arr.forEach(function(o){if(isFake(o.image)){o.image='';n++;}(o.items||[]).forEach(function(it){if(isFake(it.image)){it.image='';n++;}});var c=o.custom||{};Object.keys(c).forEach(function(k){if(isFake(c[k])){c[k]='';n++;}});});if(n)localStorage.setItem(key,JSON.stringify(arr));return n;}catch(e){return 0;}}window.__ocCleanFakepaths=function(){return cleanStore('orders')+cleanStore('enquiries');};function guard(origName){var orig=window[origName];if(typeof orig!=='function'||orig.__ocGuarded)return;var wrapped=function(){var pending=[];document.querySelectorAll('#modal input[type=file]').forEach(function(inp){var picked=inp.files&&inp.files.length>0;if(picked&&!inp.__ocData){var lbl=(inp.closest('label')||inp.parentNode);pending.push((lbl&&lbl.textContent||'').trim().slice(0,40)||'a file field');}});if(pending.length){if(window.toast)window.toast('Please wait \u2014 file abhi Google Drive par upload ho rahi hai: '+pending.join(', '));else alert('File abhi upload ho rahi hai, thodi der ruko.');return false;}return orig.apply(this,arguments);};wrapped.__ocGuarded=true;window[origName]=wrapped;}guard('saveOrder');guard('saveEnq');try{window.__ocCleanFakepaths();}catch(e){}})();</script><script>(function(){if(window.__ocKeepLocal)return;window.__ocKeepLocal=true;var KEYS={orders:'__ocPend_orders',enquiries:'__ocPend_enq'};var WINDOW_MS=24*60*60*1000;var __rawSet=localStorage.setItem.bind(localStorage);function load(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}function jset(k,o){try{__rawSet(k,JSON.stringify(o));}catch(e){}}function idOf(r){return r&&(r.id||r.enqId||r.leadId);}function prevIds(kind){try{var a=JSON.parse(localStorage.getItem(kind)||'[]');var m={};a.forEach(function(r){var id=idOf(r);if(id)m[id]=r;});return m;}catch(e){return {};}}localStorage.setItem=function(k,v){if(k==='orders'||k==='enquiries'){try{var incoming=JSON.parse(v);if(Array.isArray(incoming)){var before=prevIds(k);var reg=load(KEYS[k]);var now=Date.now();var incIds={};var changed=false;incoming.forEach(function(r){var id=idOf(r);if(id)incIds[id]=true;});Object.keys(before).forEach(function(id){if(!incIds[id]&&!reg[id]){reg[id]={rec:before[id],t:now};changed=true;}});Object.keys(reg).forEach(function(id){var e=reg[id];if(now-e.t>WINDOW_MS){delete reg[id];changed=true;return;}if(incIds[id]){delete reg[id];changed=true;return;}incoming.push(e.rec);});if(changed)jset(KEYS[k],reg);v=JSON.stringify(incoming);}}catch(e){}}return __rawSet(k,v);};window.__ocKeepLocalRestore=function(){localStorage.setItem=__rawSet;};})();</script>
 <script>
 /* ===== OAKCRAFT STICKY-DELETE PATCH (2026-08-12) =====
    Problem: keep-local layer kisi bhi gaayab hue record ko 24h tak wapas inject kar deti thi,
@@ -7004,6 +7091,691 @@ console.log('[oc v7] row-safe save active');
   try{ if(state && state.view === 'metaLeads') renderMetaLeads(); }catch(e){}
 
 })();
+</script>
+
+<script>
+/* ============================================================================
+   OAKCRAFT v9  —  COMPLETENESS PASS                          build 2026-08-29
+   ----------------------------------------------------------------------------
+   Ye block sabse LAST load hota hai, isliye har purane override par ye jeet-ta hai.
+   Kya add / fix hua:
+     1. Permissions ab ENFORCE hoti hain (Admin Panel > Permissions me jo save
+        hota hai wahi chalta hai: view / create / edit / delete per section).
+     2. Mobile navigation: chhoti screen par sidebar hamburger (☰) drawer se
+        khulta hai (pehle sidebar hide ho jaata tha aur koi menu nahi bachta tha).
+     3. Dispatch module: Add / Edit / Delete dispatch form (courier, tracking,
+        dispatched-on, ETA, status, note). Order "Dispatched" karne par ab fake
+        "BlueDart / TRK1234567" nahi banta — form khulta hai asli details ke liye.
+        Dispatch status <-> Order status dono taraf sync.
+     4. Quotation form: CRM ke andar quotation add / edit (status Draft/Sent/
+        Accepted/Rejected, valid-till, discount, note). Enquiry se ek click me
+        quotation ("→ Quote"). Quote -> Order conversion pehle jaisa band hai.
+     5. Pipeline board: cards ko drag-and-drop se stage badlo (desktop), ◀ ▶
+        buttons se (mobile), card par click = enquiry edit. 'Lost' column bhi.
+     6. Change password (sidebar me 🔑) — user apna password khud badal sakta hai.
+     7. Global search Meta Leads par bhi chalti hai. Quick-add button har
+        section ke hisaab se (New Quotation / New Dispatch / Add Customer ...).
+     8. Android app ke liye back-button hook (window.__ocBack) aur external
+        link handling (wa.me, GST portal) — web par koi farak nahi padta.
+   ============================================================================ */
+(function(){
+'use strict';
+
+var $ = function(id){ return document.getElementById(id); };
+var S = function(v){ return v == null ? '' : String(v); };
+var LC = function(v){ return S(v).trim().toLowerCase(); };
+var esc = function(v){ return S(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+function me(){ try{ return AUTH.current() || {}; }catch(e){ return {}; } }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function say(t){ try{ toast(t); }catch(e){} }
+function localToday(){ var d = new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function plusDays(iso, n){ var d = new Date(S(iso).slice(0,10)+'T00:00:00'); if(isNaN(d)) d = new Date(); d.setDate(d.getDate()+n); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function attr(v){ return S(v).replace(/"/g,'&quot;'); }
+
+/* ====================================================================== *
+ * 1. PERMISSIONS — enforce what Admin Panel > Permissions saved            *
+ * ====================================================================== */
+var SECTION_OF_VIEW = { dashboard:'dashboard', enquiries:'enquiries', pipeline:'pipeline', quotations:'quotations',
+                        orders:'orders', dispatch:'dispatch', customers:'customers', products:'products',
+                        admin:'admin', metaLeads:'metaLeads' };
+var SECTION_OF_KEY  = { enquiries:'enquiries', quotations:'quotations', orders:'orders', dispatch:'dispatch',
+                        customers:'customers', products:'products', metaLeads:'metaLeads' };
+
+function savedPermsFor(email){
+  var all = {}; try{ all = getPerms() || {}; }catch(e){ all = {}; }
+  var want = LC(email);
+  if(all[email]) return all[email];
+  for(var k in all){ if(LC(k) === want) return all[k]; }
+  return null;
+}
+function permsFor(u){
+  var p = savedPermsFor(u.email);
+  if(!p){ try{ p = defaultPermFor(u.role); }catch(e){ p = {}; } }
+  return p || {};
+}
+window.can = function(section, action){
+  if(isAdm()) return true;
+  var u = me(); if(!u || !u.email) return false;
+  if(section === 'admin') return false;            /* Admin Panel hamesha sirf admin */
+  var p = permsFor(u), sec = p[section];
+  if(!sec) return true;                             /* section config me nahi -> allow (e.g. naya module) */
+  return sec[action] !== false;
+};
+window.ocPermsFor = permsFor;
+
+function permToast(action){
+  say({ view:'Is section ko dekhne ki permission nahi hai', create:'Naya record banane ki permission nahi hai',
+        edit:'Edit karne ki permission nahi hai', delete:'Delete karne ki permission nahi hai' }[action] || 'Permission nahi hai');
+}
+
+/* nav items hide */
+function applyNavPerms(){
+  try{
+    document.querySelectorAll('.nav a[data-view]').forEach(function(a){
+      var v = a.getAttribute('data-view'); if(v === 'admin') return;   /* admin nav ko applyUserToSidebar sambhalta hai */
+      a.style.display = can(SECTION_OF_VIEW[v] || v, 'view') ? '' : 'none';
+    });
+  }catch(e){}
+}
+window.ocApplyNavPerms = applyNavPerms;
+
+/* buttons hide inside rendered view */
+var RX_CREATE = /^\s*(openEnqModal|openCustModal|openProdModal|openDisModal|openQuoModal|openOrderModal|ML\.form|ML\.bulkBox|ML\.importBox|triggerBulk)\(\s*\)\s*;?\s*$/;
+var RX_EDIT   = /^\s*(openEnqModal|openCustModal|openProdModal|openDisModal|openQuoModal|openOrderModal|ML\.form|advanceOrder|ocMoveEnq|ocQuoteFromEnq)\(\s*['"]/;
+var RX_DELETE = /(delRow|deleteOrderAdmin|bulkDeleteProducts|ML\.del|ML\.selDelete)\(/;
+function applyViewPerms(){
+  try{
+    var view = (typeof state !== 'undefined' && state.view) || 'dashboard';
+    var sec = SECTION_OF_VIEW[view] || view;
+    var cC = can(sec,'create'), cE = can(sec,'edit'), cD = can(sec,'delete');
+    var root = $('content'); if(!root) return;
+    root.querySelectorAll('button[onclick], a[onclick]').forEach(function(b){
+      var oc = b.getAttribute('onclick') || '';
+      if(!cC && RX_CREATE.test(oc)) b.style.display = 'none';
+      if(!cE && RX_EDIT.test(oc))   b.style.display = 'none';
+      if(!cD && RX_DELETE.test(oc)) b.style.display = 'none';
+    });
+    if(!cE){ root.querySelectorAll('.lead-card[draggable]').forEach(function(c){ c.removeAttribute('draggable'); }); }
+    var qa = $('quickAdd'); if(qa && !cC) qa.style.display = 'none';
+  }catch(e){ console.warn('[oc v9] view perms', e); }
+}
+window.ocApplyViewPerms = applyViewPerms;
+
+/* guard functions */
+function guardCreateEdit(fnName, section){
+  var orig = window[fnName]; if(typeof orig !== 'function') return;
+  window[fnName] = function(id){
+    var action = id ? 'edit' : 'create';
+    if(!can(section, action)){ permToast(action); return; }
+    return orig.apply(this, arguments);
+  };
+}
+function guardDelete(fnName, sectionOrFn){
+  var orig = window[fnName]; if(typeof orig !== 'function') return;
+  window[fnName] = function(){
+    var sec = typeof sectionOrFn === 'function' ? sectionOrFn.apply(null, arguments) : sectionOrFn;
+    if(!can(sec, 'delete')){ permToast('delete'); return; }
+    return orig.apply(this, arguments);
+  };
+}
+
+/* ====================================================================== *
+ * 2. MOBILE NAVIGATION (hamburger drawer)                                  *
+ * ====================================================================== */
+var sb = document.querySelector('.sidebar');
+function navOpen(on){
+  if(!sb) return;
+  sb.classList.toggle('open', !!on);
+  var bd = $('navBackdrop'); if(bd) bd.classList.toggle('show', !!on);
+  document.body.classList.toggle('nav-open', !!on);
+}
+window.__ocNavOpen = navOpen;
+(function(){
+  var mb = $('menuBtn'), bd = $('navBackdrop');
+  if(mb) mb.addEventListener('click', function(){ navOpen(!sb.classList.contains('open')); });
+  if(bd) bd.addEventListener('click', function(){ navOpen(false); });
+  if(sb) sb.addEventListener('click', function(e){ if(e.target.closest && e.target.closest('a[data-view]')) navOpen(false); });
+  window.addEventListener('resize', function(){ if(window.innerWidth > 760) navOpen(false); });
+})();
+
+/* Android / hardware back button hook: returns true when it handled the press */
+window.__ocBack = function(){
+  try{
+    var lb = $('ocLightbox'); if(lb && lb.style.display === 'flex'){ lb.style.display = 'none'; return true; }
+    if(sb && sb.classList.contains('open')){ navOpen(false); return true; }
+    var mbg = $('modalBg'); if(mbg && mbg.classList.contains('show')){ closeModal(); return true; }
+    if(typeof state !== 'undefined' && state.view !== 'dashboard' && AUTH.session()){ setView('dashboard'); return true; }
+  }catch(e){}
+  return false;
+};
+
+/* ====================================================================== *
+ * 3. DISPATCH MODULE — add / edit / delete                                  *
+ * ====================================================================== */
+var DIS_STATUS = ['Pending','Packed','Shipped','Out for Delivery','Delivered'];
+var COURIERS   = ['BlueDart','Delhivery','DTDC','VRL Logistics','Gati','Safexpress','TCI Express','Porter','Self Fleet','Customer Pickup','Other'];
+
+function orderById(id){ return (DB.orders() || []).filter(function(o){ return o && o.id === id; })[0] || null; }
+
+window.openDisModal = function(id, orderId){
+  var list = DB.dispatch() || [];
+  var d = id ? list.filter(function(x){ return x.id === id; })[0] : null;
+  if(id && !d){ say('Dispatch record not found'); return; }
+  if(d && typeof canTouch === 'function' && !canTouch(d, 'dispatch')){ say('Ye dispatch aapka nahi hai.'); return; }
+  d = d || {};
+  var orders = scope(DB.orders(), 'orders').filter(function(o){ return o && o.status !== 'Cancelled'; });
+  var dispatched = {}; list.forEach(function(x){ if(x && x.orderId) dispatched[x.orderId] = 1; });
+  var selOrder = d.orderId || orderId || '';
+  var oOpts = '<option value="">-- Select order --</option>' + orders
+    .slice().sort(function(a,b){ return S(b.date).localeCompare(S(a.date)); })
+    .map(function(o){
+      var tag = (dispatched[o.id] && o.id !== selOrder) ? ' (already has dispatch)' : '';
+      return '<option value="' + attr(o.id) + '"' + (o.id === selOrder ? ' selected' : '') + '>' + esc(o.id + ' · ' + o.customer + ' · ' + o.product + tag) + '</option>';
+    }).join('');
+  var cOpts = COURIERS.map(function(c){ return '<option value="' + attr(c) + '">'; }).join('');
+  var stOpts = DIS_STATUS.map(function(s){ return '<option' + ((d.status || 'Shipped') === s ? ' selected' : '') + '>' + s + '</option>'; }).join('');
+  var dOn = d.dispatchedOn || localToday();
+  openModal('<div class="modal-head"><h3>' + (id ? 'Edit' : 'New') + ' Dispatch</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body">'
+    + '<div class="form-row"><label>Order <span style="color:var(--crit)">*</span></label><select id="d-order" onchange="onDisOrderChange()"' + (id ? ' disabled' : '') + '>' + oOpts + '</select></div>'
+    + '<div id="d-order-info" style="font-size:12px;color:var(--text-2);margin:-6px 0 12px"></div>'
+    + '<div class="form-row two"><div><label>Courier / Transporter <span style="color:var(--crit)">*</span></label><input id="d-courier" list="d-courier-list" value="' + attr(d.courier) + '" placeholder="e.g. Delhivery"><datalist id="d-courier-list">' + cOpts + '</datalist></div>'
+    + '<div><label>Tracking / LR No.</label><input id="d-tracking" value="' + attr(d.tracking) + '" placeholder="AWB / LR number"></div></div>'
+    + '<div class="form-row two"><div><label>Dispatched On <span style="color:var(--crit)">*</span></label><input id="d-on" type="date" value="' + attr(dOn) + '"></div>'
+    + '<div><label>ETA (expected delivery)</label><input id="d-eta" type="date" value="' + attr(d.eta || plusDays(dOn, 5)) + '"></div></div>'
+    + '<div class="form-row two"><div><label>Delivery Status</label><select id="d-status">' + stOpts + '</select></div>'
+    + '<div><label>Vehicle / Driver (optional)</label><input id="d-vehicle" value="' + attr(d.vehicle) + '" placeholder="Vehicle no. / driver phone"></div></div>'
+    + '<div class="form-row"><label>Note</label><textarea id="d-note" rows="2">' + esc(d.note) + '</textarea></div>'
+    + '</div>'
+    + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveDis(\'' + attr(id || '') + '\')">' + I.check + 'Save Dispatch</button></div>');
+  onDisOrderChange();
+};
+window.onDisOrderChange = function(){
+  var sel = $('d-order'), info = $('d-order-info'); if(!sel || !info) return;
+  var o = orderById(sel.value);
+  if(!o){ info.textContent = ''; return; }
+  info.innerHTML = '<b>' + esc(o.customer) + '</b> · ' + esc(o.product) + ' × ' + esc(o.qty) + ' · ' + money(o.amount) + ' · Order status: ' + esc(o.status) + (o.expDispatch ? ' · Exp. delivery ' + esc(o.expDispatch) : '');
+};
+window.saveDis = function(id){
+  var sel = $('d-order'); var oid = sel ? sel.value : '';
+  var o = orderById(oid);
+  if(!o){ say('Select an order'); return; }
+  var courier = S(($('d-courier') || {}).value).trim();
+  var on = S(($('d-on') || {}).value);
+  if(!courier){ say('Courier / transporter naam likhein'); return; }
+  if(!on){ say('Dispatched-on date chahiye'); return; }
+  var list = DB.dispatch() || [];
+  var rec = { orderId:o.id, customer:o.customer, custId:o.custId || '', product:o.product, qty:o.qty,
+              courier:courier, tracking:S(($('d-tracking') || {}).value).trim(), dispatchedOn:on,
+              eta:S(($('d-eta') || {}).value), status:S(($('d-status') || {}).value) || 'Shipped',
+              vehicle:S(($('d-vehicle') || {}).value).trim(), note:S(($('d-note') || {}).value),
+              salesperson:o.salesperson || '' };
+  var ex = id ? list.filter(function(x){ return x.id === id; })[0] : null;
+  if(id && !ex){ say('Dispatch record not found'); return; }
+  if(ex){ Object.assign(ex, rec); ex.updatedAt = new Date().toISOString(); }
+  else {
+    rec.id = uid('DSP-'); rec.createdAt = new Date().toISOString();
+    rec.owner = LC(o.owner || o.ownerEmail || me().email || '');
+    list.unshift(rec);
+  }
+  DB.save('dispatch', list);
+  /* order status sync */
+  try{
+    var ords = DB.orders(), oo = ords.filter(function(x){ return x.id === o.id; })[0], ch = false;
+    if(oo){
+      if(rec.status === 'Delivered' && oo.status !== 'Delivered' && oo.status !== 'Cancelled'){ oo.status = 'Delivered'; ch = true; }
+      else if(rec.status !== 'Delivered' && ['Confirmed','In Production','Ready'].indexOf(oo.status) >= 0){ oo.status = 'Dispatched'; ch = true; }
+      if(ch) DB.save('orders', ords);
+    }
+  }catch(e){ console.warn('[oc v9] order sync', e); }
+  closeModal(); say(id ? 'Dispatch updated ✓' : 'Dispatch added ✓');
+  try{ refreshBadges(); }catch(e){}
+  setView(state.view === 'orders' ? 'orders' : 'dispatch');
+};
+
+/* Dispatch page: Add button + actions column */
+window.renderDispatch = function(){
+  var list = scope(DB.dispatch(), 'dispatch') || [];
+  var pending = list.filter(function(d){ return d.status !== 'Delivered'; }).length;
+  content.innerHTML = '<div class="card"><div class="card-head"><h3>Dispatch &amp; Delivery <span class="chip c-neutral" style="margin-left:4px">' + list.length + '</span>'
+    + (pending ? ' <span class="chip c-prog" style="margin-left:4px">' + pending + ' in transit</span>' : '') + '</h3>'
+    + '<div class="tools"><select class="field" id="f-dstat" onchange="paintTable(\'dis-body\')"><option value="">All Status</option>' + DIS_STATUS.map(function(s){ return '<option>' + s + '</option>'; }).join('') + '</select>'
+    + dlBtn('dispatch') + '<button class="btn primary sm" onclick="openDisModal()">' + I.plus + 'Add Dispatch</button></div></div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Dispatch ID</th><th>Order</th><th>Customer</th><th>Product</th><th>Courier</th><th>Tracking No.</th><th>Dispatched</th><th>ETA</th><th>Status</th><th></th></tr></thead>'
+    + '<tbody id="dis-body"></tbody></table></div></div>';
+  paintTable('dis-body');
+};
+var _paint9 = window.paintTable;
+window.paintTable = function(bodyId){
+  if(bodyId !== 'dis-body' && bodyId !== 'quo-body') return _paint9.apply(this, arguments);
+  var body = $(bodyId); if(!body) return;
+  var gs = $('globalSearch'); var q = LC(gs && gs.value);
+  if(bodyId === 'dis-body'){
+    var f = S(($('f-dstat') || {}).value);
+    var rows = scope(DB.dispatch(), 'dispatch').filter(function(d){
+      if(!d) return false;
+      if(f && d.status !== f) return false;
+      return !q || [d.id, d.customer, d.tracking, d.orderId, d.courier, d.product].join(' ').toLowerCase().indexOf(q) >= 0;
+    }).sort(function(a,b){ return S(b.dispatchedOn).localeCompare(S(a.dispatchedOn)); });
+    body.innerHTML = rows.map(function(d){
+      var o = orderById(d.orderId);
+      return '<tr><td class="strong tabular">' + esc(d.id) + '</td>'
+        + '<td class="tabular"><a href="#" onclick="event.preventDefault();' + (o ? 'openOrderDetail(\'' + attr(d.orderId) + '\')' : '') + '" style="color:var(--brand)">' + esc(d.orderId) + '</a></td>'
+        + '<td>' + userCell(d.customer || '—') + '</td>'
+        + '<td>' + esc(d.product) + ' <span class="sub">×' + esc(d.qty) + '</span></td>'
+        + '<td>' + (d.courier ? esc(d.courier) : '<span class="sub">not set</span>') + '</td>'
+        + '<td class="sub tabular">' + (d.tracking ? esc(d.tracking) : '—') + '</td>'
+        + '<td class="sub tabular">' + esc(d.dispatchedOn || '—') + '</td>'
+        + '<td class="sub tabular">' + esc(d.eta || '—') + '</td>'
+        + '<td>' + disChip(d.status) + '</td>'
+        + '<td><div class="row-actions" style="display:flex;gap:2px;align-items:center">'
+        + '<button onclick="openDisModal(\'' + attr(d.id) + '\')" title="Edit">' + I.edit + '</button>'
+        + '<button onclick="delRow(\'dispatch\',\'' + attr(d.id) + '\')" title="Delete">' + I.trash + '</button>'
+        + (o ? waBtn(o, '') : '')
+        + '</div></td></tr>';
+    }).join('') || emptyRow(10);
+    return;
+  }
+  /* quotations */
+  var rowsQ = scope(DB.quotations()).filter(function(x){ return x && (!q || [x.id, x.customer, x.product, x.salesperson].join(' ').toLowerCase().indexOf(q) >= 0); })
+    .sort(function(a,b){ return S(b.date).localeCompare(S(a.date)); });
+  body.innerHTML = rowsQ.map(function(x){
+    var sp = S(x.salesperson); var enq = x.enqId ? '<div class="sub">from ' + esc(x.enqId) + '</div>' : '';
+    return '<tr><td class="strong tabular">' + esc(x.id) + enq + '</td><td class="sub tabular">' + esc(x.date) + '</td><td>' + userCell(x.customer || '—') + '</td>'
+      + '<td>' + esc(x.product) + ' <span class="sub">×' + esc(x.qty) + '</span></td><td class="strong tabular">' + money(x.amount) + '</td>'
+      + '<td class="tabular">' + esc(x.discount == null ? 0 : x.discount) + '%</td><td class="sub tabular">' + esc(x.validTill || '—') + '</td><td>' + esc(sp ? sp.split(' ')[0] : '—') + '</td><td>' + quoChip(x.status) + '</td>'
+      + '<td><div class="row-actions" style="display:flex"><button onclick="openQuoModal(\'' + attr(x.id) + '\')" title="Edit">' + I.edit + '</button><button onclick="delRow(\'quotations\',\'' + attr(x.id) + '\')" title="Delete">' + I.trash + '</button></div></td></tr>';
+  }).join('') || emptyRow(10);
+};
+
+/* Order stage advance: real dispatch form instead of fake courier/tracking */
+window.advanceOrder = function(id){
+  var ord = DB.orders(), o = ord.filter(function(x){ return x.id === id; })[0];
+  if(!o) return;
+  if(typeof canTouch === 'function' && !canTouch(o, 'orders')){ say('Ye order aapka nahi hai.'); return; }
+  var i = ORDER_FLOW.indexOf(o.status);
+  if(i < 0 || i >= ORDER_FLOW.length - 1) return;
+  o.status = ORDER_FLOW[i + 1];
+  DB.save('orders', ord);
+  if(o.status === 'Dispatched'){
+    var dis = DB.dispatch(), d = dis.filter(function(x){ return x.orderId === o.id; })[0];
+    if(!d){
+      d = { id: uid('DSP-'), orderId:o.id, customer:o.customer, custId:o.custId || '', product:o.product, qty:o.qty,
+            courier:'', tracking:'', status:'Shipped', dispatchedOn:localToday(), eta:plusDays(localToday(), 5),
+            salesperson:o.salesperson || '', owner: LC(o.owner || o.ownerEmail || me().email || ''), createdAt:new Date().toISOString() };
+      dis.unshift(d); DB.save('dispatch', dis);
+    }
+    say('Order dispatched — courier & tracking details bharein');
+    try{ refreshBadges(); paintTable('ord-body'); }catch(e){}
+    setTimeout(function(){ try{ openDisModal(d.id); }catch(e){} }, 80);
+    return;
+  }
+  if(o.status === 'Delivered'){
+    var dis2 = DB.dispatch(), d2 = dis2.filter(function(x){ return x.orderId === o.id; })[0];
+    if(d2 && d2.status !== 'Delivered'){ d2.status = 'Delivered'; DB.save('dispatch', dis2); }
+    say('Order delivered ✓');
+  } else say('Order moved to ' + o.status);
+  try{ refreshBadges(); paintTable('ord-body'); }catch(e){}
+};
+
+/* ====================================================================== *
+ * 4. QUOTATIONS — add / edit inside the CRM                                *
+ * ====================================================================== */
+var QUO_STATUS = ['Draft','Sent','Accepted','Rejected'];
+function salesOptions(selected){
+  var list = [];
+  try{ list = (window.ocSalesList && window.ocSalesList()) || []; }catch(e){}
+  if(!list.length){ try{ list = (getForm('enquiry').filter(function(f){ return f.label === 'Salesperson'; })[0] || {}).options || []; }catch(e){} }
+  var sel = S(selected).trim(), seen = {}, out = ['<option value="">-- Select --</option>'];
+  list.concat(sel ? [sel] : []).forEach(function(n){ n = S(n).trim(); if(!n || seen[LC(n)]) return; seen[LC(n)] = 1; out.push('<option' + (LC(n) === LC(sel) ? ' selected' : '') + '>' + esc(n) + '</option>'); });
+  return out.join('');
+}
+window.onQuoProdSearch = function(val){
+  var box = $('q-prod-suggest'), inp = $('q-prod'); if(!box || !inp) return;
+  var list = __ocProdMatches(val); box.className = 'oi-suggest';
+  box.innerHTML = __ocSuggestHTML(list, val);
+  box.style.display = (list.length || S(val).trim()) ? 'block' : 'none';
+  box.onmousedown = function(ev){
+    var it = ev.target.closest('.oi-sug-item'); if(!it) return;
+    ev.preventDefault(); inp.value = it.getAttribute('data-name'); box.style.display = 'none';
+    var rate = $('q-rate'); if(rate && !(+rate.value)) { rate.value = it.getAttribute('data-price') || 0; }
+    quoRecalc();
+  };
+};
+window.hideQuoSuggest = function(){ var b = $('q-prod-suggest'); if(b) setTimeout(function(){ b.style.display = 'none'; }, 150); };
+function quoRecalc(){
+  var qty = +(($('q-qty') || {}).value) || 0, rate = +(($('q-rate') || {}).value) || 0, disc = +(($('q-disc') || {}).value) || 0;
+  var amt = Math.round(qty * rate * (1 - disc / 100) * 100) / 100;
+  var a = $('q-amount'); if(a && !a.dataset.manual) a.value = amt;
+  var h = $('q-amount-hint'); if(h) h.textContent = qty && rate ? ('Auto: ' + qty + ' × ' + money(rate) + (disc ? ' - ' + disc + '%' : '') + ' = ' + money(amt) + ' (excl. GST). Amount ko manually bhi badal sakte hain.') : '';
+}
+window.quoRecalc = quoRecalc;
+window.openQuoModal = function(id, pre){
+  var q = id ? (DB.quotations() || []).filter(function(x){ return x.id === id; })[0] : null;
+  if(id && !q){ say('Quotation not found'); return; }
+  if(q && typeof canTouch === 'function' && !canTouch(q, 'quotations')){ say('Ye quotation aapki nahi hai.'); return; }
+  q = q || pre || {};
+  var rate = (q.rate != null) ? q.rate : (q.qty && q.amount ? Math.round((q.amount / q.qty) / (1 - (+q.discount || 0) / 100) * 100) / 100 : 0);
+  var date = q.date || localToday();
+  var fromBuilder = q.source === 'Quotation Builder';
+  openModal('<div class="modal-head"><h3>' + (id ? 'Edit' : 'New') + ' Quotation' + (q.enqId ? ' <span class="chip c-neutral" style="font-size:10.5px;margin-left:6px">from ' + esc(q.enqId) + '</span>' : '') + '</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body">'
+    + (fromBuilder ? '<div style="padding:9px 12px;margin-bottom:12px;border:1px solid var(--border);border-left:3px solid var(--brand);border-radius:9px;background:var(--surface-2);font-size:12.5px;color:var(--text-2)">Ye quotation <b>Quotation Builder</b> se bani hai (' + esc(q.id) + '). Line items PDF me hain — yahan status, validity, note waghera update karein.</div>' : '')
+    + '<div class="form-row"><label>Customer <span style="color:var(--crit)">*</span></label>' + customerSelectHTML('q-cust', 'quoc', q.custId) + '</div>'
+    + '<div class="form-row two"><div><label>Product <span style="color:var(--crit)">*</span></label><div class="oi-ac" style="position:relative"><input id="q-prod" placeholder="Type to search or enter product..." autocomplete="off" value="' + attr(q.product) + '" oninput="onQuoProdSearch(this.value)" onfocus="onQuoProdSearch(this.value)" onblur="hideQuoSuggest()" style="width:100%"><div id="q-prod-suggest" style="display:none"></div></div></div>'
+    + '<div><label>Quantity <span style="color:var(--crit)">*</span></label><input id="q-qty" type="number" min="1" value="' + attr(q.qty || 1) + '" oninput="quoRecalc()"></div></div>'
+    + '<div class="form-row two"><div><label>Rate per unit (excl. GST)</label><input id="q-rate" type="number" min="0" step="0.01" value="' + attr(rate || '') + '" oninput="quoRecalc()"></div>'
+    + '<div><label>Discount %</label><input id="q-disc" type="number" min="0" max="100" step="0.5" value="' + attr(q.discount || 0) + '" oninput="quoRecalc()"></div></div>'
+    + '<div class="form-row"><label>Quotation Amount (₹, excl. GST) <span style="color:var(--crit)">*</span></label><input id="q-amount" type="number" min="0" step="0.01" value="' + attr(q.amount != null ? q.amount : '') + '" oninput="this.dataset.manual=1"><div id="q-amount-hint" class="sub" style="margin-top:4px"></div></div>'
+    + '<div class="form-row two"><div><label>Quotation Date</label><input id="q-date" type="date" value="' + attr(date) + '"></div>'
+    + '<div><label>Valid Till</label><input id="q-valid" type="date" value="' + attr(q.validTill && /^\d{4}-\d{2}-\d{2}/.test(S(q.validTill)) ? S(q.validTill).slice(0,10) : plusDays(date, 15)) + '"></div></div>'
+    + '<div class="form-row two"><div><label>Salesperson</label><select id="q-sales">' + salesOptions(q.salesperson) + '</select></div>'
+    + '<div><label>Status</label><select id="q-status">' + QUO_STATUS.map(function(s){ return '<option' + ((q.status || 'Draft') === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div></div>'
+    + '<div class="form-row"><label>Note / Terms</label><textarea id="q-note" rows="2">' + esc(q.note) + '</textarea></div>'
+    + '</div>'
+    + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button>'
+    + (id ? '' : '<a class="btn" href="quotation-builder.html" style="text-decoration:none" title="Full PDF pro-forma with line items">' + I.doc + 'Use PDF Builder</a>')
+    + '<button class="btn primary" onclick="saveQuo(\'' + attr(id || '') + '\',\'' + attr(q.enqId || '') + '\')">' + I.check + 'Save Quotation</button></div>');
+  if(q.amount != null && $('q-amount')) $('q-amount').dataset.manual = '1';
+  quoRecalc();
+};
+window.saveQuo = function(id, enqId){
+  var custEl = $('q-cust'); var custName = S(custEl && custEl.value).trim();
+  if(!custName){ say('Select a customer'); return; }
+  var product = S(($('q-prod') || {}).value).trim(); if(!product){ say('Enter product'); return; }
+  var qty = +(($('q-qty') || {}).value) || 0; if(!(qty > 0)){ say('Enter quantity'); return; }
+  var amount = +(($('q-amount') || {}).value); if(!(amount >= 0) || isNaN(amount)){ say('Enter quotation amount'); return; }
+  var c = custFromSel('q-cust') || {};
+  var prod = (DB.products() || []).filter(function(p){ return LC(p.name) === LC(product); })[0];
+  var rec = { customer:custName, custId:c.id || '', product:product, prodId:prod ? prod.id : '', qty:qty,
+              rate:+(($('q-rate') || {}).value) || 0, discount:+(($('q-disc') || {}).value) || 0, amount:amount,
+              date:S(($('q-date') || {}).value) || localToday(), validTill:S(($('q-valid') || {}).value),
+              salesperson:S(($('q-sales') || {}).value), status:S(($('q-status') || {}).value) || 'Draft',
+              note:S(($('q-note') || {}).value) };
+  var list = DB.quotations() || [];
+  if(id){
+    var ex = list.filter(function(x){ return x.id === id; })[0]; if(!ex){ say('Quotation not found'); return; }
+    Object.assign(ex, rec); ex.updatedAt = new Date().toISOString();
+  } else {
+    rec.id = uid('QT-'); rec.createdAt = new Date().toISOString(); rec.source = 'CRM';
+    if(enqId) rec.enqId = enqId;
+    stampOwner(rec); list.unshift(rec);
+    /* linked enquiry -> stage Quoted */
+    if(enqId){
+      try{
+        var enqs = DB.enquiries(), e = enqs.filter(function(x){ return x.id === enqId; })[0];
+        if(e && ['New','Contacted','Qualified'].indexOf(e.stage) >= 0){ e.stage = 'Quoted'; DB.save('enquiries', enqs); }
+      }catch(e2){}
+    }
+  }
+  DB.save('quotations', list);
+  closeModal(); say(id ? 'Quotation updated ✓' : 'Quotation added ✓');
+  try{ refreshBadges(); }catch(e){}
+  setView('quotations');
+};
+/* Enquiry -> quotation in one click */
+window.ocQuoteFromEnq = function(id){
+  var e = (DB.enquiries() || []).filter(function(x){ return x.id === id; })[0];
+  if(!e){ say('Enquiry not found'); return; }
+  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('Ye enquiry aapki nahi hai.'); return; }
+  var exist = (DB.quotations() || []).filter(function(q){ return q.enqId === id; })[0];
+  if(exist){ openQuoModal(exist.id); return; }
+  var prod = (DB.products() || []).filter(function(p){ return p.id === e.prodId; })[0];
+  openQuoModal('', { enqId:e.id, customer:e.customer, custId:e.custId, product:e.product, qty:e.qty || 1,
+                     rate: prod ? prod.price : (e.qty ? (+e.value || 0) / e.qty : 0), amount:(+e.value || 0),
+                     salesperson:e.salesperson, status:'Draft', note:e.note ? 'Enquiry note: ' + e.note : '' });
+};
+window.renderQuotations = function(){
+  var list = scope(DB.quotations()) || [];
+  var stat = {}; list.forEach(function(q){ stat[q.status] = (stat[q.status] || 0) + 1; });
+  content.innerHTML = table('Quotations', list.length,
+    '<th>Quote ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Discount</th><th>Valid Till</th><th>Owner</th><th>Status</th><th></th>',
+    'quo-body', 'No quotations yet.',
+    (stat.Accepted ? '<span class="chip c-won">' + stat.Accepted + ' accepted</span>' : '') + (stat.Sent ? '<span class="chip c-new">' + stat.Sent + ' sent</span>' : '')
+    + dlBtn('quotations')
+    + '<button class="btn primary sm" onclick="openQuoModal()">' + I.plus + 'Add Quotation</button>'
+    + '<a class="btn sm" href="quotation-builder.html" style="text-decoration:none">' + I.doc + 'PDF Builder</a>');
+  paintTable('quo-body');
+};
+
+/* Enquiries: "→ Quote" action in each row */
+var _paintEnq9 = window.paintEnq;
+window.paintEnq = function(){
+  _paintEnq9.apply(this, arguments);
+  try{
+    var body = $('enq-body'); if(!body) return;
+    body.querySelectorAll('tr').forEach(function(tr){
+      var edit = tr.querySelector('button[onclick^="openEnqModal("]'); if(!edit) return;
+      var m = /openEnqModal\('([^']+)'\)/.exec(edit.getAttribute('onclick') || ''); if(!m) return;
+      var b = document.createElement('button'); b.title = 'Create quotation'; b.innerHTML = I.doc;
+      b.setAttribute('onclick', "ocQuoteFromEnq('" + m[1] + "')");
+      edit.parentNode.insertBefore(b, edit.nextSibling);
+    });
+    applyViewPerms();
+  }catch(e){}
+};
+
+/* ====================================================================== *
+ * 5. PIPELINE BOARD — drag & drop + move buttons + click to edit          *
+ * ====================================================================== */
+var PIPE_STAGES = ['New','Contacted','Qualified','Quoted','Won','Lost'];
+window.ocMoveEnq = function(id, stage){
+  var list = DB.enquiries() || [], e = list.filter(function(x){ return x.id === id; })[0];
+  if(!e) return;
+  if(!can('enquiries', 'edit')){ permToast('edit'); return; }
+  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('Ye enquiry aapki nahi hai.'); return; }
+  if(PIPE_STAGES.indexOf(stage) < 0 || e.stage === stage) return;
+  e.stage = stage; e.stageChangedAt = new Date().toISOString();
+  DB.save('enquiries', list);
+  say(S(e.customer) + ' → ' + stage);
+  try{ refreshBadges(); }catch(x){}
+  if(state.view === 'pipeline') renderPipeline();
+};
+window.ocMoveEnqBy = function(id, dir){
+  var e = (DB.enquiries() || []).filter(function(x){ return x.id === id; })[0]; if(!e) return;
+  var i = PIPE_STAGES.indexOf(e.stage || 'New'); if(i < 0) i = 0;
+  var n = i + dir; if(n < 0 || n >= PIPE_STAGES.length) return;
+  ocMoveEnq(id, PIPE_STAGES[n]);
+};
+window.renderPipeline = function(){
+  var enq = scope(DB.enquiries()) || [];
+  var canEdit = can('enquiries', 'edit');
+  content.innerHTML = '<div class="sub" style="margin-bottom:10px;font-size:12px;color:var(--muted)">' + (canEdit ? 'Card ko drag karke doosre stage me chhodo, ya ◀ ▶ se move karo. Card par click = edit.' : 'Read-only view') + '</div>'
+    + '<div class="pipeline" id="pipeBoard">' + PIPE_STAGES.map(function(st, si){
+    var items = enq.filter(function(e){ return (e.stage || 'New') === st; }).sort(function(a,b){ return S(b.date).localeCompare(S(a.date)); });
+    var val = items.reduce(function(s,e){ return s + (+e.value || 0); }, 0);
+    return '<div class="stage-col" data-stage="' + attr(st) + '"><h4>' + esc(st) + ' <span>' + items.length + '</span></h4>'
+      + '<div style="font-size:11.5px;color:var(--muted);margin:-4px 0 10px;font-weight:600">' + short(val) + '</div>'
+      + (items.slice(0, 40).map(function(e){
+          return '<div class="lead-card" data-id="' + attr(e.id) + '"' + (canEdit ? ' draggable="true"' : '') + ' onclick="openEnqModal(\'' + attr(e.id) + '\')" title="' + attr(e.id + ' · ' + (e.date || '')) + '">'
+            + '<div class="lc-name">' + esc(e.customer) + '</div>'
+            + '<div class="lc-meta">' + esc(e.product) + (e.salesperson ? ' · ' + esc(S(e.salesperson).split(' ')[0]) : '') + '</div>'
+            + '<div class="lc-val">' + money(e.value) + (e.priority ? ' <span class="prio p-' + attr(LC(e.priority)) + '" style="margin-left:6px">' + esc(e.priority) + '</span>' : '') + '</div>'
+            + (canEdit ? '<div class="lc-act" onclick="event.stopPropagation()">'
+              + (si > 0 ? '<button type="button" title="Move back" onclick="ocMoveEnqBy(\'' + attr(e.id) + '\',-1)">◀</button>' : '')
+              + (si < PIPE_STAGES.length - 1 ? '<button type="button" title="Move forward" onclick="ocMoveEnqBy(\'' + attr(e.id) + '\',1)">▶</button>' : '')
+              + '<button type="button" title="Create quotation" onclick="ocQuoteFromEnq(\'' + attr(e.id) + '\')">' + I.doc + '</button>'
+              + '</div>' : '')
+            + '</div>';
+        }).join('') || '<div style="color:var(--muted);font-size:12px;padding:8px 0">No deals</div>')
+      + (items.length > 40 ? '<div class="sub" style="padding:4px 0">+' + (items.length - 40) + ' more (use Enquiries list)</div>' : '')
+      + '</div>';
+  }).join('') + '</div>';
+  /* HTML5 drag & drop */
+  if(canEdit){
+    var board = $('pipeBoard'), dragId = null;
+    board.addEventListener('dragstart', function(ev){ var c = ev.target.closest && ev.target.closest('.lead-card'); if(!c) return; dragId = c.getAttribute('data-id'); c.classList.add('dragging'); try{ ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', dragId); }catch(e){} });
+    board.addEventListener('dragend', function(ev){ var c = ev.target.closest && ev.target.closest('.lead-card'); if(c) c.classList.remove('dragging'); board.querySelectorAll('.stage-col.drop-over').forEach(function(x){ x.classList.remove('drop-over'); }); });
+    board.addEventListener('dragover', function(ev){ var col = ev.target.closest && ev.target.closest('.stage-col'); if(!col) return; ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(e){} col.classList.add('drop-over'); });
+    board.addEventListener('dragleave', function(ev){ var col = ev.target.closest && ev.target.closest('.stage-col'); if(col && !col.contains(ev.relatedTarget)) col.classList.remove('drop-over'); });
+    board.addEventListener('drop', function(ev){ var col = ev.target.closest && ev.target.closest('.stage-col'); if(!col) return; ev.preventDefault(); var id = dragId; try{ id = id || ev.dataTransfer.getData('text/plain'); }catch(e){} dragId = null; col.classList.remove('drop-over'); if(id) ocMoveEnq(id, col.getAttribute('data-stage')); });
+  }
+};
+
+/* ====================================================================== *
+ * 6. CHANGE PASSWORD (self-service)                                       *
+ * ====================================================================== */
+window.openChangePw = function(){
+  var u = me(); if(!u.email){ say('Login required'); return; }
+  openModal('<div class="modal-head"><h3>Change Password</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body"><div class="sub" style="margin-bottom:12px;font-size:12.5px;color:var(--text-2)">' + esc(u.email) + '</div>'
+    + '<div class="form-row"><label>Current password</label><input id="cp-old" type="password" autocomplete="current-password"></div>'
+    + '<div class="form-row"><label>New password (min 6 characters)</label><input id="cp-new" type="password" minlength="6" autocomplete="new-password"></div>'
+    + '<div class="form-row"><label>Confirm new password</label><input id="cp-new2" type="password" autocomplete="new-password" onkeydown="if(event.key===\'Enter\')doChangePw()"></div>'
+    + '<div id="cp-msg" style="font-size:12.5px;min-height:18px;color:var(--crit)"></div></div>'
+    + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="cp-btn" onclick="doChangePw()">' + I.check + 'Update Password</button></div>');
+  setTimeout(function(){ var el = $('cp-old'); if(el) el.focus(); }, 50);
+};
+window.doChangePw = async function(){
+  var msg = $('cp-msg'), btn = $('cp-btn');
+  var old = S(($('cp-old') || {}).value), nw = S(($('cp-new') || {}).value), nw2 = S(($('cp-new2') || {}).value);
+  function m(t, ok){ if(msg){ msg.textContent = t; msg.style.color = ok ? 'var(--good-ink)' : 'var(--crit)'; } }
+  if(!old || !nw){ m('Dono password bharein.'); return; }
+  if(nw.length < 6){ m('Naya password kam se kam 6 characters ka ho.'); return; }
+  if(nw !== nw2){ m('Naya password aur confirm password match nahi karte.'); return; }
+  if(old === nw){ m('Naya password purane jaisa hi hai.'); return; }
+  var email = LC(me().email);
+  if(btn) btn.disabled = true;
+  try{
+    m('Verifying…', true);
+    var h0 = await AUTH.hash(old), h1 = await AUTH.hash(nw);
+    var r = await SRV.login(email, h0);
+    if(!r || !r.ok){ m('Current password galat hai.'); if(btn) btn.disabled = false; return; }
+    if(r.sid) SRV.set(r.sid);
+    var s = await SRV.setPassword(email, h1);
+    if(!s || !s.ok){ m('Password change nahi ho paaya: ' + ((s && s.error) || 'server error')); if(btn) btn.disabled = false; return; }
+    try{ var r2 = await SRV.login(email, h1); if(r2 && r2.ok && r2.sid) SRV.set(r2.sid); }catch(e){}
+    try{ AUTH.setSession(email); }catch(e){}
+    closeModal(); say('Password badal gaya ✓');
+  }catch(e){
+    console.error(e); m('Server se baat nahi ho paayi — internet check kijiye.'); if(btn) btn.disabled = false;
+  }
+};
+
+/* sidebar footer: add the key button next to logout */
+var _aus = window.applyUserToSidebar;
+window.applyUserToSidebar = function(){
+  if(typeof _aus === 'function') _aus.apply(this, arguments);
+  try{
+    var foot = document.querySelector('.sidebar-foot');
+    if(foot && !foot.querySelector('.oc-cp-btn')){
+      var lo = foot.querySelector('button[onclick*="logout"]');
+      var b = document.createElement('button');
+      b.className = 'icon-btn oc-cp-btn'; b.title = 'Change password'; b.setAttribute('aria-label', 'Change password');
+      b.style.cssText = 'margin-left:auto;width:32px;height:32px;flex:none';
+      b.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.9 12.1 21 2M15 8l3 3M18 5l3 3"/></svg>';
+      b.onclick = function(){ openChangePw(); };
+      if(lo){ lo.style.marginLeft = '4px'; lo.style.width = '32px'; lo.style.height = '32px'; foot.insertBefore(b, lo); } else foot.appendChild(b);
+    }
+    applyNavPerms();
+  }catch(e){}
+};
+
+/* ====================================================================== *
+ * 7. ROUTER HOOKS — permission gate, quick-add per section, search       *
+ * ====================================================================== */
+var QUICK = { enquiries:['enquiry','New Enquiry'], orders:['order','New Order'], quotations:['quotation','New Quotation'],
+              dispatch:['dispatch','New Dispatch'], customers:['customer','Add Customer'], products:['product','Add Product'],
+              metaLeads:['metalead','Add Lead'] };
+var _setView = window.setView;
+window.setView = function(v){
+  var sec = SECTION_OF_VIEW[v] || v;
+  if(v === 'admin' && !isAdm()){ say('Admin Panel sirf admin ke liye hai'); v = 'dashboard'; }
+  else if(v !== 'dashboard' && !can(sec, 'view')){ permToast('view'); v = 'dashboard'; }
+  var r = _setView.call(this, v);
+  try{
+    var qa = $('quickAdd'), q = QUICK[v];
+    if(qa){
+      if(q && can(SECTION_OF_VIEW[v] || v, 'create')){ qa.style.display = ''; qa.dataset.mode = q[0]; qa.childNodes[qa.childNodes.length - 1].nodeValue = q[1]; }
+      else qa.style.display = 'none';
+    }
+    var sbx = $('searchBox'); if(sbx && v === 'metaLeads') sbx.style.display = 'block';
+    navOpen(false);
+    applyViewPerms();
+  }catch(e){}
+  return r;
+};
+var _bind = window.bindAppEvents;
+window.bindAppEvents = function(){
+  var first = !window.__appBound;
+  if(typeof _bind === 'function') _bind.apply(this, arguments);
+  if(!first || window.__ocV9Bound) return; window.__ocV9Bound = true;
+  var qa = $('quickAdd');
+  if(qa) qa.addEventListener('click', function(e){
+    var mode = qa.dataset.mode;
+    var fn = { quotation:function(){ openQuoModal(); }, dispatch:function(){ openDisModal(); }, customer:function(){ openCustModal(); },
+               product:function(){ openProdModal(); }, metalead:function(){ ML.form(); } }[mode];
+    if(fn){ e.stopImmediatePropagation(); fn(); }
+  }, true);
+  var gs = $('globalSearch');
+  if(gs) gs.addEventListener('input', function(){
+    if(state.view !== 'metaLeads') return;
+    window.__mlQ = gs.value; clearTimeout(window.__ocMlT);
+    window.__ocMlT = setTimeout(function(){ try{ renderMetaLeads(); }catch(e){} }, 250);
+  });
+};
+
+/* ====================================================================== *
+ * 8. GUARDS (create / edit / delete)                                       *
+ * ====================================================================== */
+guardCreateEdit('saveEnq', 'enquiries');
+guardCreateEdit('saveOrder', 'orders');
+guardCreateEdit('saveCust', 'customers');
+guardCreateEdit('saveProd', 'products');
+guardCreateEdit('saveDis', 'dispatch');
+guardCreateEdit('saveQuo', 'quotations');
+guardCreateEdit('openEnqModal', 'enquiries');
+guardCreateEdit('openOrderModal', 'orders');
+guardCreateEdit('openCustModal', 'customers');
+guardCreateEdit('openProdModal', 'products');
+guardCreateEdit('openDisModal', 'dispatch');
+guardCreateEdit('openQuoModal', 'quotations');
+guardDelete('delRow', function(key){ return SECTION_OF_KEY[key] || key; });
+guardDelete('deleteOrderAdmin', 'orders');
+guardDelete('bulkDeleteProducts', 'products');
+(function(){
+  var orig = window.handleBulk;
+  if(typeof orig === 'function') window.handleBulk = function(input){ if(!can('products','create')){ permToast('create'); if(input) input.value = ''; return; } return orig.apply(this, arguments); };
+  if(window.ML){
+    var mlSave = ML.save; if(typeof mlSave === 'function') ML.save = function(id){ if(!can('metaLeads', id ? 'edit' : 'create')){ permToast(id ? 'edit' : 'create'); return; } return mlSave.apply(this, arguments); };
+    ['doImport','buApply'].forEach(function(k){ var f = ML[k]; if(typeof f === 'function') ML[k] = function(){ if(!can('metaLeads','create')){ permToast('create'); return; } return f.apply(this, arguments); }; });
+    ['del','selDelete'].forEach(function(k){ var f = ML[k]; if(typeof f === 'function') ML[k] = function(){ if(!can('metaLeads','delete')){ permToast('delete'); return; } return f.apply(this, arguments); }; });
+    ['setStatus','setAssign','selStatus','selAssign','move','convert','selConvert'].forEach(function(k){ var f = ML[k]; if(typeof f === 'function') ML[k] = function(){ if(!can('metaLeads','edit')){ permToast('edit'); return; } return f.apply(this, arguments); }; });
+  }
+})();
+/* after permissions are saved for someone, refresh nav (in case it is me) */
+(function(){ var o = window.savePermsFor; if(typeof o === 'function') window.savePermsFor = function(){ var r = o.apply(this, arguments); try{ applyNavPerms(); }catch(e){} return r; }; })();
+
+/* ====================================================================== *
+ * 9. EXTERNAL LINKS (WhatsApp / GST portal / quotation builder)           *
+ *    Android app me native side inhe system app me kholta hai; web par     *
+ *    behaviour pehle jaisa hi hai.                                          *
+ * ====================================================================== */
+(function(){
+  var native = !!(window.OakAndroid && typeof window.OakAndroid.openExternal === 'function');
+  if(!native) return;
+  var _open = window.open;
+  window.open = function(url, target, feats){
+    try{
+      var u = S(url);
+      if(/^https?:\/\//i.test(u) && u.indexOf(location.host) < 0){ window.OakAndroid.openExternal(u); return null; }
+      if(u && !/^https?:/i.test(u)){ location.href = u; return null; }
+    }catch(e){}
+    return _open ? _open.apply(window, arguments) : null;
+  };
+  document.addEventListener('click', function(ev){
+    var a = ev.target.closest && ev.target.closest('a[href]'); if(!a) return;
+    var href = a.getAttribute('href') || '';
+    if(/^https?:\/\//i.test(href) && href.indexOf(location.host) < 0){ ev.preventDefault(); window.OakAndroid.openExternal(href); }
+    else if(a.target === '_blank' && !/^https?:/i.test(href) && href && href.charAt(0) !== '#'){ ev.preventDefault(); location.href = href; }
+  }, true);
+})();
+
+/* ---- boot ---- */
+try{ if(AUTH.session && AUTH.session()){ applyNavPerms(); } }catch(e){}
+console.log('[oc v9] completeness pass active');
+})();
+
 </script>
 
 </body>
