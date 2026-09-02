@@ -3431,8 +3431,13 @@ function bindAppEvents(){
       if(o && isLocked(o)){ toast('Order form locked — no further changes allowed'); return; }
     }
     _saveOrder(id);
-    /* the original closes the modal only when the record was really saved */
-    if(id && !document.getElementById('o-items')){
+    /* The original closes the modal only when the record was really saved.
+       closeModal() sirf 'show' class hatata hai -- modal ka HTML (aur #o-items)
+       DOM me bana rehta hai, isliye purana `!$('o-items')` check kabhi sach nahi
+       hota tha aur edit kabhi count hi nahi hota tha. Ab modal band hua ya nahi,
+       wahi dekha jaata hai. */
+    const _mb = document.getElementById('modalBg');
+    if(id && _mb && !_mb.classList.contains('show')){
       const list = DB.orders(), rec = list.find(x => x.id === id);
       if(rec){
         rec.editCount = editsUsed(rec) + 1;
@@ -7836,7 +7841,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.9';
+var OC_WEB_BUILD = '2026.09.02.10';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi

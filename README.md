@@ -34,7 +34,13 @@ add from an enquiry/order form still works).
 * **Products are limited to 2 edits.** Re-opening a submitted order lets a user change only
   **item image, quantity and rate** (`productEditCount` on the order); adding/removing a product
   or changing name, type or specification stays blocked, and after the second saved change the
-  Products section locks permanently. The separate 7-edit whole-form quota is unchanged.
+  Products section locks permanently.
+* **The whole form can be edited 7 times.** `editCount` now really increments on each saved
+  edit (it never did: the old check looked for `#o-items` being gone, but `closeModal()` only
+  hides the modal, so the counter stayed at 0 and no order ever locked). A save blocked by
+  validation does not count. At 7/7 the order shows a *Locked* chip, *Edit Order* disappears
+  and the form refuses to open; the **Status** button, stage advance, WhatsApp and admin
+  delete still work. Counting starts from now — no existing order is locked retroactively.
 * **Dispatched orders leave the Orders list.** As soon as an order's status becomes
   `Dispatched` (via the stage button or the order form) a dispatch record is created
   automatically and the order shows only in **Dispatch** — the Orders list keeps
