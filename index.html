@@ -7832,7 +7832,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.4';
+var OC_WEB_BUILD = '2026.09.02.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8696,6 +8696,208 @@ window.paintTable = function(bodyId){
 };
 try{ refreshBadges(); }catch(e){}
 console.log('[oc v12] sidebar badges now count exactly what each section lists');
+})();
+
+/* ====================================================================== *
+ * 16. OAKCRAFT v13                                                        *
+ *   a) NAAM SE POORA DATA — kuch users ko kisi section ka saara data      *
+ *      dikhana ho to unhe yahan add kijiye. Abhi: Arun Mourya             *
+ *      (accounts@oakcraft.in) ko Quotations ka poora data.                *
+ *      (Backend Code.gs me bhi wahi list hai — FULL_DATA_USERS — warna    *
+ *      server data bhejta hi nahi.)                                       *
+ *   b) ORDER CANCEL karte waqt Remarks zaroori — bina wajah likhe order   *
+ *      cancel nahi hoga. Wajah order ke saath save hoti hai aur detail    *
+ *      me dikhti hai.                                                     *
+ * ====================================================================== */
+(function(){
+'use strict';
+
+/* ---------------------------------------------------------------- *
+ * a) per-user full data access                                       *
+ * ---------------------------------------------------------------- */
+var FULL_DATA_USERS = { quotations: ['accounts@oakcraft.in'] };
+window.OC_FULL_DATA_USERS = FULL_DATA_USERS;
+
+function myMail(){
+  try{ return S((AUTH.current() || {}).email).trim().toLowerCase(); }catch(e){ return ''; }
+}
+var _meSeesAll = window.meSeesAll;
+window.meSeesAll = function(coll){
+  try{
+    var list = FULL_DATA_USERS[coll], me = myMail();
+    if(list && me && list.indexOf(me) >= 0) return true;
+  }catch(e){}
+  return typeof _meSeesAll === 'function' ? _meSeesAll.apply(this, arguments) : false;
+};
+
+/* Quotations ki list scope(list) ko bina collection ke call karti hai,
+   isliye us dauran collection ka naam khud jod dete hain — tabhi upar wali
+   chhoot lagti hai. Baaki har jagah scope pehle jaisa hi chalta hai. */
+function grantedTo(coll){
+  var users = FULL_DATA_USERS[coll]; if(!users) return false;
+  var me = myMail();
+  return !!(me && users.indexOf(me) >= 0);
+}
+/* scope() apne andar wale meSeesAll ko call karta hai, isliye chhoot yahin
+   lagani padti hai — warna list khali hi rehti hai. */
+var _scopeV13 = window.scope;
+window.scope = function(list, coll){
+  if(!coll && window.__ocQuoCtx) coll = 'quotations';
+  if(Array.isArray(list) && grantedTo(coll)) return list;
+  return _scopeV13.apply(this, [list, coll]);
+};
+/* record kholne/edit karne ki permission bhi wahi (baaki logic pehle jaisa) */
+var _canTouchV13 = window.canTouch;
+window.canTouch = function(rec, coll){
+  if(grantedTo(coll)) return true;
+  return typeof _canTouchV13 === 'function' ? _canTouchV13.apply(this, arguments) : true;
+};
+function inQuoCtx(fn){
+  return function(){
+    window.__ocQuoCtx = (window.__ocQuoCtx || 0) + 1;
+    try{ return fn.apply(this, arguments); }
+    finally{ window.__ocQuoCtx--; }
+  };
+}
+var _renderQuoV13 = window.renderQuotations;
+if(typeof _renderQuoV13 === 'function') window.renderQuotations = inQuoCtx(_renderQuoV13);
+var _paintQuoV13 = window.paintTable;
+window.paintTable = function(bodyId){
+  if(bodyId !== 'quo-body') return _paintQuoV13.apply(this, arguments);
+  return inQuoCtx(_paintQuoV13).apply(this, arguments);
+};
+/* Quotations ka badge bhi wahi ginti dikhaye jo list me dikhti hai.
+   (Yahan flag ka istemaal jaan-boojh kar nahi kiya — refreshBadges ke andar
+   enquiries/orders/dispatch bhi scope hote hain, unhe chhuna nahi hai.) */
+var _refreshBadgesV13 = window.refreshBadges;
+if(typeof _refreshBadgesV13 === 'function'){
+  window.refreshBadges = function(){
+    var r = _refreshBadgesV13.apply(this, arguments);
+    try{
+      var el = document.getElementById('nb-quo');
+      if(el) el.textContent = String(scope(DB.quotations(), 'quotations').length);
+    }catch(e){}
+    return r;
+  };
+}
+
+/* ---------------------------------------------------------------- *
+ * b) ORDER CANCEL -> Remarks zaroori                                 *
+ * ---------------------------------------------------------------- */
+var CANCELLED = 'Cancelled';
+function statusEl(){ return $('o-stat'); }
+function isCancelSelected(){ return S((statusEl() || {}).value).trim() === CANCELLED; }
+function remarkEl(){ return $('o-cancel-note'); }
+
+/* status dropdown ke turant neeche ek required Remarks box */
+function ensureCancelBox(){
+  var st = statusEl(); if(!st) return;
+  var cell = st.parentNode; if(!cell) return;
+  var box = $('oc-cancel-wrap');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'oc-cancel-wrap';
+    box.className = 'form-row';
+    box.style.cssText = 'margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--crit);border-radius:9px;background:var(--surface-2)';
+    box.innerHTML = '<label class="lbl" style="font-size:11.5px">Cancellation Remarks <span style="color:var(--crit)">*</span></label>'
+      + '<textarea id="o-cancel-note" rows="2" placeholder="Order cancel karne ki wajah likhiye (customer ne mana kiya, duplicate order, payment nahi aaya...)" style="width:100%"></textarea>'
+      + '<div class="sub" style="font-size:11px;color:var(--muted);margin-top:4px">Bina wajah likhe order cancel nahi hoga. Ye wajah order ke saath save hoti hai.</div>';
+    var host = cell.parentNode || cell;
+    if(host.nextSibling) host.parentNode.insertBefore(box, host.nextSibling);
+    else host.parentNode.appendChild(box);
+    /* purani wajah wapas dikhao */
+    try{
+      var id = window.__ocOrderEditId;
+      var o = id ? (DB.orders() || []).filter(function(x){ return x && x.id === id; })[0] : null;
+      var prev = o && (o.cancelRemarks || o.cancelReason);
+      if(prev) $('o-cancel-note').value = prev;
+    }catch(e){}
+  }
+  box.style.display = isCancelSelected() ? '' : 'none';
+}
+window.ocEnsureCancelBox = ensureCancelBox;
+
+function bindCancelBox(){
+  var st = statusEl(); if(!st || st.__ocCancelBound) return;
+  st.__ocCancelBound = 1;
+  st.addEventListener('change', function(){
+    ensureCancelBox();
+    if(isCancelSelected()){ var r = remarkEl(); if(r) r.focus(); }
+  });
+  ensureCancelBox();
+}
+var _openOrderV13 = window.openOrderModal;
+if(typeof _openOrderV13 === 'function'){
+  window.openOrderModal = function(id){
+    var r = _openOrderV13.apply(this, arguments);
+    [0, 80, 250, 550].forEach(function(t){ setTimeout(function(){ try{ bindCancelBox(); }catch(e){} }, t); });
+    return r;
+  };
+}
+var _saveOrderV13 = window.saveOrder;
+window.saveOrder = function(id){
+  try{
+    if(statusEl() && isCancelSelected()){
+      ensureCancelBox();
+      var r = remarkEl(), txt = S(r && r.value).trim();
+      if(txt.length < 3){
+        say('Order cancel karne ki wajah (Cancellation Remarks) likhna zaroori hai');
+        if(r){ r.focus(); try{ r.scrollIntoView({ block: 'center' }); }catch(e){} }
+        return;
+      }
+      window.__ocCancelNote = txt;
+    } else {
+      window.__ocCancelNote = null;
+    }
+  }catch(e){}
+  var out = _saveOrderV13.apply(this, arguments);
+  /* save ho gaya to wajah record me likh do */
+  try{
+    var note = window.__ocCancelNote;
+    window.__ocCancelNote = null;
+    if(!note) return out;
+    var mb = $('modalBg');
+    if(mb && mb.classList.contains('show')) return out;      /* save nahi hua */
+    var list = DB.orders();
+    var rec = id ? list.filter(function(x){ return x && x.id === id; })[0] : list[0];
+    if(rec && S(rec.status) === CANCELLED && rec.cancelRemarks !== note){
+      rec.cancelRemarks = note;
+      rec.cancelledAt   = rec.cancelledAt || new Date().toISOString();
+      try{ rec.cancelledBy = S((AUTH.current() || {}).email); }catch(e){}
+      DB.save('orders', list);
+    }
+  }catch(e){}
+  return out;
+};
+
+/* order detail me wajah dikhao */
+var _detailV13 = window.openOrderDetail;
+if(typeof _detailV13 === 'function'){
+  window.openOrderDetail = function(id){
+    var r = _detailV13.apply(this, arguments);
+    var show = function(){
+      try{
+        var o = (DB.orders() || []).filter(function(x){ return x && x.id === id; })[0];
+        if(!o || S(o.status) !== CANCELLED) return;
+        var mb = document.querySelector('#modal .modal-body'); if(!mb) return;
+        if(mb.querySelector('[data-oc-cancel]')) return;
+        var d = document.createElement('div');
+        d.setAttribute('data-oc-cancel', '1');
+        d.style.cssText = 'margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--crit);border-radius:9px;background:var(--surface-2)';
+        d.innerHTML = '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--crit);font-weight:700">Cancellation Remarks</div>'
+          + '<div style="font-size:13px;margin-top:4px">' + esc(o.cancelRemarks || o.cancelReason || '—') + '</div>'
+          + (o.cancelledBy || o.cancelledAt
+              ? '<div class="sub" style="font-size:11px;color:var(--muted);margin-top:4px">'
+                + (o.cancelledBy ? esc(o.cancelledBy) : '') + (o.cancelledAt ? ' · ' + esc(S(o.cancelledAt).slice(0, 10)) : '') + '</div>'
+              : '');
+        mb.appendChild(d);
+      }catch(e){}
+    };
+    [40, 300].forEach(function(t){ setTimeout(show, t); });
+    return r;
+  };
+}
+console.log('[oc v13] quotation access for named users · cancel remarks required');
 })();
 
 /* ---- boot ---- */

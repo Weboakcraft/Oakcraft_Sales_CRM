@@ -54,6 +54,23 @@ Every table shows **20 rows per page** by default with a footer bar: rows-per-pa
 pager. Filters and search re-paginate from page 1; nothing about the underlying data,
 exports or totals changes.
 
+## Per-user data access
+
+Scope is normally "admin sees everything, everyone else sees their own records", with one
+role elevation (`FULL_DATA_ROLES` — Sales Manager sees all Orders). A named user can now be
+given a whole section as well, via `FULL_DATA_USERS`, which exists in **both**
+`index.html` (what the UI shows) and the Apps Script `Code.gs` (what the server sends) —
+both must list the address or the data never reaches that user. Currently:
+`{ quotations: ['accounts@oakcraft.in'] }` — Arun Mourya sees every quotation. Other Sales
+Managers are unaffected.
+
+## Cancelling an order
+
+Choosing status **Cancelled** reveals a required *Cancellation Remarks* box right under the
+status field; the order cannot be saved until a reason is entered. The reason is stored on
+the order (`cancelRemarks`, plus `cancelledBy` / `cancelledAt`), shown in the order detail
+view, and pre-filled when the order is reopened. Other statuses save exactly as before.
+
 ## Sidebar badges
 
 Each badge counts exactly what its section lists — same scope, same filters — and is
