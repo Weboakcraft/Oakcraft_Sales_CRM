@@ -7817,6 +7817,57 @@ guardDelete('bulkDeleteProducts', 'products');
   }catch(e){}
 })();
 
+/* ====================================================================== *
+ * 11. WEB UPDATE CHECK (browser / PWA only — Android app has section 10) *
+ *     Hosted index.html ko (cache bypass karke) dobara padhta hai aur      *
+ *     OC_WEB_BUILD stamp compare karta hai. Naya build mila to upar        *
+ *     "Update available — Reload" banner dikhata hai. Sirf additive:       *
+ *     kisi CRM data / workflow ko touch nahi karta.                        *
+ *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
+ * ====================================================================== */
+var OC_WEB_BUILD = '2026.09.02.1';
+(function(){
+  if(window.OakAndroid) return;                       // Android: apna banner hai
+  if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
+  var KEY = 'oc_webUpdate', EVERY = 4 * 3600e3, MIN_GAP = 30 * 60e3, lastCheck = 0;
+  function ls(){ try{ return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; }catch(e){ return {}; } }
+  function save(o){ try{ localStorage.setItem(KEY, JSON.stringify(o)); }catch(e){} }
+  function banner(build){
+    if($('ocWebUpdateBar') || $('ocUpdateBar')) return;
+    var b = document.createElement('div'); b.id = 'ocWebUpdateBar';
+    b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:300;background:#0f1729;color:#fff;padding:10px 14px;font:600 13px var(--sans);display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 4px 14px rgba(0,0,0,.35)';
+    b.innerHTML = '<span style="flex:1;min-width:160px">🔔 CRM ka naya version available hai <b>' + esc(build) + '</b> — reload karke update karein</span>'
+      + '<button class="btn primary sm" id="ocWebUpdGo">Reload &amp; Update</button>'
+      + '<button class="btn sm" id="ocWebUpdLater" style="background:transparent;color:#cdd5e6;border-color:rgba(255,255,255,.25)">Baad me</button>';
+    document.body.appendChild(b);
+    document.body.style.paddingTop = b.offsetHeight + 'px';
+    $('ocWebUpdGo').onclick = function(){ try{ location.reload(); }catch(e){} };
+    $('ocWebUpdLater').onclick = function(){ var o = ls(); o.snooze = Date.now() + 6 * 3600e3; o.snoozed = build; save(o); b.remove(); document.body.style.paddingTop = ''; };
+  }
+  window.ocCheckWebUpdate = function(force){
+    var now = Date.now();
+    if(!force && (now - lastCheck) < MIN_GAP) return;
+    lastCheck = now;
+    var url = location.href.split('#')[0].split('?')[0];
+    if(/\/$/.test(url)) url += 'index.html';
+    fetch(url + '?_oc=' + now, { cache: 'no-store', credentials: 'same-origin' }).then(function(r){ return r.ok ? r.text() : ''; }).then(function(html){
+      var m = /OC_WEB_BUILD\s*=\s*'([^']+)'/.exec(html || ''); if(!m) return;
+      var remote = m[1], st = ls();
+      if(remote === OC_WEB_BUILD){ if(force) say('CRM already latest hai (' + OC_WEB_BUILD + ')'); return; }
+      if(!force && st.snooze && st.snooze > now && st.snoozed === remote) return;
+      banner(remote);
+    }).catch(function(){ if(force) say('Update check fail — internet check kijiye'); });
+  };
+  setTimeout(function(){ try{ window.ocCheckWebUpdate(false); }catch(e){} }, 8000);
+  setInterval(function(){ try{ window.ocCheckWebUpdate(false); }catch(e){} }, EVERY);
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible'){ try{ window.ocCheckWebUpdate(false); }catch(e){} } });
+  /* sidebar me build + manual check (Android wale block jaisa) */
+  try{
+    var brand = document.querySelector('.brand span');
+    if(brand && !/check update/.test(brand.innerHTML)){ brand.innerHTML += ' · <a href="#" onclick="event.preventDefault();ocCheckWebUpdate(true)" title="Build ' + esc(OC_WEB_BUILD) + '" style="color:#7b88a8;text-decoration:underline">check update</a>'; }
+  }catch(e){}
+})();
+
 /* ---- boot ---- */
 try{ if(AUTH.session && AUTH.session()){ applyNavPerms(); } }catch(e){}
 console.log('[oc v9] completeness pass active');

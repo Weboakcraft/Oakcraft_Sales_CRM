@@ -33,3 +33,21 @@ add from an enquiry/order form still works).
 
 * `android/build.sh` — no Gradle needed (aapt + javac + d8/dx + apksigner).
 * Every `<script>` block is plain ES5/ES2017; check syntax with `node --check` after edits.
+
+## Releasing an update (so users see "Update available")
+
+* **Android:** nothing manual — every push to `main` that touches the web files or `android/`
+  builds a release-signed APK and publishes a GitHub Release; the app compares the release's
+  `versionCode` with its own (every 4 h / on "check update") and shows the update banner.
+* **Web / PWA:** bump `OC_WEB_BUILD` (near the end of `index.html`, format `YYYY.MM.DD.n`) in the
+  same commit. Open browser tabs re-read the hosted `index.html` (cache bypassed) every 4 h, on
+  tab focus and via the sidebar "check update" link, and show a "Reload & Update" banner when
+  the stamp differs.
+
+## Quotation PDF — page sequence
+
+`quotation-builder.html` generates: **Our Clients → Achievements & Milestones → Why OakCraft →
+Pro Forma Invoice page(s)**. The two presentation pages are built by `clientsHTML()` /
+`achievementsHTML()` (data in `CLIENTS`, `SECTORS`, `CERTS`, `MILESTONES`, `ORDER_MEANS`;
+client logos in `CLIENT_LOGOS`). The "Your organisation" card and the quotation number on
+those pages are filled from the form.
