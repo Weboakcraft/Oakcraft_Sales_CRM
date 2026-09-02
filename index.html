@@ -7836,7 +7836,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.7';
+var OC_WEB_BUILD = '2026.09.02.8';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9181,8 +9181,15 @@ function $id(x){ return document.getElementById(x); }
 var BAD = 'var(--crit)';
 function rowOf(n){
   if(!n) return null;
-  if(n.closest){ var r = n.closest('.form-row'); if(r) return r; }
-  return n.parentNode || null;
+  var fr = n.closest ? n.closest('.form-row') : null;
+  if(fr && fr.classList && fr.classList.contains('two')){
+    /* do-column row: message us field ke apne khaane me lage, warna dono
+       fields lal hone par sirf ek hi message dikhta hai */
+    var q = n.parentNode;
+    while(q && q !== fr && q.parentNode && q.parentNode !== fr) q = q.parentNode;
+    if(q && q !== fr && q.parentNode === fr) return q;
+  }
+  return fr || n.parentNode || null;
 }
 function clearOne(n){
   if(!n) return;
