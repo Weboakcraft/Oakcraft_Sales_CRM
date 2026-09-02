@@ -46,6 +46,40 @@ add from an enquiry/order form still works).
   It is required for new products, saved on the order (`items[].category`), shown in the order
   detail table, and locked together with the rest of the product row on an existing order.
 
+## Mandatory fields — nothing incomplete gets saved
+
+Every form now refuses to submit while a required field is empty. What counts as
+required is exactly what is already marked in **Admin Panel → Form Builder** (or the `*`
+on the form) — no field was made mandatory or optional by this change.
+
+* **Enquiry, Order, Customer, Product** forms read their required list straight from the
+  Form Builder, so changing a question there changes the rule with no code edit.
+* **Dispatch, Quotation, the inline "+ New customer" box, Add/Edit User, the Form
+  Builder's own question editor, Change password and Login** validate their own fields.
+* **Quotation Builder** requires the representative's name and number, the client company
+  name, and a model name, qty and price on every product line.
+* On failure the field gets a red border and a "…bharna zaroori hai" line under it, a
+  summary bar at the top of the form lists everything missing, and the page scrolls to and
+  focuses the first one. The marks disappear as each field is filled.
+* **Skipped, on purpose:** read-only and auto-calculated fields (Total Amount, Pending
+  Balance, the auto Enquiry Id), fields hidden by the form's own logic (Box Amount when
+  there are no boxes, Full Payment before dispatch), and checkboxes. `0` counts as filled,
+  so Freight Amount 0 is accepted.
+* **New records vs edits:** file/proof questions (Tax Invoice, Proforma, payment proofs)
+  are not demanded while an order is being *created* — they do not exist yet — but they are
+  required when that order is edited later. Every other required field applies from the start.
+
+### Server side
+
+The Apps Script backend enforces the same list (`_reqMissing` in `Code.gs`, deployed as
+version 30), so a record that skips the UI is refused too. It reads the same Form Builder
+config, so the two never drift. Two deliberate limits keep existing data safe: a record
+that is unchanged, or that was *already* incomplete before this change, still syncs
+normally — the server only rejects a **new** incomplete record, or an edit that empties a
+field which had a value. Rejected records come back as `rejected:[{id,missing}]` and the
+app shows a toast instead of losing the save silently; any internal error in the validator
+passes the record through, so sync can never be blocked by the check itself.
+
 ## Pagination
 
 Every table shows **20 rows per page** by default with a footer bar: rows-per-page

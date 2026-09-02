@@ -3593,7 +3593,10 @@ function bindAppEvents(){
       const r = cfRow(n);
       if(r && r.style.display === 'none') return;
       if(f.type === 'file'){
-        const has = (n.files && n.files.length) || String(prev[f.id]||'').trim();
+        /* naya order banate waqt Tax Invoice / payment proof jaisi files abhi
+           hoti hi nahi -- wo order banne ke baad edit par zaroori hoti hain */
+        if(!window.__ocOrderEditId) return;
+        const has = (n.files && n.files.length) || String(prev[f.id]||'').trim() || n.__ocData;
         if(!has) miss.push({ label:f.label, node:n });
         return;
       }
@@ -3633,6 +3636,7 @@ function bindAppEvents(){
     if(document.getElementById('o-items')){
       recalcMoney();
       const miss = missingFields();
+      if(miss.length && typeof window.ocReqReport === 'function'){ window.ocReqReport(miss); return; }
       if(miss.length){
         miss.forEach(function(m){
           if(!m.node) return;
@@ -7832,7 +7836,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.6';
+var OC_WEB_BUILD = '2026.09.02.7';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9146,6 +9150,357 @@ if(typeof _detailV14 === 'function'){
   };
 }
 console.log('[oc v14] order detail: Status button + status picker');
+})();
+
+
+/* ====================================================================== *
+ * 18. OAKCRAFT v15 — HAR FORM PAR MANDATORY FIELD VALIDATION              *
+ *                                                                         *
+ *   Ek hi validation engine jo har form par lagta hai. Jo field Admin      *
+ *   Panel -> Form Builder me "required" mark hai (ya form me * lagi hai),  *
+ *   wo bhare bina form submit hi nahi hoga.                                *
+ *                                                                         *
+ *   - har missing field lal border + uske neeche "Ye field zaroori hai"    *
+ *   - modal ke upar ek summary: kaun kaun se field baaki hain              *
+ *   - pehle missing field par scroll + focus                              *
+ *   - bharte hi nishaan apne aap hat jaate hain                            *
+ *   - readonly / auto-calculated / chhupe hue field skip                   *
+ *     (Total Amount, Pending Balance, Enquiry Id — ye khud bharte hain)    *
+ *   - optional field pehle jaise optional hi rahenge; kisi field ka        *
+ *     required/optional hona yahan badla nahi gaya                         *
+ *   - naya order banate waqt file/proof (Tax Invoice, payment proofs)      *
+ *     optional; order banne ke baad edit par wo bhi zaroori                *
+ * ====================================================================== */
+(function(){
+'use strict';
+
+function S(v){ return v == null ? '' : String(v); }
+function $id(x){ return document.getElementById(x); }
+
+/* ---------------- marking / un-marking ---------------- */
+var BAD = 'var(--crit)';
+function rowOf(n){
+  if(!n) return null;
+  if(n.closest){ var r = n.closest('.form-row'); if(r) return r; }
+  return n.parentNode || null;
+}
+function clearOne(n){
+  if(!n) return;
+  try{
+    n.style.borderColor = '';
+    n.removeAttribute('aria-invalid');
+    var r = rowOf(n); if(!r) return;
+    var m = r.querySelector('[data-oc-reqmsg]'); if(m && m.parentNode) m.parentNode.removeChild(m);
+    r.style.removeProperty('--oc-req');
+  }catch(e){}
+}
+function markOne(n, label){
+  if(!n) return;
+  try{
+    n.style.borderColor = BAD;
+    n.setAttribute('aria-invalid', 'true');
+    var r = rowOf(n);
+    if(r && !r.querySelector('[data-oc-reqmsg]')){
+      var d = document.createElement('div');
+      d.setAttribute('data-oc-reqmsg', '1');
+      d.style.cssText = 'font-size:11.5px;color:' + BAD + ';margin-top:4px;display:flex;gap:5px;align-items:center';
+      d.innerHTML = '<span style="font-weight:800">!</span><span>' + esc(label || 'Ye field') + ' bharna zaroori hai</span>';
+      r.appendChild(d);
+    }
+    if(!n.dataset.ocReqBound){
+      n.dataset.ocReqBound = '1';
+      var clr = function(){ clearOne(n); refreshBanner(); };
+      n.addEventListener('input', clr);
+      n.addEventListener('change', clr);
+      n.addEventListener('blur', clr);
+    }
+  }catch(e){}
+}
+function clearAll(){
+  try{
+    var m = $id('modal') || document;
+    Array.prototype.slice.call(m.querySelectorAll('[aria-invalid="true"]')).forEach(clearOne);
+    var b = $id('oc-req-banner'); if(b && b.parentNode) b.parentNode.removeChild(b);
+  }catch(e){}
+}
+window.ocReqClear = clearAll;
+
+/* upar ek summary box */
+function banner(miss){
+  var body = document.querySelector('#modal .modal-body') || document.querySelector('#modal');
+  if(!body) return;
+  var b = $id('oc-req-banner');
+  if(!b){
+    b = document.createElement('div');
+    b.id = 'oc-req-banner';
+    b.style.cssText = 'margin:0 0 14px;padding:10px 12px;border:1px solid rgba(208,59,59,.45);border-left:3px solid ' + BAD + ';border-radius:9px;background:rgba(208,59,59,.08)';
+    body.insertBefore(b, body.firstChild);
+  }
+  var names = miss.map(function(m){ return m.label; });
+  b.innerHTML = '<div style="font-size:12.5px;font-weight:700;color:' + BAD + '">'
+      + names.length + ' zaroori field ' + (names.length > 1 ? 'baaki hain' : 'baaki hai') + ' — form submit nahi hoga</div>'
+    + '<div style="font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.6">' + names.map(esc).join(' · ') + '</div>';
+}
+/* jaise-jaise field bharte jaayein, banner chhota hota jaaye */
+var LAST = null;
+function refreshBanner(){
+  if(!LAST || !LAST.length) return;
+  var left = LAST.filter(function(m){ return m.node && m.node.getAttribute('aria-invalid') === 'true'; });
+  if(!left.length){ var b = $id('oc-req-banner'); if(b && b.parentNode) b.parentNode.removeChild(b); LAST = null; return; }
+  banner(left);
+}
+
+/* sab ek saath: mark + banner + scroll + toast */
+function report(miss){
+  if(!miss || !miss.length) return false;
+  clearAll();
+  miss.forEach(function(m){ markOne(m.node, m.label); });
+  LAST = miss.slice();
+  banner(miss);
+  var names = miss.map(function(m){ return m.label; });
+  try{
+    say('Pehle ye zaroori field bharein: ' + names.slice(0, 3).join(', ') + (names.length > 3 ? ' +' + (names.length - 3) + ' aur' : ''));
+  }catch(e){}
+  try{
+    var n = miss[0].node;
+    if(n){ n.scrollIntoView({ block:'center', behavior:'smooth' }); setTimeout(function(){ try{ n.focus({ preventScroll:true }); }catch(e){} }, 120); }
+  }catch(e){}
+  return true;
+}
+window.ocReqReport = report;
+
+/* ---------------- kaunsa field khali hai ---------------- */
+function hiddenRow(n){
+  var r = rowOf(n);
+  while(r && r !== document.body){
+    if(r.style && r.style.display === 'none') return true;
+    r = r.parentNode;
+  }
+  return false;
+}
+function skippable(n){
+  if(!n) return true;
+  if(n.disabled || n.readOnly) return true;         /* auto-calculated / locked */
+  if(n.type === 'hidden') return true;
+  if(n.dataset && n.dataset.ocAuto) return true;    /* Total / Pending Balance */
+  if(hiddenRow(n)) return true;
+  return false;
+}
+function emptyVal(n, type){
+  if(!n) return false;
+  if(type === 'file') return !(n.files && n.files.length);
+  if(n.type === 'checkbox') return false;           /* checkbox required = ambiguous, chhoda */
+  var v = S(n.value);
+  if(type === 'number') return v.trim() === '';     /* 0 valid hai (jaise Freight 0) */
+  return v.trim() === '';
+}
+/* form-builder config se required fields */
+var NATIVE = {
+  enquiry:  { f_cust:'m-cust', f_prod:'m-prod-search', f_qty:'m-qty', f_src:'m-src', f_sales:'m-sales', f_prio:'m-prio', f_note:'m-note' },
+  order:    { o_cust:'o-cust', o_sales:'o-sales', o_pay:'o-pay', o_stat:'o-stat', o_ptype:'o-ptype', o_date:'o-date', o_note:'o-note' },
+  customer: { c_name:'c-name', c_contact:'c-contact', c_city:'c-city', c_email:'c-email', c_phone:'c-phone',
+              c_type:'c-type', c_msg1tc8d:'c-billaddr', c_msg1ttd9:'c-shipaddr' },
+  product:  { p_name:'p-name', p_sku:'p-sku', p_cat:'p-cat', p_price:'p-price', p_stock:'p-stock', p_unit:'p-unit' }
+};
+function nodeFor(which, f){
+  var map = NATIVE[which] || {};
+  var n = map[f.id] ? $id(map[f.id]) : null;
+  if(!n) n = $id('cf-' + which + '-' + f.id);
+  /* Product Type / Order Date jaise fields ka label match */
+  if(!n && which === 'order'){
+    if(/product\s*type/i.test(S(f.label))) n = $id('o-ptype');
+    else if(/^\s*order\s*date\s*$/i.test(S(f.label))) n = $id('o-date');
+  }
+  return n;
+}
+function missingFor(which, opts){
+  opts = opts || {};
+  var fields = [];
+  try{ fields = getForm(which) || []; }catch(e){ fields = []; }
+  var prev = opts.prev || {};
+  var miss = [];
+  fields.forEach(function(f){
+    if(!f || !f.required) return;
+    var n = nodeFor(which, f);
+    if(!n || skippable(n)) return;
+    if(f.type === 'file'){
+      if(opts.skipFiles) return;                    /* naya record: proof baad me */
+      if(S(prev[f.id]).trim()) return;              /* pehle upload ho chuki hai */
+      if(n.__ocData) return;
+    }
+    if(emptyVal(n, f.type)) miss.push({ label:f.label || f.id, node:n });
+  });
+  return miss;
+}
+window.ocReqMissing = missingFor;
+
+/* seedhe id-list se check (jin forms ka form-builder config nahi hota) */
+function missingList(list){
+  var miss = [];
+  (list || []).forEach(function(t){
+    var n = $id(t[0]); if(!n || skippable(n)) return;
+    var v = S(n.value).trim();
+    var bad = t[2] === 'num' ? !(parseFloat(v) > 0) : (v === '');
+    if(bad) miss.push({ label:t[1], node:n });
+  });
+  return miss;
+}
+window.ocReqMissingIds = missingList;
+
+/* ---------------- forms ---------------- */
+function wrap(name, build){
+  var prev = window[name];
+  if(typeof prev !== 'function') return;
+  window[name] = function(){
+    try{
+      var miss = build.apply(this, arguments);
+      if(miss && miss.length){ report(miss); return; }
+      clearAll();
+    }catch(e){ console.warn('[oc v15] validate ' + name, e); }
+    return prev.apply(this, arguments);
+  };
+}
+
+/* Enquiry */
+wrap('saveEnq', function(id){
+  if(!$id('m-cust')) return null;
+  var e = null;
+  try{ e = id ? (DB.enquiries() || []).filter(function(x){ return x && x.id === id; })[0] : null; }catch(err){}
+  return missingFor('enquiry', { prev:(e && e.custom) || {}, skipFiles:!id });
+});
+
+/* Customer */
+wrap('saveCust', function(id){
+  if(!$id('c-name')) return null;
+  var c = null;
+  try{ c = id ? (DB.customers() || []).filter(function(x){ return x && x.id === id; })[0] : null; }catch(err){}
+  return missingFor('customer', { prev:(c && c.custom) || {}, skipFiles:!id });
+});
+
+/* Product */
+wrap('saveProd', function(id){
+  if(!$id('p-name')) return null;
+  var p = null;
+  try{ p = id ? (DB.products() || []).filter(function(x){ return x && x.id === id; })[0] : null; }catch(err){}
+  return missingFor('product', { prev:(p && p.custom) || {}, skipFiles:!id });
+});
+
+/* Dispatch */
+wrap('saveDis', function(){
+  if(!$id('d-order')) return null;
+  return missingList([['d-order','Order'], ['d-courier','Courier / Transporter'], ['d-on','Dispatched On']]);
+});
+
+/* Quotation (CRM form — builder alag file me hai) */
+wrap('saveQuo', function(){
+  if(!$id('q-cust')) return null;
+  return missingList([['q-cust','Customer'], ['q-prod','Product'], ['q-qty','Quantity','num'], ['q-amount','Amount']]);
+});
+
+/* Inline "+ New customer" (enquiry / order form ke andar) */
+wrap('saveInlineCust', function(selId, prefix){
+  var p = prefix || 'enqc';
+  if(!$id(p + '-name')) return null;
+  return missingList([
+    [p + '-name','Company Name'], [p + '-contact','Contact Person'], [p + '-city','City'],
+    [p + '-phone','Phone'], [p + '-type','Customer Type'],
+    [p + '-billaddr','Billing Address'], [p + '-shipaddr','Shipping Address']
+  ]);
+});
+
+/* User login (Admin Panel) */
+wrap('saveUser', function(email){
+  if(!$id('u-name')) return null;
+  var miss = missingList([['u-name','Full Name'], ['u-email','Login Email / ID'], ['u-role','Role'], ['u-status','Status']]);
+  var pw = $id('u-pass'), val = S(pw && pw.value);
+  if(pw && !email && val.length < 6) miss.push({ label:'Password (min 6 characters)', node:pw });
+  if(pw && email && val && val.length < 6) miss.push({ label:'Password (min 6 characters)', node:pw });
+  return miss;
+});
+
+/* Form Builder ka question form */
+wrap('saveFormField', function(which, idx){
+  if(!$id('ff-label')) return null;
+  var miss = missingList([['ff-label','Question name']]);
+  var t = $id('ff-type'), o = $id('ff-opts');
+  if(t && o && t.value === 'dropdown' && !S(o.value).trim()) miss.push({ label:'Dropdown choices', node:o });
+  return miss;
+});
+
+/* Change password */
+wrap('doChangePw', function(){
+  if(!$id('cp-old')) return null;
+  var miss = missingList([['cp-old','Current password'], ['cp-new','New password'], ['cp-new2','Confirm new password']]);
+  var n = $id('cp-new'), n2 = $id('cp-new2');
+  if(!miss.length && n && S(n.value).length < 6) miss.push({ label:'New password (min 6 characters)', node:n });
+  if(!miss.length && n && n2 && S(n.value) !== S(n2.value)) miss.push({ label:'Confirm new password (match nahi kar raha)', node:n2 });
+  return miss;
+});
+
+/* Login screen (modal ke bahar hai, isliye apna chhota highlight) */
+(function(){
+  var prev = window.doLogin;
+  if(typeof prev !== 'function') return;
+  window.doLogin = function(){
+    var e = $id('lg-email'), p = $id('lg-pw');
+    if(e && p){
+      var bad = [];
+      if(!S(e.value).trim()) bad.push(e);
+      if(!S(p.value)) bad.push(p);
+      bad.forEach(function(n){
+        n.style.borderColor = BAD;
+        if(!n.dataset.ocReqBound){ n.dataset.ocReqBound = '1';
+          n.addEventListener('input', function(){ n.style.borderColor = ''; }); }
+      });
+      if(bad.length){
+        var m = $id('lg-msg') || $id('lg-error');
+        if(m){ m.textContent = 'Email aur password dono bharna zaroori hai'; m.style.color = BAD; }
+        try{ bad[0].focus(); }catch(err){}
+        return;
+      }
+    }
+    return prev.apply(this, arguments);
+  };
+})();
+
+/* Backend par bhi wahi rule lagta hai. Server kisi record ko reject kare to
+   wo chup-chaap gum na ho -- response padh kar user ko bata do. */
+(function(){
+  var _f = window.fetch;
+  if(typeof _f !== 'function' || window.__ocReqFetch) return;
+  window.__ocReqFetch = 1;
+  window.fetch = function(){
+    var p = _f.apply(this, arguments);
+    try{
+      var u = String((arguments[0] && arguments[0].url) || arguments[0] || '');
+      if(u.indexOf('script.google.com') >= 0){
+        p.then(function(res){
+          try{
+            res.clone().json().then(function(j){
+              var rj = j && j.rejected;
+              if(!rj || !rj.length) return;
+              window.__ocReqRejected = rj;
+              var names = (rj[0] && rj[0].missing) || [];
+              say('Server ne ' + rj.length + ' record save nahi kiya — zaroori field baaki hain: '
+                  + names.slice(0, 3).join(', ') + (names.length > 3 ? ' +' + (names.length - 3) + ' aur' : ''));
+            }).catch(function(){});
+          }catch(e){}
+        }).catch(function(){});
+      }
+    }catch(e){}
+    return p;
+  };
+})();
+
+/* form khulte hi purane nishaan saaf */
+['openEnqModal','openOrderModal','openCustModal','openProdModal','openDisModal','openQuoModal','openUserModal','openFormFieldModal']
+  .forEach(function(fn){
+    var prev = window[fn];
+    if(typeof prev !== 'function') return;
+    window[fn] = function(){ var r = prev.apply(this, arguments); setTimeout(clearAll, 0); return r; };
+  });
+
+console.log('[oc v15] mandatory field validation on every form');
 })();
 
 /* ---- boot ---- */

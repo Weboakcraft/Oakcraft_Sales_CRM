@@ -492,7 +492,7 @@ body.exporting .page{transform:none !important}
 
   <div class="ed-sec">
     <h3>Client · Bill To</h3>
-    <div class="f"><label>Company / Client name</label><input id="inCo" oninput="S.co=this.value; R()"></div>
+    <div class="f"><label>Company / Client name <b>*</b></label><input id="inCo" oninput="S.co=this.value; this.classList.remove('err'); R()"></div>
     <div class="f"><label>Kind attention (contact person)</label><input id="inAttn" oninput="S.attn=this.value; R()"></div>
     <div class="f"><label>Address</label><textarea id="inAddr" rows="2" oninput="S.addr=this.value; R()"></textarea></div>
     <div class="frow">
@@ -745,14 +745,14 @@ function renderItemsEditor(){
   w.innerHTML = S.items.map((it,i)=>`
     <div class="item-card">
       <div class="ic-head"><span>PRODUCT ${String(i+1).padStart(2,'0')}</span><button class="rm" onclick="rmItem(${i})">Remove</button></div>
-      <div class="f"><input placeholder="Model name — e.g. Hurricane HB Mesh" value="${esc(it.name)}" oninput="updItem(${i},'name',this.value)"></div>
+      <div class="f"><label>Model name <b>*</b></label><input id="qb-name-${i}" placeholder="Model name — e.g. Hurricane HB Mesh" value="${esc(it.name)}" oninput="this.classList.remove('err'); updItem(${i},'name',this.value)"></div>
       <div class="f"><input placeholder="Short description / specs (optional)" value="${esc(it.desc)}" oninput="updItem(${i},'desc',this.value)"></div>
       <div class="frow">
         <div class="f"><label>HSN</label><input value="${esc(it.hsn)}" oninput="updItem(${i},'hsn',this.value)"></div>
-        <div class="f"><label>Qty</label><input type="number" min="1" value="${it.qty}" oninput="updItem(${i},'qty',this.value)"></div>
+        <div class="f"><label>Qty <b>*</b></label><input id="qb-qty-${i}" type="number" min="1" value="${it.qty}" oninput="this.classList.remove('err'); updItem(${i},'qty',this.value)"></div>
       </div>
       <div class="frow">
-        <div class="f"><label>List price (₹, ex-GST)</label><input type="number" value="${it.price||''}" oninput="updItem(${i},'price',this.value)"></div>
+        <div class="f"><label>List price (₹, ex-GST) <b>*</b></label><input id="qb-price-${i}" type="number" value="${it.price||''}" oninput="this.classList.remove('err'); updItem(${i},'price',this.value)"></div>
         <div class="f"><label>Discount %</label><input type="number" min="0" max="100" value="${it.disc||''}" oninput="updItem(${i},'disc',this.value)"></div>
       </div>
       <div class="f"><label>Delivery timeline</label><input value="${esc(it.del)}" oninput="updItem(${i},'del',this.value)"></div>
@@ -1229,21 +1229,50 @@ function repSelect(v){
   }
   R();
 }
+/* Quotation tabhi save/download hogi jab saare zaroori (*) field bhare hon:
+   representative ka naam + number, client company name, aur har product ka
+   naam, qty aur price. Optional field (address, GSTIN, ship-to, discount)
+   pehle jaise optional hi hain. */
 function repMissing(){
-  let missing = false;
+  const names = [];
+  let first = null;
+  /* har check se pehle purane nishaan hata do, warna bhara hua field bhi lal dikhta rahega */
+  try{ Array.prototype.slice.call(document.querySelectorAll('.err')).forEach(function(e){ e.classList.remove('err'); }); }catch(e){}
+  const bad = function(el, label){
+    if(el){ el.classList.add('err'); if(!first) first = el; }
+    names.push(label);
+  };
   if(!S.rep.trim()){
-    document.getElementById('inRepSel').classList.add('err');
-    if(document.getElementById('repNameWrap').style.display !== 'none') document.getElementById('inRep').classList.add('err');
-    missing = true;
+    const sel = document.getElementById('inRepSel'), wrap = document.getElementById('repNameWrap');
+    if(sel) sel.classList.add('err');
+    if(wrap && wrap.style.display !== 'none') document.getElementById('inRep').classList.add('err');
+    if(!first) first = sel || document.getElementById('inRep');
+    names.push('Representative name');
   }
-  if(!S.repPh.trim()){ document.getElementById('inRepPh').classList.add('err'); missing = true; }
-  if(missing){
+  if(!S.repPh.trim()) bad(document.getElementById('inRepPh'), 'Representative number');
+  if(!String(S.co || '').trim()) bad(document.getElementById('inCo'), 'Company / Client name');
+  if(!S.items.length){
+    names.push('At least one product');
+  } else {
+    S.items.forEach(function(it, i){
+      const n = i + 1;
+      if(!String(it.name || '').trim()) bad(document.getElementById('qb-name-' + i), 'Product ' + n + ': model name');
+      if(!(parseFloat(it.qty) > 0))     bad(document.getElementById('qb-qty-' + i),  'Product ' + n + ': qty');
+      if(!(parseFloat(it.price) > 0))   bad(document.getElementById('qb-price-' + i),'Product ' + n + ': price');
+    });
+  }
+  if(names.length){
     const st = document.getElementById('storeStatus');
-    st.textContent = 'Please add your name and direct number — they print on the quotation so the client knows whom to call.';
-    st.className = 'hint warn';
-    document.getElementById('inRep').scrollIntoView({behavior:'smooth', block:'center'});
+    if(st){
+      st.textContent = names.length + ' zaroori field baaki ' + (names.length > 1 ? 'hain' : 'hai') + ': '
+                     + names.slice(0, 4).join(', ') + (names.length > 4 ? ' +' + (names.length - 4) + ' aur' : '');
+      st.className = 'hint warn';
+    }
+    try{ (first || document.getElementById('inRep')).scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){}
+    try{ if(first && first.focus) first.focus({preventScroll:true}); }catch(e){}
   }
-  return missing;
+  window.__qbMissingNames = names;
+  return names.length > 0;
 }
 
 async function downloadPDF(){
