@@ -1857,7 +1857,7 @@ async function exportExcel(section){
   let rows=[], name=section;
   if(section==='enquiries'){ rows=scope(DB.enquiries()).map(e=>({'Enquiry ID':e.id,Date:e.date,Customer:e.customer,Product:e.product,Qty:e.qty,Source:e.source,Salesperson:e.salesperson,Value:e.value,Priority:e.priority,Stage:e.stage,Note:e.note})); }
   else if(section==='quotations'){ rows=scope(DB.quotations()).map(x=>({'Quote ID':x.id,Date:x.date,Customer:x.customer,Product:x.product,Qty:x.qty,Amount:x.amount,'Discount %':x.discount,'Valid Till':x.validTill,Salesperson:x.salesperson,Status:x.status})); }
-  else if(section==='orders'){ rows=scope(DB.orders(),'orders').map(o=>({'Order ID':o.id,Date:o.date,'Fed On':(o.createdAt||''),Customer:o.customer,Salesperson:o.salesperson,Product:o.product,'Product Type':(o.productType||''),Qty:o.qty,'Amount (excl. GST)':o.amount,'Billing Amount (incl. 18% GST)':Math.round((+o.amount||0)*1.18*100)/100,Payment:o.payment,'Exp. Delivery':o.expDispatch,Status:o.status,Note:(o.note||'')})); }
+  else if(section==='orders'){ rows=scope(DB.orders(),'orders').map(o=>({'Order ID':o.id,Date:o.date,'Fed On':(o.createdAt||''),Customer:o.customer,Salesperson:o.salesperson,Product:o.product,'Product Type':(o.productType||''),'Product Category':(function(){try{var a=(o.items||[]).map(function(it){return String((it&&it.category)||'').trim();}).filter(Boolean);var u=a.filter(function(x,i){return a.indexOf(x)===i;});return u.join(', ');}catch(e){return '';}})(),Qty:o.qty,'Amount (excl. GST)':o.amount,'Billing Amount (incl. 18% GST)':Math.round((+o.amount||0)*1.18*100)/100,Payment:o.payment,'Exp. Delivery':o.expDispatch,Status:o.status,Note:(o.note||'')})); }
   else if(section==='dispatch'){ rows=scope(DB.dispatch()).map(d=>({'Dispatch ID':d.id,'Order ID':d.orderId,Customer:d.customer,Product:d.product,Qty:d.qty,Courier:d.courier,'Tracking No':d.tracking,Dispatched:d.dispatchedOn,ETA:d.eta,Status:d.status})); }
   else if(section==='customers'){ const ord=DB.orders(); rows=DB.customers().map(c=>{const co=ord.filter(o=>o.custId===c.id);return {'Customer ID':c.id,Company:c.name,'Contact Person':c.contact,Email:c.email,Phone:c.phone,City:c.city,Type:c.type,Orders:co.length,'Lifetime Value':co.reduce((s,o)=>s+o.amount,0)};}); }
   else if(section==='products'){ rows=DB.products().map(p=>({'Product ID':p.id,Name:p.name,SKU:p.sku,Category:p.cat,'Unit Price':p.price,Stock:p.stock,Unit:p.unit,'Stock Value':p.price*p.stock})); }
@@ -7836,7 +7836,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.8';
+var OC_WEB_BUILD = '2026.09.02.9';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9508,6 +9508,79 @@ wrap('doChangePw', function(){
   });
 
 console.log('[oc v15] mandatory field validation on every form');
+})();
+
+
+/* ====================================================================== *
+ * 19. OAKCRAFT v16 — CHHOTE PAR ZAROORI SUDHAR                            *
+ *   a) Order detail ke andar wahi permission lagti hai jo list par lagti  *
+ *      hai. Ab tak "Edit Order" / "Advance to ..." button un users ko bhi *
+ *      dikhte the jinke paas Orders ka edit access nahi hai (click par    *
+ *      toast to aata tha, par button dikhta tha). Ab button hi nahi       *
+ *      dikhega, aur advanceOrder khud bhi permission check karta hai.     *
+ *   b) Orders ke Excel export me "Product Category" column bhi aata hai.  *
+ * ====================================================================== */
+(function(){
+'use strict';
+
+function S(v){ return v == null ? '' : String(v); }
+function allowed(section, action){
+  try{ return (typeof can === 'function') ? !!can(section, action) : true; }catch(e){ return true; }
+}
+
+/* modal ke andar ke buttons par bhi wahi rule */
+var MODAL_RULES = [
+  [/^\s*openOrderModal\(/,    'orders',     'edit'],
+  [/^\s*advanceOrder\(/,      'orders',     'edit'],
+  [/^\s*deleteOrderAdmin\(/,  'orders',     'delete'],
+  [/^\s*openEnqModal\(/,      'enquiries',  'edit'],
+  [/^\s*openCustModal\(/,     'customers',  'edit'],
+  [/^\s*openProdModal\(/,     'products',   'edit'],
+  [/^\s*openDisModal\(/,      'dispatch',   'edit'],
+  [/^\s*openQuoModal\(/,      'quotations', 'edit'],
+  [/^\s*ocQuoteFromEnq\(/,    'quotations', 'create'],
+  [/^\s*ocMoveEnq\(/,         'enquiries',  'edit']
+];
+function applyModalPerms(){
+  try{
+    var m = document.getElementById('modal'); if(!m) return;
+    Array.prototype.slice.call(m.querySelectorAll('button[onclick], a[onclick]')).forEach(function(b){
+      var oc = S(b.getAttribute('onclick'));
+      for(var i = 0; i < MODAL_RULES.length; i++){
+        if(MODAL_RULES[i][0].test(oc) && !allowed(MODAL_RULES[i][1], MODAL_RULES[i][2])){
+          b.style.display = 'none';
+          return;
+        }
+      }
+    });
+  }catch(e){}
+}
+window.ocApplyModalPerms = applyModalPerms;
+
+['openOrderDetail','openEnqDetail','openQuoDetail','openDisDetail','openCustDetail'].forEach(function(fn){
+  var prev = window[fn];
+  if(typeof prev !== 'function') return;
+  window[fn] = function(){
+    var r = prev.apply(this, arguments);
+    [0, 120, 360].forEach(function(t){ setTimeout(applyModalPerms, t); });
+    return r;
+  };
+});
+
+/* stage button bhi permission maane (pehle sirf ownership check tha) */
+(function(){
+  var prev = window.advanceOrder;
+  if(typeof prev !== 'function') return;
+  window.advanceOrder = function(){
+    if(!allowed('orders', 'edit')){
+      try{ (typeof permToast === 'function') ? permToast('edit') : say('Edit karne ki permission nahi hai'); }catch(e){}
+      return;
+    }
+    return prev.apply(this, arguments);
+  };
+})();
+
+console.log('[oc v16] modal-level permissions + category in orders export');
 })();
 
 /* ---- boot ---- */

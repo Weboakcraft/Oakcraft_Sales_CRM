@@ -44,7 +44,13 @@ add from an enquiry/order form still works).
 * **Product Category** — every product row has a searchable category dropdown right after
   Order Type (27 fixed categories; typing something new offers *Use "…" as a new category*).
   It is required for new products, saved on the order (`items[].category`), shown in the order
-  detail table, and locked together with the rest of the product row on an existing order.
+  detail table, included in the Orders Excel export (one column after *Product Type*, listing
+  each distinct category on the order), and locked together with the rest of the product row
+  on an existing order.
+* **Permissions apply inside the order too.** *Edit Order*, *Status* and *Advance to …* are
+  hidden in the order detail for anyone without Orders → edit, and `advanceOrder` refuses the
+  stage change as well; *Close* and *WhatsApp Update* stay available so the order can still be
+  read.
 
 ## Mandatory fields — nothing incomplete gets saved
 
@@ -150,6 +156,10 @@ them whose `lead_status` is `CREATED`, at their registered address, subject
 `previewMetaNotify` shows what would go out without sending; `runMetaNotifyNow` sends
 immediately; `removeMetaNotifyTrigger` switches it off. Sent leads are logged in the hidden
 `Meta_Notify_Log` tab, so nobody is mailed twice — a re-assignment notifies the new owner.
+
+The file is already in the `Web_Sales_CRM` Apps Script project. Step 2 has to be done by the
+account owner: Google asks for consent (send mail as you, sheets, triggers) the first time
+`installMetaNotifyTrigger` runs, and only the owner can grant it.
 
 ## Build / test notes
 
