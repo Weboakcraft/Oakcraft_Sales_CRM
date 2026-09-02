@@ -7832,7 +7832,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.2';
+var OC_WEB_BUILD = '2026.09.02.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8293,6 +8293,339 @@ if(typeof _refreshV10 === 'function'){
 }
 
 console.log('[oc v10] quotation builder flow · product edit quota · auto dispatch · sticky view');
+})();
+
+/* ====================================================================== *
+ * 13. OAKCRAFT v11 (a) — ORDER PRODUCT CATEGORY                          *
+ *     Order Type ke turant baad ek "Product Category" field, jisme        *
+ *     searchable dropdown hai. List me na mile to user apni category      *
+ *     khud likh sakta hai (manual / other). Value order ke saath save     *
+ *     hoti hai aur edit/view dono me wapas dikhti hai.                    *
+ * ====================================================================== */
+(function(){
+'use strict';
+
+var PRODUCT_CATEGORIES = [
+  'ALMIRA','BAR STOOL CHAIR','BOOM BACK','BUTTERFLY CHAIR','COMPUTER TABLE','GAMING CHAIR',
+  'HIGH BACK CHAIR','HURRICANE CHAIR','IMPORTED CHAIR HIGH BACK','IMPORTED CHAIR MEDIUM BACK',
+  'JHAZZ CHAIR','KBC CHAIR','MATRIX HIGH BACK','MATRIX MEDIUM BACK','MEDIUM BACK CHAIR',
+  'MESH CHAIR','NAAG NAAGIN','OFFICE CHAIR','PEARS CHAIR','RECLINER CHAIR','RECLINER SOFA',
+  'ROBO CHAIR','SOFA','TABLE','TAKIYA BROWN','VISITOR CHAIR','WORKSTATION'
+];
+window.OC_PRODUCT_CATEGORIES = PRODUCT_CATEGORIES;
+
+function catMatches(val){
+  var v = S(val).trim().toLowerCase();
+  if(!v) return PRODUCT_CATEGORIES.slice();
+  var starts = [], has = [];
+  PRODUCT_CATEGORIES.forEach(function(c){
+    var lc = c.toLowerCase();
+    if(lc.indexOf(v) === 0) starts.push(c);
+    else if(lc.indexOf(v) >= 0) has.push(c);
+  });
+  return starts.concat(has);
+}
+window.onCatSearch = function(i, val){
+  var row = document.querySelectorAll('#o-items [data-row]')[i]; if(!row) return;
+  var box = row.querySelector('.oi-cat-suggest'); if(!box) return;
+  var list = catMatches(val), typed = S(val).trim();
+  var exact = PRODUCT_CATEGORIES.filter(function(c){ return c.toLowerCase() === typed.toLowerCase(); }).length > 0;
+  var html = list.map(function(c){
+    return '<div class="oi-sug-item" data-cat="' + attr(c) + '">' + esc(c) + '</div>';
+  }).join('');
+  if(typed && !exact){
+    html = '<div class="oi-sug-item" data-cat="' + attr(typed) + '" style="color:var(--brand);font-weight:600">'
+         + '＋ Use "' + esc(typed) + '" as a new category</div>' + html;
+  }
+  if(!html) html = '<div class="oi-sug-empty" style="padding:7px 10px;font-size:12.5px;color:var(--muted)">Type your own category</div>';
+  box.innerHTML = html;
+  box.style.display = 'block';
+  box.onmousedown = function(ev){
+    var it = ev.target.closest('.oi-sug-item'); if(!it) return;
+    ev.preventDefault();
+    var inp = row.querySelector('.oi-cat');
+    if(inp){ inp.value = it.getAttribute('data-cat'); }
+    box.style.display = 'none';
+    readOrderItems();
+    markCustom(row);
+  };
+  markCustom(row);
+};
+window.hideCatSuggest = function(i){
+  var row = document.querySelectorAll('#o-items [data-row]')[i]; if(!row) return;
+  var box = row.querySelector('.oi-cat-suggest');
+  if(box) setTimeout(function(){ box.style.display = 'none'; }, 160);
+  readOrderItems();
+};
+function markCustom(row){
+  var inp = row.querySelector('.oi-cat'), tag = row.querySelector('.oi-cat-tag');
+  if(!inp || !tag) return;
+  var v = S(inp.value).trim();
+  var known = PRODUCT_CATEGORIES.filter(function(c){ return c.toLowerCase() === v.toLowerCase(); }).length > 0;
+  tag.textContent = !v ? '' : (known ? '' : 'custom category');
+  tag.style.display = (!v || known) ? 'none' : '';
+}
+
+/* Order Type ke baad field inject karo (renderOrderItems ka template chhua nahi) */
+function injectCategory(){
+  var wrap = $('o-items'); if(!wrap) return;
+  var items = window.__orderItems || [];
+  Array.prototype.slice.call(wrap.querySelectorAll('[data-row]')).forEach(function(row){
+    var i = +row.getAttribute('data-row');
+    if(row.querySelector('.oi-cat')) return;                 /* pehle se laga hai */
+    var typeSel = row.querySelector('.oi-type'); if(!typeSel) return;
+    var cell = typeSel.parentNode;                            /* Order Type ka div */
+    var val = S((items[i] || {}).category);
+    var box = document.createElement('div');
+    box.innerHTML = '<label class="lbl" style="font-size:11px">Product Category <span style="color:var(--crit)">*</span></label>'
+      + '<div class="oi-ac" style="position:relative">'
+      +   '<input class="oi-cat" data-i="' + i + '" placeholder="Type to search category..." autocomplete="off" value="' + attr(val) + '"'
+      +   ' oninput="onCatSearch(' + i + ', this.value)" onfocus="onCatSearch(' + i + ', this.value)" onblur="hideCatSuggest(' + i + ')" style="width:100%">'
+      +   '<div class="oi-cat-suggest oi-suggest" data-i="' + i + '" style="display:none"></div>'
+      + '</div>'
+      + '<span class="oi-cat-tag sub" style="font-size:10.5px;color:var(--muted);display:none">custom category</span>';
+    cell.parentNode.insertBefore(box, cell.nextSibling);      /* Order Type ke turant baad */
+    /* purane order me products locked hain — category bhi tabhi tak locked,
+       jab tak wo product edit quota me na aaye (wahan sirf image/qty/rate khulte hain) */
+    if(window.__ocOrderEditId){
+      var ci = box.querySelector('.oi-cat');
+      if(ci){ ci.disabled = true; ci.style.opacity = '.7'; ci.style.cursor = 'not-allowed'; }
+    }
+    markCustom(row);
+  });
+}
+window.ocInjectCategory = injectCategory;
+
+/* item ki saved category ko input me dikhao (agar input khali hai) */
+function syncCatInputs(){
+  var wrap = $('o-items'); if(!wrap) return;
+  (window.__orderItems || []).forEach(function(it, i){
+    var row = wrap.querySelector('[data-row="' + i + '"]'); if(!row) return;
+    var inp = row.querySelector('.oi-cat'); if(!inp) return;
+    if(!S(inp.value).trim() && S(it.category).trim()){ inp.value = S(it.category).trim(); markCustom(row); }
+  });
+}
+
+var _renderItemsV11 = window.renderOrderItems;
+if(typeof _renderItemsV11 === 'function'){
+  window.renderOrderItems = function(){
+    var r = _renderItemsV11.apply(this, arguments);
+    try{ injectCategory(); }catch(e){}
+    try{ if(typeof ocApplyProdEdit === 'function') ocApplyProdEdit(); }catch(e){}
+    return r;
+  };
+}
+/* readOrderItems naya object banata hai -> category dobara chipka do */
+var _readItemsV11 = window.readOrderItems;
+if(typeof _readItemsV11 === 'function'){
+  window.readOrderItems = function(){
+    var prev = (window.__orderItems || []).map(function(it){ return it && it.category; });
+    var r = _readItemsV11.apply(this, arguments);
+    try{
+      var wrap = $('o-items');
+      (window.__orderItems || []).forEach(function(it, i){
+        var row = wrap ? wrap.querySelector('[data-row="' + i + '"]') : null;
+        var inp = row ? row.querySelector('.oi-cat') : null;
+        var cv = inp ? S(inp.value).trim() : '';
+        it.category = (inp && !inp.disabled) ? cv : (cv || S(prev[i] || ''));
+      });
+    }catch(e){}
+    return r;
+  };
+}
+/* naye product ki default category khali */
+var _addItemV11 = window.addOrderItem;
+if(typeof _addItemV11 === 'function'){
+  window.addOrderItem = function(){
+    var r = _addItemV11.apply(this, arguments);
+    try{ injectCategory(); }catch(e){}
+    return r;
+  };
+}
+/* Save: category zaroori hai (baaki product fields ki tarah) */
+var _saveOrderV11 = window.saveOrder;
+window.saveOrder = function(id){
+  try{
+    if($('o-items')){
+      if(typeof readOrderItems === 'function') readOrderItems();
+      var bad = -1, wrap = $('o-items');
+      (window.__orderItems || []).forEach(function(it, i){
+        if(bad < 0 && it && it.product && !S(it.category).trim()){
+          /* sirf tab zaroori jab field bhari ja sakti ho — purane orders (jinme
+             products locked hain aur category thi hi nahi) block nahi hone chahiye */
+          var row = wrap && wrap.querySelector('[data-row="' + i + '"]');
+          var inp = row && row.querySelector('.oi-cat');
+          if(inp && !inp.disabled) bad = i;
+        }
+      });
+      if(bad >= 0){
+        say('Product ' + (bad + 1) + ': select or type a Product Category');
+        var row = $('o-items').querySelector('[data-row="' + bad + '"]');
+        var inp = row && row.querySelector('.oi-cat');
+        if(inp){ inp.focus(); inp.scrollIntoView({ block: 'center' }); }
+        return;
+      }
+    }
+  }catch(e){}
+  return _saveOrderV11.apply(this, arguments);
+};
+/* modal khulne par bhi lagao (openOrderModal ke baad DOM banta hai) */
+var _openOrderV11 = window.openOrderModal;
+if(typeof _openOrderV11 === 'function'){
+  window.openOrderModal = function(id){
+    var r = _openOrderV11.apply(this, arguments);
+    /* modal ka mapper category/imageName ko chhod deta hai — wapas jod do */
+    try{
+      if(id){
+        var o = (DB.orders() || []).filter(function(x){ return x && x.id === id; })[0];
+        if(o && o.items && window.__orderItems){
+          o.items.forEach(function(src, i){
+            var dst = window.__orderItems[i]; if(!dst || !src) return;
+            if(src.category  && !dst.category)  dst.category  = src.category;
+            if(src.imageName && !dst.imageName) dst.imageName = src.imageName;
+          });
+        }
+      }
+    }catch(e){}
+    [0, 60, 220, 520].forEach(function(t){
+      setTimeout(function(){ try{ injectCategory(); syncCatInputs(); if(typeof ocApplyProdEdit === 'function') ocApplyProdEdit(); }catch(e){} }, t);
+    });
+    return r;
+  };
+}
+console.log('[oc v11] product category field active');
+})();
+
+/* ====================================================================== *
+ * 14. OAKCRAFT v11 (b) — PAGINATION (har section me)                     *
+ *     Default 20 rows per page, user 20 / 50 / 100 / 200 chun sakta hai   *
+ *     (preference sab sections me yaad rehti hai), Previous / Next aur    *
+ *     "Page x of y" ke saath. Data ya filters ko kuch nahi hota — sirf    *
+ *     dikhne wali rows page ke hisaab se ati hain.                        *
+ * ====================================================================== */
+(function(){
+'use strict';
+
+var SIZES = [20, 50, 100, 200], DEF = 20, KEY = 'oc_rowsPerPage';
+var pageNo = {}, lastCount = {};
+
+function size(){
+  var n = 0;
+  try{ n = +localStorage.getItem(KEY) || 0; }catch(e){}
+  return SIZES.indexOf(n) >= 0 ? n : DEF;
+}
+window.ocSetRowsPerPage = function(v){
+  var n = +v; if(SIZES.indexOf(n) < 0) n = DEF;
+  try{ localStorage.setItem(KEY, n); }catch(e){}
+  pageNo = {};
+  apply();
+};
+window.ocGoPage = function(key, p){
+  pageNo[key] = Math.max(1, +p || 1);
+  apply();
+  try{
+    var el = document.querySelector('[data-pgkey="' + key + '"]');
+    if(el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }catch(e){}
+};
+
+function dataRows(tb){
+  return Array.prototype.slice.call(tb.rows).filter(function(tr){
+    if(tr.querySelector('td.empty')) return false;
+    var td = tr.cells[0];
+    if(tr.cells.length === 1 && td && td.getAttribute('colspan')) return false;
+    return true;
+  });
+}
+function pagerFor(tbl, key){
+  var host = tbl.parentNode;                       /* overflow wrapper */
+  var next = host.nextElementSibling;
+  if(next && next.classList && next.classList.contains('oc-pager') && next.getAttribute('data-pgkey') === key) return next;
+  var d = document.createElement('div');
+  d.className = 'oc-pager';
+  d.setAttribute('data-pgkey', key);
+  d.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 20px 14px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text-2)';
+  host.parentNode.insertBefore(d, host.nextSibling);
+  return d;
+}
+function paint(d, key, total, sz, page, pages, from, to){
+  var opts = SIZES.map(function(n){ return '<option value="' + n + '"' + (n === sz ? ' selected' : '') + '>' + n + '</option>'; }).join('');
+  var btn = 'padding:5px 11px;border:1px solid var(--border);border-radius:7px;background:var(--surface);cursor:pointer;font:inherit;color:inherit';
+  var off = btn + ';opacity:.45;cursor:not-allowed';
+  d.innerHTML =
+      '<label style="display:flex;align-items:center;gap:6px">Rows per page'
+    +   '<select onchange="ocSetRowsPerPage(this.value)" style="padding:4px 6px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:inherit;font:inherit">' + opts + '</select>'
+    + '</label>'
+    + '<span style="color:var(--muted)">Showing <b>' + from + '–' + to + '</b> of <b>' + total + '</b></span>'
+    + '<span style="flex:1"></span>'
+    + '<button ' + (page <= 1 ? 'disabled style="' + off + '"' : 'style="' + btn + '"')
+    +   ' onclick="ocGoPage(\'' + key + '\',' + (page - 1) + ')">‹ Previous</button>'
+    + '<span>Page <b>' + page + '</b> of <b>' + pages + '</b></span>'
+    + '<button ' + (page >= pages ? 'disabled style="' + off + '"' : 'style="' + btn + '"')
+    +   ' onclick="ocGoPage(\'' + key + '\',' + (page + 1) + ')">Next ›</button>';
+}
+function apply(){
+  var root = $('content'); if(!root) return;
+  var view = (typeof state !== 'undefined' && state.view) || 'x';
+  var sz = size();
+  var tables = Array.prototype.slice.call(root.querySelectorAll('table'));
+  tables.forEach(function(tbl, ti){
+    var tb = tbl.tBodies && tbl.tBodies[0]; if(!tb) return;
+    var rows = dataRows(tb), total = rows.length;
+    var key = view + '#' + ti;
+    var pager = (tbl.parentNode && tbl.parentNode.nextElementSibling);
+    if(pager && !(pager.classList && pager.classList.contains('oc-pager'))) pager = null;
+
+    if(total <= SIZES[0]){                          /* 20 ya kam -> pager ki zaroorat nahi */
+      rows.forEach(function(tr){ tr.style.display = ''; });
+      if(pager && pager.getAttribute('data-pgkey') === key) pager.remove();
+      return;
+    }
+    if(lastCount[key] !== total){ pageNo[key] = 1; lastCount[key] = total; }
+    var pages = Math.max(1, Math.ceil(total / sz));
+    var p = Math.min(Math.max(1, pageNo[key] || 1), pages);
+    pageNo[key] = p;
+    var a = (p - 1) * sz, b = Math.min(total, a + sz);
+    rows.forEach(function(tr, i){ tr.style.display = (i >= a && i < b) ? '' : 'none'; });
+    paint(pagerFor(tbl, key), key, total, sz, p, pages, a + 1, b);
+  });
+}
+window.ocPaginate = apply;
+
+/* ---- hooks: har paint / view change ke baad dobara lagao ---- */
+var _paintP = window.paintTable;
+window.paintTable = function(){
+  var r = _paintP.apply(this, arguments);
+  try{ apply(); }catch(e){}
+  return r;
+};
+var _setViewP = window.setView;
+window.setView = function(){
+  var r = _setViewP.apply(this, arguments);
+  try{ apply(); }catch(e){}
+  return r;
+};
+['renderMetaLeads','renderAdmin','renderDashboard','renderPipeline'].forEach(function(fn){
+  var orig = window[fn];
+  if(typeof orig !== 'function') return;
+  window[fn] = function(){
+    if(fn === 'renderMetaLeads'){
+      /* saari leads DOM me aa jayein taaki pager unhe pages me baant sake */
+      try{ window.__mlLim = Math.max(window.__mlLim || 0, 5000); }catch(e){}
+    }
+    var r = orig.apply(this, arguments);
+    try{
+      if(fn === 'renderMetaLeads'){
+        var f = document.querySelector('.mls-foot');
+        var n = document.querySelectorAll('.mls tbody tr').length;
+        if(f && n > SIZES[0]) f.style.display = 'none';
+      }
+      apply();
+    }catch(e){}
+    return r;
+  };
+});
+console.log('[oc v11] pagination active (default ' + DEF + ' rows/page)');
 })();
 
 /* ---- boot ---- */

@@ -41,6 +41,19 @@ add from an enquiry/order form still works).
   Confirmed / In Production / Ready / Cancelled. Reports, exports, dashboards and incentives
   still count every order.
 
+* **Product Category** — every product row has a searchable category dropdown right after
+  Order Type (27 fixed categories; typing something new offers *Use "…" as a new category*).
+  It is required for new products, saved on the order (`items[].category`), shown in the order
+  detail table, and locked together with the rest of the product row on an existing order.
+
+## Pagination
+
+Every table shows **20 rows per page** by default with a footer bar: rows-per-page
+(20 / 50 / 100 / 200, remembered in `oc_rowsPerPage` and shared by all sections),
+`Showing a–b of n`, Previous / Next and `Page x of y`. Tables with 20 rows or fewer show no
+pager. Filters and search re-paginate from page 1; nothing about the underlying data,
+exports or totals changes.
+
 ## Navigation
 
 The app remembers the open section (`oc_lastView`) and returns to it after a refresh instead
@@ -89,11 +102,17 @@ button are gone. Each row in the Quotations list has **View · Edit · Delete**:
 | View | `#view=<QUOTE ID>` | read-only, and the quotation's current PDF is rendered on screen |
 
 The full builder state travels inside the record as `qb` (client, rep, items, terms,
-freight, GST, photos), so re-opening a quotation gives back exactly the same form.
-Photos also stay in `localStorage` (`oc_qb_<id>`) and are dropped from the synced record
-if it would grow past a Sheet cell's safe size. Quotations made before this change
-(and old CRM-form ones) still open — their product line, customer, rep and validity are
-mapped into the builder.
+freight, GST), so re-opening a quotation gives back exactly the same form. Quotations made
+before this change (and old CRM-form ones) still open — their product line, customer, rep
+and validity are mapped into the builder.
+
+**Item images.** An uploaded product photo is kept twice: the full picture goes into
+`items[].image` (the same field orders use, so the Apps Script backend stores it in Drive and
+returns a link — the record stays small), and a ~200 px inline JPEG goes into
+`qb.items[].thumb`. The invoice row always draws the inline thumb, so the item picture appears
+in the preview **and** in the generated PDF on every device — a Drive link cannot be drawn into
+a PDF (cross-origin), which is why the thumb exists. Thumbs are shrunk further if a quotation
+has many images, keeping the record far below the 50,000-character Sheet cell limit.
 
 ## Quotation PDF — page sequence
 

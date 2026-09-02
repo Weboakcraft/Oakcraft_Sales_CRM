@@ -695,7 +695,7 @@ function validUntil(){
 
 /* ================= ITEMS ================= */
 function addItem(){
-  S.items.push({photo:null, name:"", desc:"", hsn:"9403", qty:1, price:0, disc:0, del:"10–12 working days"});
+  S.items.push({photo:null, thumb:null, name:"", desc:"", hsn:"9403", qty:1, price:0, disc:0, del:"10–12 working days"});
   renderItemsEditor(); R();
 }
 function rmItem(i){ S.items.splice(i,1); renderItemsEditor(); R(); }
@@ -703,18 +703,37 @@ function updItem(i, k, v){
   S.items[i][k] = (k==='qty'||k==='price'||k==='disc') ? (parseFloat(v)||0) : v;
   R();
 }
+/* ek image ko chhota karke data URL banao */
+function shrinkImg(img, max, q){
+  const sc = Math.min(1, max / Math.max(img.width || 1, img.height || 1));
+  const cv = document.createElement('canvas');
+  cv.width  = Math.max(1, Math.round((img.width  || max) * sc));
+  cv.height = Math.max(1, Math.round((img.height || max) * sc));
+  const c = cv.getContext('2d');
+  c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, cv.width, cv.height);   /* PNG transparency -> safed */
+  c.drawImage(img, 0, 0, cv.width, cv.height);
+  return cv.toDataURL('image/jpeg', q);
+}
+/* data URL / <img> ko dobara chhota karo (save ke waqt kaam aata hai) */
+function reshrink(src, max, q){
+  return new Promise(function(res){
+    if(!src || src.indexOf('data:image') !== 0) return res(src || '');
+    const im = new Image();
+    im.onload  = function(){ try{ res(shrinkImg(im, max, q)); }catch(e){ res(src); } };
+    im.onerror = function(){ res(src); };
+    im.src = src;
+  });
+}
 function photoUpload(i, input){
   const file = input.files[0]; if(!file) return;
   const rd = new FileReader();
   rd.onload = e => {
     const img = new Image();
     img.onload = () => {
-      const MAX = 420;
-      const sc = Math.min(1, MAX/Math.max(img.width, img.height));
-      const cv = document.createElement('canvas');
-      cv.width = img.width*sc; cv.height = img.height*sc;
-      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
-      S.items[i].photo = cv.toDataURL('image/jpeg', .82);
+      /* photo = achhi quality (preview + Drive), thumb = chhoti inline copy jo
+         PDF me hamesha embed hoti hai (Drive link PDF me draw nahi ho sakta). */
+      S.items[i].photo = shrinkImg(img, 620, 0.78);
+      S.items[i].thumb = shrinkImg(img, 200, 0.62);
       renderItemsEditor(); R();
     };
     img.src = e.target.result;
@@ -738,7 +757,7 @@ function renderItemsEditor(){
       </div>
       <div class="f"><label>Delivery timeline</label><input value="${esc(it.del)}" oninput="updItem(${i},'del',this.value)"></div>
       <div class="photo-drop">
-        ${it.photo ? `<img src="${it.photo}" alt="">` : `<div class="ph-empty">＋</div>`}
+        ${(it.photo || it.thumb) ? `<img src="${it.photo || it.thumb}" alt="">` : `<div class="ph-empty">＋</div>`}
         <input type="file" accept="image/*" onchange="photoUpload(${i},this)">
       </div>
     </div>`).join('');
@@ -769,7 +788,7 @@ function calc(){
 function rowHTML(it, i){
   return `<tr>
     <td class="c" style="width:5mm; color:var(--muted)">${i+1}</td>
-    <td style="width:16mm">${it.photo?`<img class="ithumb" src="${it.photo}" alt="">`:''}</td>
+    <td style="width:16mm">${(it.thumb || it.photo)?`<img class="ithumb" src="${it.thumb || it.photo}" alt="">`:''}</td>
     <td><div class="iname">${esc(it.name)||'—'}</div>${it.desc?`<div class="idesc">${esc(it.desc)}</div>`:''}</td>
     <td class="c" style="width:11mm">${esc(it.hsn)}</td>
     <td class="c" style="width:9mm">${it.qty}</td>
@@ -1793,7 +1812,7 @@ window.addEventListener('focus', ()=>{
       cph: S.cph, state: S.state, shipTo: S.shipTo, freight: S.freight, freightMode: S.freightMode,
       warranty: S.warranty, payTerms: S.payTerms, terms: S.terms,
       items: (S.items || []).map(function(it){
-        return { photo: it.photo || '', name: it.name || '', desc: it.desc || '', hsn: it.hsn || '',
+        return { photo: it.photo || '', thumb: it.thumb || '', name: it.name || '', desc: it.desc || '', hsn: it.hsn || '',
                  qty: +it.qty || 0, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '' };
       })
     };
@@ -1809,7 +1828,7 @@ window.addEventListener('focus', ()=>{
     if(qb.freight !== undefined) S.freight = +qb.freight || 0;
     if(qb.items && qb.items.length){
       S.items = qb.items.map(function(it){
-        return { photo: it.photo || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
+        return { photo: it.photo || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
                  qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '' };
       });
     }
@@ -1833,7 +1852,7 @@ window.addEventListener('focus', ()=>{
     } else if(+vt > 0 && +vt < 400) S.valid = +vt;
     if(rec.items && rec.items.length){
       S.items = rec.items.map(function(it){
-        return { photo: it.photo || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
+        return { photo: it.photo || it.image || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
                  qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '10–12 working days' };
       });
     } else if(rec.product){
@@ -1855,7 +1874,10 @@ window.addEventListener('focus', ()=>{
     var C = calc();
     var items = C.rows.map(function(r, i){
       return { line: i + 1, name: r.name, desc: r.desc, hsn: r.hsn, qty: r.qty, price: r.price,
-               disc: r.disc || 0, net: Number((r.net || 0).toFixed(2)), amt: Number((r.amt || 0).toFixed(2)), del: r.del };
+               disc: r.disc || 0, net: Number((r.net || 0).toFixed(2)), amt: Number((r.amt || 0).toFixed(2)), del: r.del,
+               /* Orders ki tarah: poori image yahan jaati hai — backend ise Drive par
+                  daal kar link bana deta hai, isliye record chhota rehta hai. */
+               image: r.photo || '' };
     });
     var names = items.filter(function(it){ return it.name; });
     var first = names.length ? names[0].name : '';
@@ -1889,13 +1911,19 @@ window.addEventListener('focus', ()=>{
     if(!rec.createdAt) rec.createdAt = now;
     if(!rec.enqId && window.__ocPrefillEnq) rec.enqId = window.__ocPrefillEnq;
 
-    /* photos bahut badi hon to Sheet ki cell limit se bachne ke liye unhe
-       record se hata dete hain — poori copy is device par rehti hai. */
+    /* Sheet ki ek cell 50,000 character tak hi le sakti hai. Isliye record me
+       poori image kabhi nahi jaati — wo items[].image se Drive par chali jaati hai.
+       qb ke andar sirf chhota inline thumb rehta hai, taaki PDF har device par
+       image dikha sake (Drive link ko PDF me draw nahi kiya ja sakta). */
     try{
-      if(JSON.stringify(rec).length > MAX_REC){
-        rec.qb.items.forEach(function(it){ if(it.photo){ it.photo = ''; it.photoDropped = 1; } });
-        rec.qb.photosLocalOnly = 1;
-      }
+      rec.qb.items.forEach(function(it){ it.photo = ''; });
+      var budget = 30000;
+      rec.qb.items.forEach(function(it){
+        var t = it.thumb || '';
+        if(!t) return;
+        if(t.length <= budget){ budget -= t.length; return; }
+        it.thumb = ''; it.thumbDropped = 1;              /* itni saari images — baaki Drive par hain */
+      });
     }catch(e){}
     return rec;
   }
@@ -1907,9 +1935,24 @@ window.addEventListener('focus', ()=>{
     if(!done) a.unshift(rec);
     lsSet(COLL, a);
   }
+  /* saare thumbs milakar 30 KB se zyada hon to sabko aur chhota kar do —
+     tabhi ek bhi image PDF se bahar nahi hoti. */
+  function fitThumbs(){
+    var total = 0;
+    (S.items || []).forEach(function(it){ total += (it.thumb || '').length; });
+    if(total <= 30000) return Promise.resolve();
+    var max = total > 90000 ? 96 : 130, q = 0.5;
+    return Promise.all((S.items || []).map(function(it){
+      if(!it.thumb) return null;
+      return reshrink(it.thumb, max, q).then(function(v){ it.thumb = v; });
+    }));
+  }
   window.ocSaveQuotation = function(opts){
     opts = opts || {};
     if(typeof repMissing === 'function' && repMissing()) return Promise.resolve(false);
+    return Promise.resolve(fitThumbs()).then(function(){ return doSave(opts); });
+  };
+  function doSave(opts){
     var rec;
     try{ rec = buildRecord(); }
     catch(err){ hint('Quotation banane me dikkat: ' + err.message, false); return Promise.resolve(false); }
@@ -1933,7 +1976,7 @@ window.addEventListener('focus', ()=>{
       hint('Sheet save fail: ' + (err && err.message ? err.message : err) + ' — is device par save hai, dobara Save dabayein.', false);
       return false;
     });
-  };
+  }
   /* Enquiry se bani quotation: us enquiry ka stage 'Quoted' ho jaata hai —
      bilkul waise hi jaise pehle CRM ke quotation form se hota tha. */
   function linkEnquiry(rec){
@@ -1984,9 +2027,16 @@ window.addEventListener('focus', ()=>{
     if(document.getElementById('ocPdfView')) return;
     var w = document.createElement('div');
     w.id = 'ocPdfView';
-    w.style.cssText = 'position:fixed;left:0;right:0;top:58px;bottom:0;z-index:40;background:var(--cream)';
-    w.innerHTML = '<iframe src="' + url + '" style="width:100%;height:100%;border:0"></iframe>';
+    w.style.cssText = 'position:fixed;left:0;right:0;top:58px;bottom:0;z-index:40;background:var(--cream);display:flex;flex-direction:column';
+    w.innerHTML = '<div style="display:flex;align-items:center;gap:10px;padding:7px 14px;background:#FFF;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">'
+      +   '<span>PDF preview</span><span style="flex:1"></span>'
+      +   '<button class="btn" id="ocPdfClose" style="padding:6px 12px">Pages dekhein ✕</button>'
+      + '</div>'
+      + '<iframe id="ocPdfFrame" src="' + url + '" style="flex:1;width:100%;border:0"></iframe>';
     document.body.appendChild(w);
+    document.getElementById('ocPdfClose').onclick = function(){ w.remove(); };
+    /* PDF na khul paaye to bhi user "Pages dekhein" se wahi pages dekh sakta hai
+       jo PDF me jaate hain (Android app me overlay dikhaya hi nahi jaata). */
   }
   function openView(){
     lockUI();
@@ -2048,6 +2098,13 @@ window.addEventListener('focus', ()=>{
       }catch(e){}
     }
     if(!applyQb(qb)) applyLegacy(rec);
+    /* poori image record ke items[].image me hoti hai (Drive link ya data URL) —
+       use sidebar preview ke liye wapas laga do; PDF thumb se banta hai. */
+    try{
+      (rec.items || []).forEach(function(ri, i){
+        if(S.items[i] && !S.items[i].photo && (ri.image || ri.photo)) S.items[i].photo = ri.image || ri.photo;
+      });
+    }catch(e){}
     syncInputs(); renderItemsEditor(); R(); fitPreview();
     if(Q.mode === 'view') openView();
     else hint('Editing ' + rec.id + ' — badlav karke Save ya Download PDF dabayein, wahi quotation update hogi.', true);
