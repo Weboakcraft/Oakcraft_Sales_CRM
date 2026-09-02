@@ -7832,7 +7832,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.5';
+var OC_WEB_BUILD = '2026.09.02.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8898,6 +8898,254 @@ if(typeof _detailV13 === 'function'){
   };
 }
 console.log('[oc v13] quotation access for named users · cancel remarks required');
+})();
+
+
+/* ====================================================================== *
+ * 17. OAKCRAFT v14                                                        *
+ *   ORDER DETAIL -> "Status" button                                       *
+ *   Edit Order / Delete Order ke bilkul saath ek Status button. Click      *
+ *   karne par saare stages ka picker khulta hai aur koi bhi status seedha  *
+ *   set kiya ja sakta hai.                                                *
+ *     - sirf unhi ko dikhta hai jinke paas Orders ka edit access hai       *
+ *     - locked order (7/7 edits) par bhi chalta hai, kyunki status badalna *
+ *       edit quota me count nahi hota (jaise "Advance to ..." button)      *
+ *     - Cancelled chunne par Cancellation Remarks lazmi (v13 wala rule)    *
+ *     - Dispatched / Delivered par order apne aap Dispatch section me      *
+ *       (v10 wala auto-move), Delivered par dispatch row bhi Delivered     *
+ *     - wapas peeche laane par auto bani khaali dispatch row hat jaati hai *
+ *       taaki dono list aur dono badge sahi rahen                          *
+ * ====================================================================== */
+(function(){
+'use strict';
+
+function S(v){ return v == null ? '' : String(v); }
+function E(v){
+  try{ return esc(S(v)); }
+  catch(e){ return S(v).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+}
+function tell(t){ try{ say(t); }catch(e){ try{ toast(t); }catch(e2){} } }
+function meMail(){ try{ return S((AUTH.current() || {}).email); }catch(e){ return ''; } }
+
+var CANCEL   = (typeof CANCELLED === 'string') ? CANCELLED : 'Cancelled';
+var FLOW     = (typeof ORDER_FLOW !== 'undefined' && ORDER_FLOW.length)
+                 ? ORDER_FLOW.slice() : ['Confirmed','In Production','Ready','Dispatched','Delivered'];
+var ALL      = FLOW.concat([CANCEL]);
+var NOTE = {
+  'Confirmed'     : 'Order confirm hai, production abhi shuru nahi hui.',
+  'In Production' : 'Factory me banna shuru ho gaya hai.',
+  'Ready'         : 'Maal taiyaar hai, dispatch hona baaki hai.',
+  'Dispatched'    : 'Order Orders se hat kar Dispatch section me chala jayega.',
+  'Delivered'     : 'Customer tak pahunch gaya — Dispatch me bhi Delivered ho jayega.',
+  'Cancelled'     : 'Wajah (Cancellation Remarks) likhna zaroori hai.'
+};
+var PICK = null;   /* jis order ka picker khula hai */
+
+function ordersArr(){ try{ return DB.orders() || []; }catch(e){ return []; } }
+function findOrder(id){
+  var a = ordersArr(); for(var i = 0; i < a.length; i++){ if(a[i] && a[i].id === id) return a[i]; }
+  return null;
+}
+function isDisp(o){
+  try{ if(typeof inDispatch === 'function') return !!inDispatch(o); }catch(e){}
+  var s = S(o && o.status); return s === 'Dispatched' || s === 'Delivered';
+}
+/* status badalne ka haq: Orders ka edit permission + apna hi record */
+function mayChange(o){
+  if(!o) return false;
+  try{ if(typeof can === 'function' && !can('orders', 'edit')) return false; }catch(e){}
+  try{ if(typeof canTouch === 'function' && !canTouch(o, 'orders')) return false; }catch(e){}
+  return true;
+}
+window.ocMayChangeStatus = mayChange;
+
+/* ---------------- picker ---------------- */
+function rowHTML(s, cur){
+  var on = (s === cur);
+  var chip = '';
+  try{ chip = orderChip(s); }catch(e){ chip = '<span class="chip">' + E(s) + '</span>'; }
+  return '<label data-oc-strow="' + E(s) + '" style="display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1px solid ' + (on ? 'var(--brand)' : 'var(--border)') + ';border-radius:10px;background:' + (on ? 'var(--surface-2)' : 'transparent') + ';cursor:pointer">'
+    + '<input type="radio" name="oc-st" value="' + E(s) + '"' + (on ? ' checked' : '') + ' onchange="ocStatusPick(this.value)" style="margin-top:3px;flex-shrink:0">'
+    + '<span style="flex:1;min-width:0">'
+    +   '<span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' + chip
+    +     (on ? '<span style="font-size:11px;color:var(--muted)">— abhi yahi status hai</span>' : '') + '</span>'
+    +   '<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:3px">' + E(NOTE[s] || '') + '</span>'
+    + '</span></label>';
+}
+
+window.ocStatusPick = function(val){
+  try{
+    Array.prototype.slice.call(document.querySelectorAll('[data-oc-strow]')).forEach(function(l){
+      var on = l.getAttribute('data-oc-strow') === val;
+      l.style.borderColor = on ? 'var(--brand)' : 'var(--border)';
+      l.style.background  = on ? 'var(--surface-2)' : 'transparent';
+    });
+    var box = document.getElementById('oc-st-remark');
+    if(box){
+      box.style.display = (val === CANCEL) ? '' : 'none';
+      if(val === CANCEL){ var t = document.getElementById('oc-st-note'); if(t) t.focus(); }
+    }
+  }catch(e){}
+};
+
+window.ocStatusBack = function(){
+  var id = PICK; PICK = null;
+  try{ closeModal(); }catch(e){}
+  if(id) setTimeout(function(){ try{ openOrderDetail(id); }catch(e){} }, 50);
+};
+
+window.ocStatusPicker = function(id){
+  var o = findOrder(id);
+  if(!o){ tell('Order nahi mila'); return; }
+  if(!mayChange(o)){ tell('Order ka status badalne ki permission nahi hai'); return; }
+  PICK = id;
+  var cur  = S(o.status) || FLOW[0];
+  var rows = ALL.map(function(s){ return rowHTML(s, cur); }).join('');
+  var prevNote = S(o.cancelRemarks || o.cancelReason || '');
+  openModal(
+    '<div class="modal-head"><h3>Order Status — ' + E(o.id) + '</h3>'
+  +   '<button class="icon-btn" onclick="ocStatusBack()">✕</button></div>'
+  + '<div class="modal-body">'
+  +   '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:12px">'
+  +     E(o.customer || '—') + (o.product ? ' · ' + E(o.product) : '')
+  +     '<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:2px">Naya status chuniye. Status badalna order ke edit quota me count nahi hota.</span>'
+  +   '</div>'
+  +   '<div style="display:grid;gap:6px">' + rows + '</div>'
+  +   '<div id="oc-st-remark" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--crit);border-radius:9px;background:var(--surface-2)">'
+  +     '<label class="lbl" style="font-size:11.5px">Cancellation Remarks <span style="color:var(--crit)">*</span></label>'
+  +     '<textarea id="oc-st-note" rows="2" placeholder="Order cancel karne ki wajah likhiye (customer ne mana kiya, duplicate order, payment nahi aaya...)" style="width:100%">' + E(prevNote) + '</textarea>'
+  +     '<div class="sub" style="font-size:11px;color:var(--muted);margin-top:4px">Bina wajah likhe order cancel nahi hoga. Ye wajah order ke saath save hoti hai.</div>'
+  +   '</div>'
+  + '</div>'
+  + '<div class="modal-foot">'
+  +   '<button class="btn" onclick="ocStatusBack()">Back</button>'
+  +   '<button class="btn primary" onclick="ocStatusApply()">' + ((typeof I !== 'undefined' && I.check) ? I.check : '') + 'Update Status</button>'
+  + '</div>');
+  window.ocStatusPick(cur);
+};
+
+/* ---------------- apply ---------------- */
+window.ocStatusApply = function(){
+  var id = PICK, o = id ? findOrder(id) : null;
+  if(!o){ tell('Order nahi mila'); return; }
+  if(!mayChange(o)){ tell('Order ka status badalne ki permission nahi hai'); return; }
+
+  var sel  = document.querySelector('input[name="oc-st"]:checked');
+  var next = sel ? S(sel.value) : '';
+  if(!next) return;
+  var prev = S(o.status);
+  if(next === prev){ tell('Status pehle se hi ' + prev + ' hai'); window.ocStatusBack(); return; }
+
+  var note = '';
+  if(next === CANCEL){
+    var t = document.getElementById('oc-st-note');
+    note = S(t && t.value).trim();
+    if(note.length < 3){
+      tell('Order cancel karne ki wajah (Cancellation Remarks) likhna zaroori hai');
+      if(t){ t.focus(); try{ t.scrollIntoView({ block:'center' }); }catch(e){} }
+      return;
+    }
+  }
+
+  var wasDisp  = isDisp(o);
+  var willDisp = (next === 'Dispatched' || next === 'Delivered');
+
+  var arr = ordersArr(), rec = null;
+  for(var i = 0; i < arr.length; i++){ if(arr[i] && arr[i].id === id){ rec = arr[i]; break; } }
+  if(!rec){ tell('Order nahi mila'); return; }
+
+  rec.status = next;
+  rec.statusChangedAt = new Date().toISOString();
+  var who = meMail(); if(who) rec.statusChangedBy = who;
+  if(next === CANCEL){
+    rec.cancelRemarks = note;
+    rec.cancelledAt   = new Date().toISOString();
+    if(who) rec.cancelledBy = who;
+  }
+  DB.save('orders', arr);           /* v10 wrapper -> Dispatched/Delivered ki row bana deta hai */
+
+  /* Delivered -> dispatch row bhi Delivered */
+  if(next === 'Delivered'){
+    try{
+      var dis = DB.dispatch() || [], d = null;
+      for(var j = 0; j < dis.length; j++){ if(dis[j] && dis[j].orderId === id){ d = dis[j]; break; } }
+      if(d && S(d.status) !== 'Delivered'){ d.status = 'Delivered'; DB.save('dispatch', dis); }
+    }catch(e){}
+  }
+
+  /* Dispatch se wapas Orders me -> apne aap bani hui, abhi tak khaali row hata do */
+  var pulled = 0, kept = 0;
+  if(wasDisp && !willDisp){
+    try{
+      var dl = DB.dispatch() || [], keep = [], drop = [];
+      dl.forEach(function(d){
+        var mine = d && d.orderId === id;
+        var auto = mine && S(d.autoFrom) === 'order' && !S(d.courier).trim() && !S(d.tracking).trim() && S(d.status) !== 'Delivered';
+        if(auto) drop.push(d); else { keep.push(d); if(mine) kept++; }
+      });
+      if(drop.length){
+        DB.save('dispatch', keep); pulled = drop.length;
+        if(typeof CLOUD !== 'undefined' && typeof CLOUD.remove === 'function'){
+          drop.forEach(function(d){ try{ CLOUD.remove('dispatch', d.id); }catch(e){} });
+        }
+      }
+    }catch(e){}
+  }
+
+  try{ refreshBadges(); }catch(e){}
+  try{ if(typeof state !== 'undefined' && (state.view === 'orders' || state.view === 'dispatch')) setView(state.view); }catch(e){}
+
+  var msg = 'Status ' + prev + ' → ' + next;
+  if(next === 'Dispatched')      msg = 'Order dispatched — ab Dispatch section me hai (courier & tracking wahan bharein)';
+  else if(next === 'Delivered')  msg = 'Order delivered ✓';
+  else if(next === CANCEL)       msg = 'Order cancel ho gaya — wajah save kar di gayi';
+  else if(pulled)                msg = 'Status ' + next + ' — order wapas Orders section me aa gaya';
+  else if(kept)                  msg = 'Status ' + next + ' — dispatch entry (courier/tracking bhari hui) waise hi rahegi';
+  tell(msg);
+
+  PICK = null;
+  try{ closeModal(); }catch(e){}
+  setTimeout(function(){ try{ openOrderDetail(id); }catch(e){} }, 60);
+};
+
+/* ---------------- detail footer me button ---------------- */
+var BTN_STYLE = 'color:var(--brand);border-color:rgba(59,130,246,.45);background:rgba(59,130,246,.10)';
+
+function addStatusBtn(id){
+  var mb = document.getElementById('modalBg');
+  if(!mb || !mb.classList.contains('show')) return;
+  var foot = document.querySelector('#modal .modal-foot'); if(!foot) return;
+  if(foot.querySelector('[data-oc-statusbtn]')) return;
+  var o = findOrder(id); if(!o || !mayChange(o)) return;
+
+  var b = document.createElement('button');
+  b.className = 'btn';
+  b.setAttribute('data-oc-statusbtn', '1');
+  b.setAttribute('type', 'button');
+  b.style.cssText = BTN_STYLE;
+  b.title = 'Order ka status badlein (edit quota me count nahi hota)';
+  b.innerHTML = ((typeof I !== 'undefined' && I.flow) ? I.flow : '') + 'Status';
+  b.onclick = function(){ window.ocStatusPicker(id); };
+
+  /* Edit Order / Delete Order wale group me hi rakho */
+  var del  = foot.querySelector('button[onclick^="deleteOrderAdmin"]');
+  var edit = foot.querySelector('button[onclick^="openOrderModal"]');
+  var host = (del && del.parentNode) || (edit && edit.parentNode) || null;
+  if(host && del && del.parentNode === host) host.insertBefore(b, del);
+  else if(host) host.appendChild(b);
+  else foot.insertBefore(b, foot.firstChild);
+}
+window.ocAddStatusBtn = addStatusBtn;
+
+var _detailV14 = window.openOrderDetail;
+if(typeof _detailV14 === 'function'){
+  window.openOrderDetail = function(id){
+    var r = _detailV14.apply(this, arguments);
+    [0, 120, 340].forEach(function(t){ setTimeout(function(){ try{ addStatusBtn(id); }catch(e){} }, t); });
+    return r;
+  };
+}
+console.log('[oc v14] order detail: Status button + status picker');
 })();
 
 /* ---- boot ---- */

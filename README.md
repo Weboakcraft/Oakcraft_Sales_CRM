@@ -64,6 +64,25 @@ both must list the address or the data never reaches that user. Currently:
 `{ quotations: ['accounts@oakcraft.in'] }` — Arun Mourya sees every quotation. Other Sales
 Managers are unaffected.
 
+## Order status — the Status button
+
+The order detail view has **Status** next to *Edit Order* / *Delete Order*. It opens a picker
+with every stage (Confirmed, In Production, Ready, Dispatched, Delivered, Cancelled) and sets
+the chosen one directly — no need to click *Advance* through each stage. It follows the rules
+already in place:
+
+* visible only to users with **Orders → edit** permission, and only on their own records
+  (admins and Sales Managers see all orders as before);
+* works on a **locked** order (7/7 edits used) — a status change is not an edit and never
+  touches the form or product edit quotas;
+* choosing **Cancelled** requires the same remarks as the form (below);
+* **Dispatched / Delivered** create the dispatch record and move the order to Dispatch,
+  Delivered also marks the dispatch row delivered;
+* moving an order **back out of Dispatch** removes the dispatch row that was auto-created for
+  it while it was still empty; a row where courier or tracking was filled in is kept.
+
+Both lists and both sidebar badges refresh immediately after the change.
+
 ## Cancelling an order
 
 Choosing status **Cancelled** reveals a required *Cancellation Remarks* box right under the
