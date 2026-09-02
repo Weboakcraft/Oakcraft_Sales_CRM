@@ -4794,11 +4794,18 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
   var _pull = CLOUD.pull;
   CLOUD.pull = function(){
     var self = this;
+    var before = '';
+    try{ before = localStorage.getItem('orders') || ''; }catch(e){}
     var p = _pull.apply(self, arguments);
     return Promise.resolve(p).then(function(r){
       prune();
       try{ if(typeof window.ocMigrateOrderIds === 'function') window.ocMigrateOrderIds(); }catch(e){}
-      try{ if(state && state.view === 'orders' && typeof renderOrders === 'function') renderOrders(); }catch(e){}
+      /* v10: orders sach me badle hon tabhi dobara paint karo. Pehle har sync par
+         (har 25 sec) poori Orders table bina wajah dobara banti thi. */
+      try{
+        var now = ''; try{ now = localStorage.getItem('orders') || ''; }catch(e2){}
+        if(now !== before && state && state.view === 'orders' && typeof renderOrders === 'function') renderOrders();
+      }catch(e){}
       return r;
     });
   };
@@ -7825,7 +7832,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.1';
+var OC_WEB_BUILD = '2026.09.02.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -7866,6 +7873,426 @@ var OC_WEB_BUILD = '2026.09.02.1';
     var brand = document.querySelector('.brand span');
     if(brand && !/check update/.test(brand.innerHTML)){ brand.innerHTML += ' · <a href="#" onclick="event.preventDefault();ocCheckWebUpdate(true)" title="Build ' + esc(OC_WEB_BUILD) + '" style="color:#7b88a8;text-decoration:underline">check update</a>'; }
   }catch(e){}
+})();
+
+/* ====================================================================== *
+ * 12. OAKCRAFT v10  (02 Sep 2026)                                        *
+ *     a) Quotations ab sirf Quotation Builder se banti/edit hoti hain     *
+ *        (New / Edit / View — teenon ek hi builder me).                   *
+ *     b) Order ke Products 2 baar tak edit ho sakte hain (sirf image,     *
+ *        qty, rate) — uske baad phir se lock.                            *
+ *     c) Status "Dispatched" hote hi order apne aap Orders list se hat    *
+ *        kar Dispatch section me chala jaata hai.                        *
+ *     d) Refresh par user usi section par rehta hai (Dashboard par nahi   *
+ *        phenka jaata) + bekaar re-render band.                          *
+ *     Sab kuch additive hai — purana koi flow toda nahi gaya.            *
+ * ====================================================================== */
+(function(){
+'use strict';
+
+/* ---------------------------------------------------------------- *
+ * a) QUOTATIONS -> QUOTATION BUILDER                                 *
+ * ---------------------------------------------------------------- */
+var QB = 'quotation-builder.html';
+function qbOpen(hash){
+  try{ localStorage.setItem('oc_lastView', 'quotations'); }catch(e){}
+  location.href = QB + hash;
+}
+function quoById(id){ return (DB.quotations() || []).filter(function(x){ return x && x.id === id; })[0] || null; }
+
+/* New / Edit dono yahi se guzarte hain — isliye header ka "New Quotation",
+   list ka "Add Quotation", row ka Edit aur enquiry ka "→ Quote", sab builder
+   me khulte hain. Permissions pehle jaisi hi lagti hain. */
+window.openQuoModal = function(id, pre){
+  var action = id ? 'edit' : 'create';
+  if(!can('quotations', action)){ permToast(action); return; }
+  if(id){
+    var q = quoById(id);
+    if(!q){ say('Quotation not found'); return; }
+    if(typeof canTouch === 'function' && !canTouch(q, 'quotations')){ say('Ye quotation aapki nahi hai.'); return; }
+    qbOpen('#edit=' + encodeURIComponent(id));
+    return;
+  }
+  if(pre && typeof pre === 'object'){
+    try{ sessionStorage.setItem('oc_qb_prefill', JSON.stringify(pre)); }catch(e){}
+  }
+  qbOpen('#new');
+};
+window.ocQuoView = function(id, ev){
+  if(ev && ev.stopPropagation) ev.stopPropagation();
+  if(!quoById(id)){ say('Quotation not found'); return; }
+  qbOpen('#view=' + encodeURIComponent(id));
+};
+
+window.renderQuotations = function(){
+  var list = scope(DB.quotations()) || [];
+  var stat = {}; list.forEach(function(q){ if(q) stat[q.status] = (stat[q.status] || 0) + 1; });
+  content.innerHTML = table('Quotations', list.length,
+    '<th>Quote ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Discount</th><th>Valid Till</th><th>Owner</th><th>Status</th><th></th>',
+    'quo-body', 'No quotations yet.',
+    (stat.Accepted ? '<span class="chip c-won">' + stat.Accepted + ' accepted</span>' : '')
+    + (stat.Sent ? '<span class="chip c-new">' + stat.Sent + ' sent</span>' : '')
+    + dlBtn('quotations')
+    + '<button class="btn primary sm" onclick="openQuoModal()">' + I.plus + 'New Quotation</button>')
+    + '<div style="padding:0 20px 14px;font-size:12px;color:var(--muted);margin-top:-6px">Quotation Builder me hi quotation banti hai — <b>View</b> se uski PDF khulti hai, <b>Edit</b> se wahi quotation dobara khulti hai.</div>';
+  paintTable('quo-body');
+};
+
+var _paintV10 = window.paintTable;
+window.paintTable = function(bodyId){
+  if(bodyId !== 'quo-body') return _paintV10.apply(this, arguments);
+  var body = $(bodyId); if(!body) return;
+  var gs = $('globalSearch'); var q = LC(gs && gs.value);
+  var rows = scope(DB.quotations()).filter(function(x){
+    return x && (!q || [x.id, x.customer, x.product, x.salesperson].join(' ').toLowerCase().indexOf(q) >= 0);
+  }).sort(function(a, b){ return S(b.date).localeCompare(S(a.date)); });
+  body.innerHTML = rows.map(function(x){
+    var sp = S(x.salesperson);
+    var enq = x.enqId ? '<div class="sub">from ' + esc(x.enqId) + '</div>' : '';
+    var vt = S(x.validTill);
+    return '<tr><td class="strong tabular">' + esc(x.id) + enq + '</td>'
+      + '<td class="sub tabular">' + esc(x.date) + '</td>'
+      + '<td>' + userCell(x.customer || '—') + '</td>'
+      + '<td>' + esc(x.product) + ' <span class="sub">×' + esc(x.qty) + '</span></td>'
+      + '<td class="strong tabular">' + money(x.amount) + '</td>'
+      + '<td class="tabular">' + esc(x.discount == null ? 0 : x.discount) + '%</td>'
+      + '<td class="sub tabular">' + esc(vt || '—') + '</td>'
+      + '<td>' + esc(sp ? sp.split(' ')[0] : '—') + '</td>'
+      + '<td>' + quoChip(x.status) + '</td>'
+      + '<td><div class="row-actions" style="display:flex;gap:2px">'
+      +   '<button onclick="ocQuoView(\'' + attr(x.id) + '\', event)" title="View PDF">' + (I.doc || 'View') + '</button>'
+      +   '<button onclick="openQuoModal(\'' + attr(x.id) + '\')" title="Edit in Quotation Builder">' + I.edit + '</button>'
+      +   '<button onclick="delRow(\'quotations\',\'' + attr(x.id) + '\')" title="Delete">' + I.trash + '</button>'
+      + '</div></td></tr>';
+  }).join('') || emptyRow(10);
+};
+
+/* enquiry -> quotation: ab builder me prefill hokar khulta hai */
+window.ocQuoteFromEnq = function(id){
+  var e = (DB.enquiries() || []).filter(function(x){ return x.id === id; })[0];
+  if(!e){ say('Enquiry not found'); return; }
+  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('Ye enquiry aapki nahi hai.'); return; }
+  var exist = (DB.quotations() || []).filter(function(q){ return q && q.enqId === id; })[0];
+  if(exist){ openQuoModal(exist.id); return; }
+  var prod = (DB.products() || []).filter(function(p){ return p.id === e.prodId; })[0];
+  var cust = (DB.customers() || []).filter(function(c){ return c.id === e.custId; })[0] || {};
+  openQuoModal('', {
+    enqId: e.id, customer: e.customer, custId: e.custId, salesperson: e.salesperson,
+    product: e.product, qty: e.qty || 1,
+    rate: prod ? prod.price : (e.qty ? (+e.value || 0) / e.qty : 0),
+    amount: (+e.value || 0), note: e.note ? 'Enquiry note: ' + e.note : '',
+    attn: cust.contact || '', addr: cust.address || '', cph: cust.phone || '', cgstin: cust.gstin || ''
+  });
+};
+
+/* ---------------------------------------------------------------- *
+ * b) ORDER PRODUCTS — 2 limited edits (image / qty / rate)            *
+ * ---------------------------------------------------------------- */
+var PROD_MAX = 2;
+function prodUsed(o){ return Math.min(PROD_MAX, Math.max(0, +((o || {}).productEditCount) || 0)); }
+function prodLeft(o){ return PROD_MAX - prodUsed(o); }
+function itemsSig(items){
+  return (items || []).map(function(it){
+    return [S(it.product), +it.qty || 0, +it.rate || 0, S(it.image).slice(-40)].join('~');
+  }).join('|');
+}
+/* sirf image / qty / rate hi purane items par lagte hain — baaki sab waise ka waisa */
+function mergeAllowed(oldItems, formItems){
+  return (oldItems || []).map(function(it, i){
+    var f = (formItems || [])[i] || {};
+    var out = {}; for(var k in it) out[k] = it[k];
+    if(+f.qty > 0)   out.qty  = +f.qty;
+    if(+f.rate >= 0 && f.rate !== undefined && f.rate !== '') out.rate = +f.rate;
+    if(f.image){ out.image = f.image; if(f.imageName) out.imageName = f.imageName; }
+    return out;
+  });
+}
+/* v7 guard purane items wapas daal deta hai — isliye approve kiye hue items
+   ko pehle hi local copy me likh dete hain, tab guard ke paas wahi "purane"
+   items hote hain aur badlav bach jaata hai. */
+function preApprove(id, items){
+  try{
+    var raw = JSON.parse(localStorage.getItem('orders') || '[]');
+    if(!Array.isArray(raw)) return false;
+    for(var i = 0; i < raw.length; i++){
+      var o = raw[i];
+      if(!o || o.id !== id) continue;
+      /* save fail ho jaaye (validation) to sab wapas laut sake */
+      window.__ocProdRevert = { id: id, items: o.items, qty: o.qty, amount: o.amount, image: o.image };
+      o.items  = items;
+      o.qty    = items.reduce(function(s, it){ return s + (+it.qty || 0); }, 0);
+      o.amount = items.reduce(function(s, it){ return s + ((+it.rate || 0) * (+it.qty || 0)); }, 0);
+      o.image  = (items[0] && items[0].image) || o.image || '';
+      localStorage.setItem('orders', JSON.stringify(raw));
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
+function undoPreApprove(){
+  var b = window.__ocProdRevert; window.__ocProdRevert = null;
+  if(!b) return;
+  try{
+    var raw = JSON.parse(localStorage.getItem('orders') || '[]');
+    for(var i = 0; i < raw.length; i++){
+      var o = raw[i];
+      if(!o || o.id !== b.id) continue;
+      o.items = b.items; o.qty = b.qty; o.amount = b.amount; o.image = b.image;
+      localStorage.setItem('orders', JSON.stringify(raw));
+      return;
+    }
+  }catch(e){}
+}
+function applyProdEdit(){
+  var id = window.__ocOrderEditId; if(!id) return;
+  var wrap = $('o-items'); if(!wrap) return;
+  var o = (DB.orders() || []).filter(function(x){ return x && x.id === id; })[0]; if(!o) return;
+  var used = prodUsed(o), left = prodLeft(o);
+  var note = $('oc-plock');
+  if(left <= 0){
+    if(note) note.innerHTML = '<b>Products locked</b> — dono product edits (' + PROD_MAX + '/' + PROD_MAX + ') use ho chuke hain. Ab is order ke products nahi badle ja sakte.';
+    return;
+  }
+  /* v7 ne sab kuch disable kar diya hai; sirf teen cheezein wapas khol do */
+  wrap.querySelectorAll('.oi-qty, .oi-rate, .oi-img').forEach(function(el){
+    el.disabled = false; el.style.opacity = ''; el.style.cursor = '';
+  });
+  if(note){
+    note.style.borderLeftColor = 'var(--brand)';
+    note.innerHTML = 'Product edit <b>' + (used + 1) + ' of ' + PROD_MAX + '</b> — sirf <b>Item Image</b>, <b>Qty</b> aur <b>Rate</b> badal sakte hain. '
+      + 'Naya product add/remove ya naam, type, specification change nahi ho sakta. '
+      + (left === 1 ? 'Ye <b>aakhri</b> product edit hai — save karte hi products lock ho jaayenge.' : 'Save karne par 1 edit use hoga (' + left + ' bache hain).');
+  }
+}
+window.ocApplyProdEdit = applyProdEdit;
+
+var _renderItemsV10 = window.renderOrderItems;
+if(typeof _renderItemsV10 === 'function'){
+  window.renderOrderItems = function(){
+    var r = _renderItemsV10.apply(this, arguments);
+    try{ applyProdEdit(); }catch(e){}
+    return r;
+  };
+}
+var _openOrderV10 = window.openOrderModal;
+if(typeof _openOrderV10 === 'function'){
+  window.openOrderModal = function(id){
+    var r = _openOrderV10.apply(this, arguments);
+    [0, 60, 200, 500, 800].forEach(function(t){ setTimeout(function(){ try{ applyProdEdit(); }catch(e){} }, t); });
+    return r;
+  };
+}
+/* v7 baar-baar dobara lock karta hai — har lock ke baad apni chhoot dobara laga do */
+try{
+  var mo = new MutationObserver(function(){
+    if(!window.__ocOrderEditId) return;
+    clearTimeout(window.__ocProdT);
+    window.__ocProdT = setTimeout(function(){ try{ applyProdEdit(); }catch(e){} }, 40);
+  });
+  var mroot = $('modal') || document.body;
+  if(mroot) mo.observe(mroot, { childList: true, subtree: true });
+}catch(e){}
+
+function modalOpen(){
+  var mb = $('modalBg');
+  return !!(mb && mb.classList.contains('show'));
+}
+var _saveOrderV10 = window.saveOrder;
+window.saveOrder = function(id){
+  var o = id ? (DB.orders() || []).filter(function(x){ return x && x.id === id; })[0] : null;
+  var changed = false, merged = null;
+  if(o && o.items && o.items.length && $('o-items') && modalOpen() && prodLeft(o) > 0){
+    try{
+      if(typeof readOrderItems === 'function') readOrderItems();
+      merged = mergeAllowed(o.items, window.__orderItems || []);
+      changed = itemsSig(merged) !== itemsSig(o.items);
+      if(changed) preApprove(id, merged);
+    }catch(e){ changed = false; }
+  }
+  var r = _saveOrderV10.apply(this, arguments);
+  /* modal abhi bhi khula = validation ruk gayi, kuch save nahi hua */
+  if(id && changed && modalOpen()){ undoPreApprove(); return r; }
+  window.__ocProdRevert = null;
+  /* modal band ho gaya = record sach me save hua */
+  if(id && changed){
+    try{
+      var list = DB.orders(), rec = list.filter(function(x){ return x && x.id === id; })[0];
+      if(rec){
+        rec.productEditCount = prodUsed(rec) + 1;
+        rec.productsLockedAt = rec.productEditCount >= PROD_MAX ? new Date().toISOString() : rec.productsLockedAt;
+        DB.save('orders', list);
+        say(rec.productEditCount >= PROD_MAX
+          ? 'Product details update ho gaye — ab products lock hain (' + PROD_MAX + '/' + PROD_MAX + ' edits used)'
+          : 'Product details update ho gaye — ' + (PROD_MAX - rec.productEditCount) + ' product edit baaki hai');
+      }
+    }catch(e){}
+  }
+  return r;
+};
+
+/* ---------------------------------------------------------------- *
+ * c) DISPATCHED ORDER -> apne aap Dispatch section me                *
+ * ---------------------------------------------------------------- */
+function inDispatch(o){
+  var s = S(o && o.status);
+  return s === 'Dispatched' || s === 'Delivered';
+}
+window.ocInDispatch = inDispatch;
+
+function ensureDispatchRows(orders){
+  if(window.__ocDispBusy) return 0;
+  var dis = DB.dispatch() || [], have = {}, add = 0;
+  dis.forEach(function(d){ if(d && d.orderId) have[S(d.orderId)] = 1; });
+  (orders || []).forEach(function(o){
+    if(!o || !o.id || !inDispatch(o) || have[S(o.id)]) return;
+    dis.unshift({
+      id: uid('DSP-'), orderId: o.id, customer: o.customer || '', custId: o.custId || '',
+      product: o.product || '', qty: o.qty || 1, courier: '', tracking: '',
+      status: S(o.status) === 'Delivered' ? 'Delivered' : 'Shipped',
+      dispatchedOn: localToday(), eta: plusDays(localToday(), 5),
+      salesperson: o.salesperson || '', owner: LC(o.owner || o.ownerEmail || ''),
+      createdAt: new Date().toISOString(), autoFrom: 'order'
+    });
+    have[S(o.id)] = 1; add++;
+  });
+  if(add){
+    window.__ocDispBusy = 1;
+    try{ DB.save('dispatch', dis); }finally{ window.__ocDispBusy = 0; }
+    try{ refreshBadges(); }catch(e){}
+  }
+  return add;
+}
+window.ocEnsureDispatchRows = ensureDispatchRows;
+
+var _dbSaveV10 = DB.save;
+DB.save = function(k, v){
+  var r = _dbSaveV10.apply(this, arguments);
+  if(k === 'orders' && Array.isArray(v)){
+    try{ ensureDispatchRows(v); }catch(e){}
+  }
+  return r;
+};
+
+/* Orders list: dispatch ho chuke orders yahan se hat jaate hain */
+var _renderOrdersV10 = window.renderOrders;
+window.renderOrders = function(){
+  var r = _renderOrdersV10.apply(this, arguments);
+  try{
+    var all = scope(DB.orders(), 'orders') || [];
+    var moved = all.filter(inDispatch).length;
+    var live  = all.length - moved;
+    var chip = content.querySelector('.card-head h3 .chip');
+    if(chip) chip.textContent = live;
+    var sel = $('f-ostat');
+    if(sel){
+      /* Dispatched / Delivered ab Dispatch section me dikhte hain */
+      Array.prototype.slice.call(sel.options).forEach(function(op){
+        if(op.value === 'Dispatched' || op.value === 'Delivered') op.remove();
+      });
+    }
+    var tip = content.querySelector('div[style*="Tip: click any order row"]');
+    if(tip && moved){
+      tip.innerHTML = tip.innerHTML
+        + ' &nbsp;·&nbsp; <b>' + moved + '</b> dispatch ho chuke order ' + (moved === 1 ? 'is' : 'are') + ' ab '
+        + '<a href="#" onclick="event.preventDefault();setView(\'dispatch\')" style="color:var(--brand);text-decoration:underline">Dispatch section</a> me.';
+    }
+  }catch(e){}
+  return r;
+};
+var _paintOrdV10 = window.paintTable;
+window.paintTable = function(bodyId){
+  var r = _paintOrdV10.apply(this, arguments);
+  if(bodyId !== 'ord-body') return r;
+  try{
+    var body = $('ord-body'); if(!body) return r;
+    var ids = {};
+    (DB.orders() || []).forEach(function(o){ if(o && inDispatch(o)) ids[S(o.id)] = 1; });
+    var gone = 0;
+    Array.prototype.slice.call(body.querySelectorAll('tr')).forEach(function(tr){
+      var cell = tr.querySelector('td.strong.tabular');
+      var id = cell ? S(cell.textContent).trim() : '';
+      if(id && ids[id]){ tr.remove(); gone++; }
+    });
+    if(gone && !body.querySelector('tr')){
+      body.innerHTML = '<tr><td colspan="12" class="empty">Is filter ke saare orders dispatch ho chuke hain — wo Dispatch section me hain.</td></tr>';
+    }
+  }catch(e){}
+  return r;
+};
+
+/* ---------------------------------------------------------------- *
+ * d) REFRESH: wahi section khula rahe + bekaar re-render band         *
+ * ---------------------------------------------------------------- */
+var VIEW_KEY = 'oc_lastView';
+var _setViewV10 = window.setView;
+window.setView = function(v){
+  var r = _setViewV10.apply(this, arguments);
+  try{
+    var cur = (typeof state !== 'undefined' && state.view) || v;
+    if(cur) localStorage.setItem(VIEW_KEY, cur);
+  }catch(e){}
+  return r;
+};
+/* bootApp hamesha dashboard kholta tha — pehli baar wahi view kholo jahan
+   user tha (permission na ho to purana fallback khud dashboard kar dega). */
+var _bootAppV10 = window.bootApp;
+if(typeof _bootAppV10 === 'function'){
+  window.bootApp = function(){
+    var target = null;
+    try{
+      var v = localStorage.getItem(VIEW_KEY);
+      if(v && typeof PAGE_META !== 'undefined' && PAGE_META[v]) target = v;
+    }catch(e){}
+    if(!target || target === 'dashboard') return _bootAppV10.apply(this, arguments);
+    var real = window.setView, used = false;
+    window.setView = function(v){
+      if(!used && v === 'dashboard'){ used = true; return real.call(this, target); }
+      return real.apply(this, arguments);
+    };
+    try{ return _bootAppV10.apply(this, arguments); }
+    finally{ window.setView = real; }
+  };
+}
+/* pull ke baad pata karo ki data sach me badla bhi hai ya nahi */
+var SYNC_KEYS = ['orders','enquiries','quotations','dispatch','customers','products','users','metaLeads'];
+var _pullV10 = CLOUD.pull;
+CLOUD.pull = function(){
+  var before = {};
+  try{ SYNC_KEYS.forEach(function(k){ before[k] = localStorage.getItem(k) || ''; }); }catch(e){}
+  return Promise.resolve(_pullV10.apply(this, arguments)).then(function(res){
+    var changed = false;
+    try{
+      for(var i = 0; i < SYNC_KEYS.length; i++){
+        var k = SYNC_KEYS[i];
+        if((localStorage.getItem(k) || '') !== before[k]){ changed = true; break; }
+      }
+    }catch(e){ changed = true; }
+    window.__ocDataChanged = changed;
+    return res;
+  });
+};
+/* 25 second wale auto-sync par poora section dobara paint hota tha, chahe
+   kuch bhi na badla ho (charts destroy + rebuild, scroll reset). Ab sirf
+   tab paint hota hai jab data waqai badla ho. */
+var _refreshV10 = window.refreshFromCloud;
+if(typeof _refreshV10 === 'function'){
+  window.refreshFromCloud = function(rerender){
+    window.__ocDataChanged = false;
+    return Promise.resolve(_refreshV10.call(this, false)).then(function(ok){
+      if(!rerender || ok !== true || !AUTH.session()) return ok;
+      if(!window.__ocDataChanged) return ok;
+      try{ applyUserToSidebar(); }catch(e){}
+      try{ refreshBadges(); }catch(e){}
+      try{ ensureDispatchRows(DB.orders()); }catch(e){}
+      var mb = $('modalBg');
+      if(mb && mb.classList.contains('show')) return ok;      /* khula modal mat todo */
+      try{ setView((typeof state !== 'undefined' && state.view) || 'dashboard'); }catch(e){}
+      return ok;
+    });
+  };
+}
+
+console.log('[oc v10] quotation builder flow · product edit quota · auto dispatch · sticky view');
 })();
 
 /* ---- boot ---- */

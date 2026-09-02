@@ -29,6 +29,38 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Orders
+
+* **Products are limited to 2 edits.** Re-opening a submitted order lets a user change only
+  **item image, quantity and rate** (`productEditCount` on the order); adding/removing a product
+  or changing name, type or specification stays blocked, and after the second saved change the
+  Products section locks permanently. The separate 7-edit whole-form quota is unchanged.
+* **Dispatched orders leave the Orders list.** As soon as an order's status becomes
+  `Dispatched` (via the stage button or the order form) a dispatch record is created
+  automatically and the order shows only in **Dispatch** — the Orders list keeps
+  Confirmed / In Production / Ready / Cancelled. Reports, exports, dashboards and incentives
+  still count every order.
+
+## Navigation
+
+The app remembers the open section (`oc_lastView`) and returns to it after a refresh instead
+of jumping to the Dashboard; a section the user may not see falls back to the Dashboard as
+before. Background sync (every 25 s) now repaints only when the Sheet data really changed.
+
+## Meta Leads — "New Meta Leads Assigned" email
+
+`apps-script/LeadNotify.gs` mails each user one bulk summary of the leads newly assigned to
+them whose `lead_status` is `CREATED`, at their registered address, subject
+**"New Meta Leads Assigned"**. Setup is one-time, in the Apps Script editor:
+
+1. paste the file next to `Code.gs`,
+2. run **`installMetaNotifyTrigger`** once — it marks today's existing leads as already
+   notified (so nobody gets a backlog) and installs a 15-minute trigger.
+
+`previewMetaNotify` shows what would go out without sending; `runMetaNotifyNow` sends
+immediately; `removeMetaNotifyTrigger` switches it off. Sent leads are logged in the hidden
+`Meta_Notify_Log` tab, so nobody is mailed twice — a re-assignment notifies the new owner.
+
 ## Build / test notes
 
 * `android/build.sh` — no Gradle needed (aapt + javac + d8/dx + apksigner).
@@ -43,6 +75,25 @@ add from an enquiry/order form still works).
   same commit. Open browser tabs re-read the hosted `index.html` (cache bypassed) every 4 h, on
   tab focus and via the sidebar "check update" link, and show a "Reload & Update" banner when
   the stamp differs.
+
+## Quotations — one builder for everything
+
+`New Quotation` (header button, list button, and the enquiry's "→ Quote") opens
+`quotation-builder.html`; the old in-CRM quotation form and the separate "PDF Builder"
+button are gone. Each row in the Quotations list has **View · Edit · Delete**:
+
+| Action | Opens | What happens |
+|--------|-------|--------------|
+| New Quotation | `#new` | fresh quotation, next shared number is reserved on save/download |
+| Edit | `#edit=<QUOTE ID>` | the same quotation with all its data; saving updates that record (number never changes, counter never advances) |
+| View | `#view=<QUOTE ID>` | read-only, and the quotation's current PDF is rendered on screen |
+
+The full builder state travels inside the record as `qb` (client, rep, items, terms,
+freight, GST, photos), so re-opening a quotation gives back exactly the same form.
+Photos also stay in `localStorage` (`oc_qb_<id>`) and are dropped from the synced record
+if it would grow past a Sheet cell's safe size. Quotations made before this change
+(and old CRM-form ones) still open — their product line, customer, rep and validity are
+mapped into the builder.
 
 ## Quotation PDF — page sequence
 

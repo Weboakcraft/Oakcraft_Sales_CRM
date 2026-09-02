@@ -448,7 +448,9 @@ body.exporting .page{transform:none !important}
   <div class="brand"><b>Oak</b>Craft <span style="opacity:.55">· Quotation Builder</span></div>
   <div class="qbadge" id="tbQno">—</div>
   <div class="spacer"></div>
-  <button class="btn" onclick="newQuotation()">＋ New Quotation</button>
+  <span class="qbadge" id="tbMode" style="display:none"></span>
+  <button class="btn" id="newBtn" onclick="newQuotation()">＋ New Quotation</button>
+  <button class="btn" id="saveBtn" onclick="ocSaveQuotation()" style="display:none" title="Save changes to this quotation">💾 Save</button>
   <button class="btn" onclick="window.print()" title="Browser print fallback">Print</button>
   <button class="btn primary" id="dlBtn" onclick="downloadPDF()">⤓ Download PDF</button>
 </div>
@@ -536,6 +538,15 @@ body.exporting .page{transform:none !important}
 </main>
 </div>
 
+<script>
+/* CRM se aane wala mode: #new | #edit=<QUOTE ID> | #view=<QUOTE ID> */
+window.__ocQ = (function(){
+  try{
+    var m = /^#(new|edit|view)(?:=([\s\S]+))?$/.exec(location.hash || '');
+    return m ? { mode: m[1], id: m[2] ? decodeURIComponent(m[2]) : '' } : { mode: '', id: '' };
+  }catch(e){ return { mode: '', id: '' }; }
+})();
+</script>
 <!-- hidden measuring page (identical styles, never printed) -->
 <div class="page" id="measurePage" aria-hidden="true"></div>
 
@@ -588,6 +599,10 @@ function fyPrefix(d){
 }
 const today = new Date();
 const FY = fyPrefix(today);
+/* FY_ACTIVE = jis quotation par kaam ho raha hai uska FY (purani quotation edit karte waqt
+   uska apna FY chahiye, aaj ka nahi). Naye quotation me ye FY ke barabar hi rehta hai. */
+let FY_ACTIVE = FY;
+window.__ocFY = function(v){ if(v) FY_ACTIVE = v; return FY_ACTIVE; };
 const STORE_KEY = 'oakcraft-qno-' + FY;
 
 let S = {
@@ -613,6 +628,7 @@ let lastPdfUrl = null;
 
 /* ================= SHARED AUTO-NUMBERING ================= */
 async function initNumber(){
+  if(window.__ocQ && window.__ocQ.id) return;   /* existing quotation: uska apna number rehta hai */
   const el = document.getElementById('storeStatus');
   try{
     let last = 1000;
@@ -629,6 +645,7 @@ async function initNumber(){
   syncInputs(); R();
 }
 async function reserveNumber(){
+  if(window.__ocQ && window.__ocQ.id) return;   /* edit: counter aage nahi badhta */
   if(numberReserved) return;
   try{
     let last = 1000;
@@ -644,7 +661,7 @@ async function reserveNumber(){
 }
 
 /* ================= HELPERS ================= */
-const fmtQno = () => `OAK/${FY}/${S.qno}`;
+const fmtQno = () => `OAK/${FY_ACTIVE}/${S.qno}`;
 const inr = n => '₹ ' + n.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
 const inr0 = n => '₹ ' + Math.round(n).toLocaleString('en-IN');
 
@@ -1353,6 +1370,10 @@ window.addEventListener('focus', ()=>{
     return data;
   }
 
+  window.__ocGasSave   = function(rec){ return gas('save', { collection: 'quotations', record: { id: rec.id, data: rec } }); };
+  window.__ocGasSaveIn = function(coll, rec){ return gas('save', { collection: coll, record: { id: rec.id, data: rec } }); };
+  window.__ocGasReady = function(){ return configured; };
+
   window.storage = {
     async get(key, shared){
       // translate to CRM backend: peekQuoteNo returns next-available number
@@ -1720,7 +1741,7 @@ window.addEventListener('focus', ()=>{
       try{ doc = await PDFV.build(pageEls); }
       finally{ document.body.classList.remove('exporting'); }
       var qn = (typeof S !== 'undefined' && S && S.qno) ? S.qno : '';
-      var fy = (typeof FY !== 'undefined') ? FY : '';
+      var fy = (window.__ocFY ? window.__ocFY() : (typeof FY !== 'undefined' ? FY : ''));
       doc.save('OakCraft-ProForma-OAK-' + fy + '-' + qn + '.pdf');
       if(typeof window.__saveQuoteToCRM === 'function'){ await window.__saveQuoteToCRM(); }
     }catch(e){
@@ -1732,6 +1753,308 @@ window.addEventListener('focus', ()=>{
   };
 
   window.PDFV = PDFV;   // debugging ke liye
+})();
+</script>
+
+<!-- ================================================================
+     CRM LINK — new / edit / view ek hi builder me
+     ----------------------------------------------------------------
+     index.html se aane wale hash ke hisaab se:
+       #new         -> khali quotation (pehle jaisa)
+       #edit=<ID>   -> wahi quotation, uske poore data ke saath; save
+                       karne par usi record ko update karta hai
+       #view=<ID>   -> read-only + uski latest PDF screen par
+     Puri quotation ka state record ke andar `qb` me jaata hai, isliye
+     dobara kholne par bilkul wahi form wapas milta hai.
+     ================================================================ -->
+<script>
+(function(){
+  var Q = window.__ocQ || { mode: '', id: '' };
+  var COLL = 'quotations', LOCAL_QB = 'oc_qb_';
+  var MAX_REC = 42000;                     /* ek Sheet cell ki safe limit */
+  var current = null;                      /* jo record edit ho raha hai */
+
+  function lsGet(k, d){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } }
+  function allQuo(){ var a = lsGet(COLL, []); return Array.isArray(a) ? a : []; }
+  function findQuo(id){
+    var a = allQuo(), i, s = String(id);
+    for(i = 0; i < a.length; i++){ var r = a[i]; if(r && String(r.id) === s) return r; }
+    return null;
+  }
+  function statusEl(){ return document.getElementById('storeStatus'); }
+  function hint(msg, ok){ var el = statusEl(); if(el){ el.textContent = msg; el.className = 'hint'; el.style.color = ok === false ? 'var(--err)' : (ok ? 'var(--ok)' : 'var(--muted)'); } }
+
+  /* ---------- poora builder state (record ke andar jaata hai) ---------- */
+  function qbState(){
+    return {
+      v: 1, qno: S.qno, fy: window.__ocFY(), date: S.date, valid: S.valid, gst: S.gst,
+      rep: S.rep, repPh: S.repPh, co: S.co, attn: S.attn, addr: S.addr, cgstin: S.cgstin,
+      cph: S.cph, state: S.state, shipTo: S.shipTo, freight: S.freight, freightMode: S.freightMode,
+      warranty: S.warranty, payTerms: S.payTerms, terms: S.terms,
+      items: (S.items || []).map(function(it){
+        return { photo: it.photo || '', name: it.name || '', desc: it.desc || '', hsn: it.hsn || '',
+                 qty: +it.qty || 0, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '' };
+      })
+    };
+  }
+  function applyQb(qb){
+    if(!qb) return false;
+    if(qb.fy) window.__ocFY(qb.fy);
+    if(qb.qno) S.qno = +qb.qno || S.qno;
+    ['date','rep','repPh','co','attn','addr','cgstin','cph','state','shipTo','warranty','payTerms','terms','freightMode']
+      .forEach(function(k){ if(qb[k] !== undefined && qb[k] !== null) S[k] = qb[k]; });
+    if(qb.valid   !== undefined) S.valid   = +qb.valid   || 15;
+    if(qb.gst     !== undefined) S.gst     = +qb.gst;
+    if(qb.freight !== undefined) S.freight = +qb.freight || 0;
+    if(qb.items && qb.items.length){
+      S.items = qb.items.map(function(it){
+        return { photo: it.photo || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
+                 qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '' };
+      });
+    }
+    return true;
+  }
+  /* purani quotations (CRM form se bani, ya bina qb wali) bhi khul jaayein */
+  function applyLegacy(rec){
+    S.co = rec.customer && rec.customer !== '—' ? rec.customer : '';
+    ['attn','addr','cph','cgstin','shipTo'].forEach(function(k){ if(rec[k]) S[k] = rec[k]; });
+    if(rec.date) S.date = String(rec.date).slice(0, 10);
+    if(rec.salesperson){
+      S.rep = rec.salesperson;
+      var emp = EMP.filter(function(e){ return e[0] === rec.salesperson; })[0];
+      if(emp) S.repPh = emp[1];
+    }
+    if(rec.note) S.terms = String(rec.note) + '\n' + S.terms;
+    var vt = rec.validTill;
+    if(vt && /^\d{4}-\d{2}-\d{2}/.test(String(vt))){
+      var a = new Date(String(vt).slice(0,10) + 'T00:00:00'), b = new Date(S.date + 'T00:00:00');
+      var d = Math.round((a - b) / 86400000); if(d > 0 && d < 400) S.valid = d;
+    } else if(+vt > 0 && +vt < 400) S.valid = +vt;
+    if(rec.items && rec.items.length){
+      S.items = rec.items.map(function(it){
+        return { photo: it.photo || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
+                 qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '10–12 working days' };
+      });
+    } else if(rec.product){
+      S.items = [{ photo: null, name: String(rec.product).replace(/\s*\+\d+\s*more$/i, ''), desc: '', hsn: '9403',
+                   qty: +rec.qty || 1, price: +rec.rate || (+rec.qty ? (+rec.amount || 0) / (+rec.qty) : (+rec.amount || 0)),
+                   disc: +rec.discount || 0, del: '10–12 working days' }];
+    }
+    /* id se number + FY wapas nikaalo: OAK/26-27/1037 */
+    var m = /^OAK\/([0-9]{2}-[0-9]{2})\/(\d+)$/.exec(String(rec.id || ''));
+    if(m){ window.__ocFY(m[1]); S.qno = +m[2]; }
+  }
+
+  /* ---------- CRM record banao ---------- */
+  function validUntilISO(){
+    var d = new Date(S.date + 'T00:00:00'); d.setDate(d.getDate() + (+S.valid || 0));
+    return d.toISOString().slice(0, 10);
+  }
+  function buildRecord(){
+    var C = calc();
+    var items = C.rows.map(function(r, i){
+      return { line: i + 1, name: r.name, desc: r.desc, hsn: r.hsn, qty: r.qty, price: r.price,
+               disc: r.disc || 0, net: Number((r.net || 0).toFixed(2)), amt: Number((r.amt || 0).toFixed(2)), del: r.del };
+    });
+    var names = items.filter(function(it){ return it.name; });
+    var first = names.length ? names[0].name : '';
+    var totalQty = items.reduce(function(a, it){ return a + (Number(it.qty) || 0); }, 0) || 1;
+    var avgDisc = items.length ? Math.round(items.reduce(function(a, it){ return a + (Number(it.disc) || 0); }, 0) / items.length) : 0;
+    var now = new Date().toISOString();
+    var rec = {
+      id: fmtQno(),
+      date: S.date,
+      customer: S.co || S.attn || '—',
+      product: first + (items.length > 1 ? (' +' + (items.length - 1) + ' more') : ''),
+      qty: totalQty,
+      amount: Number(C.grand) || 0,
+      discount: avgDisc,
+      validTill: validUntilISO(),
+      validDays: +S.valid || 0,
+      salesperson: S.rep || '',
+      status: (current && current.status) || 'Sent',
+      source: 'Quotation Builder',
+      items: items,
+      qb: qbState(),
+      updatedAt: now
+    };
+    /* edit: purane record ki wo cheezein jo builder me nahi hain, waise ki waisi rehti hain */
+    if(current){
+      ['createdAt','owner','ownerEmail','createdBy','enqId','custId','prodId','note','status','rate']
+        .forEach(function(k){ if(current[k] !== undefined && rec[k] === undefined) rec[k] = current[k]; });
+      if(current.createdAt) rec.createdAt = current.createdAt;
+      if(current.status)    rec.status    = current.status;
+    }
+    if(!rec.createdAt) rec.createdAt = now;
+    if(!rec.enqId && window.__ocPrefillEnq) rec.enqId = window.__ocPrefillEnq;
+
+    /* photos bahut badi hon to Sheet ki cell limit se bachne ke liye unhe
+       record se hata dete hain — poori copy is device par rehti hai. */
+    try{
+      if(JSON.stringify(rec).length > MAX_REC){
+        rec.qb.items.forEach(function(it){ if(it.photo){ it.photo = ''; it.photoDropped = 1; } });
+        rec.qb.photosLocalOnly = 1;
+      }
+    }catch(e){}
+    return rec;
+  }
+
+  /* ---------- save ---------- */
+  function upsertLocal(rec){
+    var a = allQuo(), i, done = false;
+    for(i = 0; i < a.length; i++){ if(a[i] && String(a[i].id) === String(rec.id)){ a[i] = rec; done = true; break; } }
+    if(!done) a.unshift(rec);
+    lsSet(COLL, a);
+  }
+  window.ocSaveQuotation = function(opts){
+    opts = opts || {};
+    if(typeof repMissing === 'function' && repMissing()) return Promise.resolve(false);
+    var rec;
+    try{ rec = buildRecord(); }
+    catch(err){ hint('Quotation banane me dikkat: ' + err.message, false); return Promise.resolve(false); }
+
+    var full = qbState();                                   /* photos ke saath poori copy */
+    try{ lsSet(LOCAL_QB + rec.id, full); }catch(e){}
+    upsertLocal(rec);                                       /* CRM list turant update */
+    current = rec;
+    if(Q.mode !== 'view'){ Q.mode = 'edit'; Q.id = rec.id; try{ history.replaceState(null, '', '#edit=' + encodeURIComponent(rec.id)); }catch(e){} paintMode(); }
+
+    hint('Saving ' + rec.id + ' to Google Sheets…', true);
+    if(!(window.__ocGasReady && window.__ocGasReady())){
+      hint('Google Sheets connected nahi hai — quotation is device par save ho gayi.', false);
+      return Promise.resolve(false);
+    }
+    return window.__ocGasSave(rec).then(function(){
+      linkEnquiry(rec);
+      hint('✓ ' + rec.id + ' saved — CRM ki Quotations list me update ho gayi.', true);
+      return true;
+    }).catch(function(err){
+      hint('Sheet save fail: ' + (err && err.message ? err.message : err) + ' — is device par save hai, dobara Save dabayein.', false);
+      return false;
+    });
+  };
+  /* Enquiry se bani quotation: us enquiry ka stage 'Quoted' ho jaata hai —
+     bilkul waise hi jaise pehle CRM ke quotation form se hota tha. */
+  function linkEnquiry(rec){
+    if(!rec.enqId || window.__ocEnqLinked === rec.enqId) return;
+    try{
+      var arr = lsGet('enquiries', []); if(!Array.isArray(arr)) return;
+      var e = arr.filter(function(x){ return x && x.id === rec.enqId; })[0];
+      if(!e || ['New','Contacted','Qualified'].indexOf(e.stage) < 0) return;
+      e.stage = 'Quoted'; e.updatedAt = new Date().toISOString();
+      lsSet('enquiries', arr);
+      window.__ocEnqLinked = rec.enqId;
+      if(window.__ocGasSaveIn) window.__ocGasSaveIn('enquiries', e);
+    }catch(err){}
+  }
+
+  /* PDF download ke baad wahi save chalta hai (pehle jaisa behaviour).
+     View mode me kuch save nahi hota — wahan sirf dekhna hai. */
+  window.__saveQuoteToCRM = function(){
+    if(Q.mode === 'view') return Promise.resolve(false);
+    return window.ocSaveQuotation();
+  };
+
+  /* ---------- toolbar / mode ---------- */
+  function paintMode(){
+    var badge = document.getElementById('tbMode'), save = document.getElementById('saveBtn');
+    if(Q.mode === 'view'){
+      if(badge){ badge.style.display = ''; badge.textContent = 'VIEW ONLY'; }
+      if(save) save.style.display = 'none';
+    } else if(Q.id){
+      if(badge){ badge.style.display = ''; badge.textContent = 'EDITING'; }
+      if(save) save.style.display = '';
+    } else {
+      if(badge) badge.style.display = 'none';
+      if(save) save.style.display = 'none';
+    }
+  }
+
+  /* ---------- view mode: read-only + PDF ---------- */
+  function lockUI(){
+    var ed = document.getElementById('editor'); if(ed) ed.style.display = 'none';
+    var lay = document.getElementById('layout'); if(lay) lay.style.display = 'block';
+    var prev = document.getElementById('preview'); if(prev) prev.style.height = 'auto';
+    ['newBtn','saveBtn'].forEach(function(id){ var b = document.getElementById(id); if(b) b.style.display = 'none'; });
+    var tabs = document.getElementById('mobileTabs'); if(tabs) tabs.style.display = 'none';
+    document.body.classList.add('mPreview');
+  }
+  function showPdfOverlay(url){
+    if(document.getElementById('ocPdfView')) return;
+    var w = document.createElement('div');
+    w.id = 'ocPdfView';
+    w.style.cssText = 'position:fixed;left:0;right:0;top:58px;bottom:0;z-index:40;background:var(--cream)';
+    w.innerHTML = '<iframe src="' + url + '" style="width:100%;height:100%;border:0"></iframe>';
+    document.body.appendChild(w);
+  }
+  function openView(){
+    lockUI();
+    var btn = document.getElementById('dlBtn');
+    if(btn) btn.textContent = 'Preparing PDF…';
+    /* Android WebView PDF ko iframe me render nahi karta — wahan preview hi dikhate hain */
+    if(window.OakAndroid){ if(btn) btn.textContent = '⤓ Download PDF'; return; }
+    setTimeout(function(){
+      (function(){
+        var imgs = [].slice.call(document.querySelectorAll('#printArea img'));
+        return Promise.all(imgs.map(function(i){ return i.complete ? null : new Promise(function(r){ i.onload = i.onerror = r; setTimeout(r, 4000); }); }));
+      })().then(function(){
+        return window.PDFV.build([].slice.call(document.querySelectorAll('#printArea .page')));
+      }).then(function(doc){
+        showPdfOverlay(doc.output('bloburl'));
+        if(btn) btn.textContent = '⤓ Download PDF';
+      }).catch(function(e){
+        console.warn('view pdf failed', e);
+        if(btn) btn.textContent = '⤓ Download PDF';
+      });
+    }, 60);
+  }
+
+  /* ---------- boot ---------- */
+  var _newQuotation = window.newQuotation;
+  window.newQuotation = function(){
+    if(Q.id){ location.href = location.pathname + '#new'; location.reload(); return; }
+    return _newQuotation.apply(this, arguments);
+  };
+
+  function boot(){
+    paintMode();
+    /* CRM ne enquiry se prefill bheja hai? */
+    if(!Q.id){
+      var pre = null;
+      try{ pre = JSON.parse(sessionStorage.getItem('oc_qb_prefill') || 'null'); sessionStorage.removeItem('oc_qb_prefill'); }catch(e){}
+      if(pre){
+        applyLegacy(Object.assign({ id: '' }, pre));
+        if(pre.enqId) window.__ocPrefillEnq = pre.enqId;
+        syncInputs(); renderItemsEditor(); R();
+      }
+      return;
+    }
+    var rec = findQuo(Q.id);
+    if(!rec){
+      hint('Quotation ' + Q.id + ' is device par nahi mili — CRM kholkar sync hone dein, phir dobara try karein.', false);
+      return;
+    }
+    current = rec;
+    var local = lsGet(LOCAL_QB + rec.id, null);           /* photos wali poori copy */
+    var qb = rec.qb;
+    if(local && (!qb || (qb.photosLocalOnly && local.items && local.items.length))) qb = local;
+    else if(local && qb){
+      /* record me photo nahi hai to local copy se photo wapas jodo */
+      try{
+        qb.items.forEach(function(it, i){
+          if(!it.photo && local.items && local.items[i] && local.items[i].photo) it.photo = local.items[i].photo;
+        });
+      }catch(e){}
+    }
+    if(!applyQb(qb)) applyLegacy(rec);
+    syncInputs(); renderItemsEditor(); R(); fitPreview();
+    if(Q.mode === 'view') openView();
+    else hint('Editing ' + rec.id + ' — badlav karke Save ya Download PDF dabayein, wahi quotation update hogi.', true);
+  }
+
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();
 </script>
 </body>
