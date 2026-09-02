@@ -84,6 +84,9 @@ immediately; `removeMetaNotifyTrigger` switches it off. Sent leads are logged in
 * **Android:** nothing manual — every push to `main` that touches the web files or `android/`
   builds a release-signed APK and publishes a GitHub Release; the app compares the release's
   `versionCode` with its own (every 4 h / on "check update") and shows the update banner.
+  `versionCode` is *minutes since the Unix epoch*, so it always increases — two builds in the
+  same hour no longer share a code (they did while it was `yyMMddHH`, which meant the second
+  build of an hour was never offered as an update).
 * **Web / PWA:** bump `OC_WEB_BUILD` (near the end of `index.html`, format `YYYY.MM.DD.n`) in the
   same commit. Open browser tabs re-read the hosted `index.html` (cache bypassed) every 4 h, on
   tab focus and via the sidebar "check update" link, and show a "Reload & Update" banner when
