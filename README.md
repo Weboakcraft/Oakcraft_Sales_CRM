@@ -54,6 +54,13 @@ Every table shows **20 rows per page** by default with a footer bar: rows-per-pa
 pager. Filters and search re-paginate from page 1; nothing about the underlying data,
 exports or totals changes.
 
+## Sidebar badges
+
+Each badge counts exactly what its section lists — same scope, same filters — and is
+recalculated from the live data on every save, status change, dispatch move, sync and view
+change. In particular the Orders badge excludes orders that have moved to Dispatch, and the
+Dispatch badge counts every dispatch row (Delivered included), matching the two lists.
+
 ## Navigation
 
 The app remembers the open section (`oc_lastView`) and returns to it after a refresh instead

@@ -7832,7 +7832,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.3';
+var OC_WEB_BUILD = '2026.09.02.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8626,6 +8626,76 @@ window.setView = function(){
   };
 });
 console.log('[oc v11] pagination active (default ' + DEF + ' rows/page)');
+})();
+
+/* ====================================================================== *
+ * 15. OAKCRAFT v12 — SIDEBAR BADGES = SECTION KA ASLI COUNT               *
+ *     Pehle badge alag hisaab se banta tha:                              *
+ *       Orders   -> DB.orders().length  (dispatch ho chuke orders bhi     *
+ *                   gine jaate the, jabki wo ab Dispatch me dikhte hain)  *
+ *       Dispatch -> Delivered ko chhod kar (jabki list me sab dikhte hain)*
+ *       aur koi bhi badge user ke scope (kaun kya dekh sakta hai) ko      *
+ *       nahi maanta tha.                                                  *
+ *     Ab har badge wahi ginta hai jo us section ki list me sach me dikhta  *
+ *     hai — wahi scope, wahi filter. Data badalte hi turant update hota   *
+ *     hai (add / edit / delete / status change / dispatch move / sync).   *
+ * ====================================================================== */
+(function(){
+'use strict';
+
+function isDis(o){
+  try{ if(typeof ocInDispatch === 'function') return ocInDispatch(o); }catch(e){}
+  var s = o && o.status;
+  return s === 'Dispatched' || s === 'Delivered';
+}
+function metaAll(){
+  try{ var a = JSON.parse(localStorage.getItem('metaLeads') || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+/* har count wahi expression use karta hai jo us section ka render karta hai */
+function liveCounts(){
+  var c = {};
+  try{ c.enq  = scope(DB.enquiries()).length; }catch(e){}
+  try{ c.quo  = scope(DB.quotations()).length; }catch(e){}
+  try{ c.ord  = scope(DB.orders(), 'orders').filter(function(o){ return o && !isDis(o); }).length; }catch(e){}
+  try{ c.dis  = scope(DB.dispatch(), 'dispatch').length; }catch(e){}
+  try{ c.meta = scope(metaAll()).length; }catch(e){}
+  return c;
+}
+window.ocLiveCounts = liveCounts;
+
+function put(id, val, title){
+  var el = document.getElementById(id);
+  if(!el || val == null) return;
+  var s = String(val);
+  if(el.textContent !== s) el.textContent = s;
+  if(title) el.title = title;
+}
+window.refreshBadges = function(){
+  var c = liveCounts();
+  put('nb-enq',  c.enq);
+  put('nb-quo',  c.quo);
+  put('nb-meta', c.meta);
+  put('nb-ord',  c.ord,  'Orders section me abhi itne orders hain (dispatch ho chuke orders Dispatch me ginte hain)');
+  put('nb-dis',  c.dis,  'Dispatch section me abhi itni entries hain');
+};
+
+/* har view change par bhi ek baar sync kar do — agar kisi rare raste se data
+   store.set ke bina badla ho to bhi number sahi rahe */
+var _setViewB = window.setView;
+window.setView = function(){
+  var r = _setViewB.apply(this, arguments);
+  try{ refreshBadges(); }catch(e){}
+  return r;
+};
+/* dispatch/order rows repaint hone par bhi (status change, auto-move waghera) */
+var _paintB = window.paintTable;
+window.paintTable = function(bodyId){
+  var r = _paintB.apply(this, arguments);
+  if(bodyId === 'ord-body' || bodyId === 'dis-body'){ try{ refreshBadges(); }catch(e){} }
+  return r;
+};
+try{ refreshBadges(); }catch(e){}
+console.log('[oc v12] sidebar badges now count exactly what each section lists');
 })();
 
 /* ---- boot ---- */
