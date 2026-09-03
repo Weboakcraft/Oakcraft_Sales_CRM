@@ -5968,7 +5968,13 @@ console.log('[oc v7] row-safe save active');
           var seen = seenGet();
           if(k === "orders" && window.__ocInPull){
             var addSeen = false;
-            Object.keys(incIds).forEach(function(id){ if(!seen[id]){ seen[id] = 1; addSeen = true; } });
+            Object.keys(incIds).forEach(function(id){
+              /* jo record abhi tak sheet par nahi gaya use kabhi "seen" mat
+                 likho -- warna wo dobara push hona hi band ho jayega, aur
+                 wahi bug wapas aa jayega jiske liye ye sab kiya gaya hai */
+              if(reg[id]) return;
+              if(!seen[id]){ seen[id] = 1; addSeen = true; }
+            });
             if(addSeen){ jset(SEEN_KEY, seen); }
           }
           Object.keys(before).forEach(function(id){
@@ -7913,7 +7919,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.03.3';
+var OC_WEB_BUILD = '2026.09.03.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
