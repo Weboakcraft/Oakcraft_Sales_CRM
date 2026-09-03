@@ -7913,7 +7913,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.03.2';
+var OC_WEB_BUILD = '2026.09.03.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9696,8 +9696,32 @@ function P(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 
 /* pending record ka 24-ghante wala timer aage badha do -- jab tak sheet ne
    use accept nahi kiya, use local se delete karna hi data loss hai. */
+/* Queue me sirf asli order id reh sakti hai. Har order ka id ^ORD<digits>$
+   hota hai (v7 save par yahi lagata hai). Agar queue me kisi aur shakal ka
+   id bach gaya (purane test / import ka record), to har save par renumber
+   use naya id de deta hai aur sheet par ek nayi row ban jaati hai -- ek hi
+   record baar-baar duplicate hota rehta hai. Aisi entry hata dete hain. */
+var OK_ID = /^ORD0*\d+$/;
+function sane(reg){
+  var bad = [];
+  Object.keys(reg).forEach(function(id){
+    var e = reg[id];
+    if(!e || !e.rec){ bad.push(id); return; }
+    if(!OK_ID.test(String(id))){ bad.push(id); return; }
+    if(String(e.rec.id == null ? '' : e.rec.id) !== String(id)) bad.push(id);
+  });
+  if(bad.length){
+    bad.forEach(function(id){ delete reg[id]; });
+    P(PEND, reg);
+    try{ if(window.__ocTombAdd) window.__ocTombAdd(bad); }catch(e){}
+    console.warn('[oc v18] pending queue se galat entry hataayi:', bad.join(', '));
+  }
+  return Object.keys(reg);
+}
+
 function keepAlive(){
-  var reg = J(PEND, {}) || {}, ids = Object.keys(reg), now = Date.now(), ch = false;
+  var reg = J(PEND, {}) || {}, now = Date.now(), ch = false;
+  var ids = sane(reg);
   ids.forEach(function(id){ if(reg[id] && (now - reg[id].t) > 6 * 60 * 60 * 1000){ reg[id].t = now; ch = true; } });
   if(ch) P(PEND, reg);
   return ids;
