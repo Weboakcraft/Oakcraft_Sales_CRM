@@ -5815,6 +5815,14 @@ console.log('[oc v7] row-safe save active');
           var a2 = snap(), w2 = a2.orders || {};
           changed.forEach(function(c){ w2[c.id] = c.js; });
           a2.orders = w2; saveSnap(a2);
+          /* server ne likh diya = ye id ab sheet par hai. Isse aage chal kar
+             "kabhi pahuncha hi nahi" aur "delete kar diya gaya" me farq pata
+             chalta hai, taaki delete kiya hua record dobara upload na ho. */
+          try{
+            var sn = JSON.parse(localStorage.getItem('oc_seenIds') || '{}') || {}, ad = false;
+            changed.forEach(function(c){ if(!sn[c.id]){ sn[c.id] = 1; ad = true; } });
+            if(ad) localStorage.setItem('oc_seenIds', JSON.stringify(sn));
+          }catch(e){}
           console.log('[oc v8] orders push confirmed:', records.length, 'row(s)');
         } else {
           console.warn('[oc v8] orders push FAILED — will retry', res && res.resp);
@@ -5914,6 +5922,7 @@ console.log('[oc v7] row-safe save active');
   var KEYS = { orders:"__ocPend_orders", enquiries:"__ocPend_enq" };
   var WINDOW_MS = 24*60*60*1000;
   var TOMB_KEY = "oc_delIds", TOMB_MS = 30*24*60*60*1000, INTENT_MS = 8000;
+  var SEEN_KEY = "oc_seenIds";   /* jo ids kabhi Google Sheet se aayi hain */
   var SEED = ["ORD1930252828","ORD1930253928","ORD1930394372"];
   function load(k){ try{ return JSON.parse(localStorage.getItem(k) || "{}"); }catch(e){ return {}; } }
   function jset(k,o){ try{ RAW(k, JSON.stringify(o)); }catch(e){} }
@@ -5924,6 +5933,8 @@ console.log('[oc v7] row-safe save active');
   function tombAdd(ids){ var t = tombGet(), now = Date.now(), ch = false;
     (ids || []).forEach(function(id){ id = String(id || ""); if(id && !t[id]){ t[id] = now; ch = true; } });
     if(ch) jset(TOMB_KEY, t); return t; }
+  function seenGet(){ return load(SEEN_KEY); }
+  window.__ocSeenIds = seenGet;
   window.__ocTombAdd = tombAdd;
   window.__ocTombList = function(){ return Object.keys(tombGet()); };
   window.__ocTombUndo = function(id){ var t = tombGet(); delete t[String(id)]; jset(TOMB_KEY, t); };
@@ -5950,16 +5961,37 @@ console.log('[oc v7] row-safe save active');
           var before = {}; prev.forEach(function(r){ var id = idOf(r); if(id) before[String(id)] = r; });
           var reg = load(KEYS[k]), now = Date.now(), changed = false, incIds = {};
           incoming.forEach(function(r){ var id = idOf(r); if(id) incIds[String(id)] = 1; });
+          /* Jo id kabhi sheet se aayi thi use yaad rakho (sirf pull ke waqt --
+             local save par poori list aati hai, usse "sheet par hai" nahi kah
+             sakte). Isi se pata chalta hai ki record "kabhi pahuncha hi nahi"
+             hai ya "pahuncha tha aur ab delete ho chuka hai". */
+          var seen = seenGet();
+          if(k === "orders" && window.__ocInPull){
+            var addSeen = false;
+            Object.keys(incIds).forEach(function(id){ if(!seen[id]){ seen[id] = 1; addSeen = true; } });
+            if(addSeen){ jset(SEEN_KEY, seen); }
+          }
           Object.keys(before).forEach(function(id){
             if(incIds[id] || tb[id]) return;
             if(intent()){ tombAdd([id]); tb[id] = now; if(reg[id]){ delete reg[id]; changed = true; } return; }
+            /* pehle sheet par tha, ab nahi aaya = jaan-boojh kar delete kiya gaya
+               hai (CRM se ya seedhe Google Sheet me). Use dobara mat jodo. */
+            if(k === "orders" && seen[id]){ if(reg[id]){ delete reg[id]; changed = true; } return; }
             if(!reg[id]){ reg[id] = { rec: before[id], t: now }; changed = true; }
           });
           Object.keys(reg).forEach(function(id){
             var e3 = reg[id];
-            if(!e3 || tb[id] || incIds[id] || (now - e3.t) > WINDOW_MS){ delete reg[id]; changed = true; return; }
+            if(!e3 || tb[id] || incIds[id] || (k === "orders" && seen[id]) || (now - e3.t) > WINDOW_MS){ delete reg[id]; changed = true; return; }
             incoming.push(e3.rec);
           });
+          if(k === "orders"){
+            /* deleted record ko local list se bhi nikaal do, warna wo screen par
+               dikhta rahega aur agle save me dobara sheet par chala jayega */
+            incoming = incoming.filter(function(r){
+              var id = String(idOf(r) || "");
+              return !(id && seen[id] && !incIds[id]);
+            });
+          }
           if(changed) jset(KEYS[k], reg);
           v = JSON.stringify(incoming);
         }
@@ -7881,7 +7913,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.03.1';
+var OC_WEB_BUILD = '2026.09.03.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9671,10 +9703,32 @@ function keepAlive(){
   return ids;
 }
 
+/* pull ke dauran hi "sheet se aayi ids" record hoti hain -- local save par
+   poori list aati hai, usse "sheet par hai" nahi kaha ja sakta. */
+try{
+  var _pullV18 = CLOUD.pull;
+  CLOUD.pull = function(){
+    window.__ocInPull = (window.__ocInPull || 0) + 1;
+    var done = function(){ window.__ocInPull = Math.max(0, (window.__ocInPull || 1) - 1); };
+    var p;
+    try{ p = _pullV18.apply(this, arguments); }catch(e){ done(); throw e; }
+    return Promise.resolve(p).then(function(r){ done(); return r; }, function(e){ done(); throw e; });
+  };
+}catch(e){}
+
 /* snapshot se pending ids hata kar dobara push karo */
 function flush(){
   try{
     var ids = keepAlive();
+    /* jo record kabhi sheet par tha aur ab nahi hai, wo delete kiya gaya hai --
+       use dobara upload mat karo (warna Google Sheet se delete kiya hua order
+       apne aap wapas aa jaata hai). */
+    try{
+      var seen = J('oc_seenIds', {}) || {}, reg = J(PEND, {}) || {}, dropped = false;
+      ids.forEach(function(id){ if(seen[id] && reg[id]){ delete reg[id]; dropped = true; } });
+      if(dropped){ P(PEND, reg); ids = Object.keys(reg);
+        console.log('[oc v18] deleted record(s) ko dobara upload nahi kiya jayega'); }
+    }catch(e){}
     if(!ids.length){ badge(0); return; }
     var s = J(SNAP, {}) || {}, o = s.orders || {}, ch = false;
     ids.forEach(function(id){ if(o[id]){ delete o[id]; ch = true; } });
@@ -9689,24 +9743,51 @@ function flush(){
 }
 window.ocFlushPendingOrders = flush;
 
-/* jab tak order sheet par nahi gaya, user ko dikhe ki wo pending hai */
+/* Pending ka chhota sa signal -- sirf admin ko, aur sirf tab tak jab tak
+   sach me kuch pending ho. Sales staff ko is se kuch karna nahi hota
+   (unka order apne aap dobara chala jaata hai, aur kuch galat ho to save
+   ke waqt hi toast me missing field ka naam aa jaata hai), isliye unhe
+   koi laal warning nahi dikhai jaati. */
+function isAdm(){ try{ return !!(AUTH && AUTH.isAdmin && AUTH.isAdmin()); }catch(e){ return false; } }
 function badge(n){
   try{
     var el = document.getElementById('oc-pend-warn');
-    if(!n){ if(el) el.remove(); return; }
+    if(!n || !isAdm() || window.__ocPendHide){ if(el) el.remove(); return; }
     if(!el){
       el = document.createElement('div');
       el.id = 'oc-pend-warn';
-      el.setAttribute('style', 'position:fixed;left:14px;bottom:14px;z-index:91;max-width:290px;padding:9px 12px;'
-        + 'border-radius:10px;font:600 12px var(--sans);background:#7a2016;color:#fff;'
-        + 'box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer');
-      el.title = 'Ye order abhi sirf is device par hai. Click karke dobara bhejein.';
-      el.addEventListener('click', function(){ flush(); });
+      el.setAttribute('style', 'position:fixed;left:14px;bottom:14px;z-index:91;max-width:270px;'
+        + 'display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;'
+        + 'font:500 11.5px var(--sans);background:var(--surface);color:var(--text-2);'
+        + 'border:1px solid var(--border);box-shadow:0 3px 10px rgba(0,0,0,.12);opacity:.95');
+      var txt = document.createElement('span');
+      txt.id = 'oc-pend-txt';
+      txt.setAttribute('style', 'cursor:pointer;flex:1');
+      txt.title = 'Ye order abhi sirf is device par hain. Click karke dobara bhejein.';
+      txt.addEventListener('click', function(){ flush(); });
+      var x = document.createElement('span');
+      x.textContent = '✕';
+      x.setAttribute('style', 'cursor:pointer;opacity:.55;font-size:12px');
+      x.title = 'Chhupa dein';
+      x.addEventListener('click', function(){ window.__ocPendHide = 1; el.remove(); });
+      el.appendChild(txt); el.appendChild(x);
       document.body.appendChild(el);
     }
-    el.textContent = '⚠ ' + n + ' order abhi Google Sheet par nahi gaya — dobara bhejne ke liye click karein';
+    var t = document.getElementById('oc-pend-txt');
+    if(t) t.textContent = n + ' order sheet par pending — bhejne ke liye click karein';
   }catch(e){}
 }
+
+/* Agar admin ko pata hai ki ye record jaan-boojh kar delete kiye gaye the,
+   to console me ocClearPendingOrders() chala kar queue saaf ki ja sakti hai. */
+window.ocClearPendingOrders = function(){
+  var reg = J(PEND, {}) || {}, ids = Object.keys(reg);
+  try{ if(window.__ocTombAdd) window.__ocTombAdd(ids); }catch(e){}
+  P(PEND, {});
+  badge(0);
+  console.log('[oc v18] pending queue saaf: ' + ids.length + ' record', ids.join(', '));
+  return ids;
+};
 
 [4000, 20000, 60000].forEach(function(ms){ setTimeout(flush, ms); });
 setInterval(flush, 10 * 60 * 1000);
