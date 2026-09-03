@@ -5540,12 +5540,27 @@ window.ocNextOrderId = newId;
 
 /* ---- 2. snapshot of what the Sheet currently holds -------------- */
 function snap(){ return J(SNAP, {}) || {}; }
+/* Snapshot = "sheet ke paas abhi kya hai". Ise localStorage se banaya jaata hai,
+   isliye jo record kabhi sheet par pahuncha hi nahi (keep-local layer use har
+   pull me wapas daal deti hai) wo bhi "synced" mark ho jaata tha aur dobara
+   kabhi push nahi hota tha. Pending (__ocPend_*) ids ko yahan chhod dete hain
+   taaki wo agle push me dobara jaayein. */
+function pendingIds(){
+  var out = {};
+  try{
+    [['__ocPend_orders','orders'], ['__ocPend_enq','enquiries']].forEach(function(p){
+      var o = J(p[0], {}) || {};
+      Object.keys(o).forEach(function(id){ (out[p[1]] = out[p[1]] || {})[S(id)] = 1; });
+    });
+  }catch(e){}
+  return out;
+}
 function rebuild(){
-  var a = snap();
+  var a = snap(), pend = pendingIds();
   KEYS.forEach(function(k){
     var arr = J(k, []); if(!Array.isArray(arr)) return;
-    var m = {};
-    arr.forEach(function(o){ if(o && o.id) m[S(o.id)] = JSON.stringify(o); });
+    var m = {}, skip = pend[k] || {};
+    arr.forEach(function(o){ if(o && o.id && !skip[S(o.id)]) m[S(o.id)] = JSON.stringify(o); });
     a[k] = m;
   });
   P(SNAP, a);
@@ -5765,7 +5780,16 @@ console.log('[oc v7] row-safe save active');
         var x = new XMLHttpRequest();
         x.open('POST', CLOUD.url, true);
         x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
-        x.onload = function(){ var j=null; try{ j=JSON.parse(x.responseText); }catch(err){} resolve({ ok: x.status>=200 && x.status<300 && (!j || !j.error), resp: j }); };
+        x.onload = function(){
+          var j = null; try{ j = JSON.parse(x.responseText); }catch(err){}
+          /* Server HTTP 200 + {ok:true, done:0, rejected:[{id,missing}]} bhejta hai
+             jab koi zaroori field khaali ho. Pehle ise "success" gina jaata tha,
+             isliye order snapshot me "synced" mark ho jaata tha aur dobara kabhi
+             push nahi hota tha -- record sirf usi device par reh jaata tha aur
+             sheet par kabhi nahi pahunchta tha. Ab reject = failure. */
+          var rj = (j && j.rejected && j.rejected.length) ? j.rejected : null;
+          resolve({ ok: x.status >= 200 && x.status < 300 && (!j || !j.error) && !rj, resp: j, rejected: rj });
+        };
         x.onerror = function(){ resolve({ ok:false }); };
         x.send(JSON.stringify(payload));
       }catch(err){ resolve({ ok:false }); }
@@ -5793,8 +5817,24 @@ console.log('[oc v7] row-safe save active');
           a2.orders = w2; saveSnap(a2);
           console.log('[oc v8] orders push confirmed:', records.length, 'row(s)');
         } else {
-          console.warn('[oc v8] orders push FAILED — will retry on next save');
-          try{ toast('Order sync pending — internet check kijiye'); }catch(e){}
+          console.warn('[oc v8] orders push FAILED — will retry', res && res.resp);
+          /* Reject hone par chup mat raho -- kaun sa field baaki hai wahi batao. */
+          try{
+            var rj = res && res.rejected;
+            if(rj && rj.length){
+              var miss = [];
+              rj.forEach(function(r){ (r && r.missing || []).forEach(function(m){ if(miss.indexOf(m) < 0) miss.push(m); }); });
+              var sig = rj.map(function(r){ return r && r.id; }).join(',') + '|' + miss.join(',');
+              window.__ocRejSeen = window.__ocRejSeen || {};
+              if(!window.__ocRejSeen[sig]){
+                window.__ocRejSeen[sig] = 1;
+                toast('Order Google Sheet par save nahi hua — zaroori field baaki hai: '
+                      + miss.slice(0, 4).join(', ') + (miss.length > 4 ? ' +' + (miss.length - 4) + ' aur' : ''));
+              }
+            } else {
+              toast('Order sync pending — internet check kijiye');
+            }
+          }catch(e){}
         }
       });
     }catch(e){ console.warn('[oc v8] push override failed, falling back', e); return _push(key, arr); }
@@ -7841,7 +7881,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.02.10';
+var OC_WEB_BUILD = '2026.09.03.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9593,6 +9633,86 @@ try{ if(AUTH.session && AUTH.session()){ applyNavPerms(); } }catch(e){}
 console.log('[oc v9] completeness pass active');
 })();
 
+</script>
+
+<script>
+/* ====================================================================== *
+ * 20. OAKCRAFT v18 — PENDING ORDERS KABHI CHUPCHAAP GUM NA HON            *
+ *                                                                        *
+ *   Bug (03-09-2026): backend par mandatory-field check lagne ke baad     *
+ *   naya order HTTP 200 ke saath {ok:true, done:0, rejected:[...]} laut   *
+ *   raha tha. Client use success gin raha tha, isliye:                    *
+ *     - order localStorage me reh gaya (banane wale ko dikhta raha),      *
+ *     - snapshot me "synced" mark ho gaya -> dobara kabhi push nahi hua,  *
+ *     - Google Sheet par kabhi pahuncha hi nahi -> kisi aur ko nahi dikha,*
+ *     - 24 ghante baad keep-local layer use hata deti -> data khatam.     *
+ *                                                                        *
+ *   v8 (reject = failure) aur v7 (pending ids snapshot me nahi jaate) ke  *
+ *   saath ye block bacha hua kaam karta hai:                              *
+ *     a) jo order abhi tak sheet par nahi gaya use dobara bhejta hai,     *
+ *     b) pending order ki keep-local expiry ko aage badhata rehta hai,    *
+ *        taaki 24 ghante wali deadline par data delete na ho,             *
+ *     c) sidebar me ek chhoti warning dikhata hai jab tak wo pending hai. *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocPendFlush) return; window.__ocPendFlush = true;
+
+var PEND = '__ocPend_orders', SNAP = 'oc_srvSnap';
+function J(k, d){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function P(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+/* pending record ka 24-ghante wala timer aage badha do -- jab tak sheet ne
+   use accept nahi kiya, use local se delete karna hi data loss hai. */
+function keepAlive(){
+  var reg = J(PEND, {}) || {}, ids = Object.keys(reg), now = Date.now(), ch = false;
+  ids.forEach(function(id){ if(reg[id] && (now - reg[id].t) > 6 * 60 * 60 * 1000){ reg[id].t = now; ch = true; } });
+  if(ch) P(PEND, reg);
+  return ids;
+}
+
+/* snapshot se pending ids hata kar dobara push karo */
+function flush(){
+  try{
+    var ids = keepAlive();
+    if(!ids.length){ badge(0); return; }
+    var s = J(SNAP, {}) || {}, o = s.orders || {}, ch = false;
+    ids.forEach(function(id){ if(o[id]){ delete o[id]; ch = true; } });
+    if(ch){ s.orders = o; P(SNAP, s); }
+    badge(ids.length);
+    if(typeof CLOUD !== 'undefined' && typeof DB !== 'undefined' && typeof AUTH !== 'undefined'
+       && AUTH.session && AUTH.session()){
+      console.log('[oc v18] re-pushing ' + ids.length + ' pending order(s):', ids.join(', '));
+      CLOUD.push('orders', DB.orders());
+    }
+  }catch(e){ console.warn('[oc v18] flush failed', e); }
+}
+window.ocFlushPendingOrders = flush;
+
+/* jab tak order sheet par nahi gaya, user ko dikhe ki wo pending hai */
+function badge(n){
+  try{
+    var el = document.getElementById('oc-pend-warn');
+    if(!n){ if(el) el.remove(); return; }
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'oc-pend-warn';
+      el.setAttribute('style', 'position:fixed;left:14px;bottom:14px;z-index:91;max-width:290px;padding:9px 12px;'
+        + 'border-radius:10px;font:600 12px var(--sans);background:#7a2016;color:#fff;'
+        + 'box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer');
+      el.title = 'Ye order abhi sirf is device par hai. Click karke dobara bhejein.';
+      el.addEventListener('click', function(){ flush(); });
+      document.body.appendChild(el);
+    }
+    el.textContent = '⚠ ' + n + ' order abhi Google Sheet par nahi gaya — dobara bhejne ke liye click karein';
+  }catch(e){}
+}
+
+[4000, 20000, 60000].forEach(function(ms){ setTimeout(flush, ms); });
+setInterval(flush, 10 * 60 * 1000);
+
+console.log('[oc v18] pending-order flush active');
+})();
 </script>
 
 </body>
