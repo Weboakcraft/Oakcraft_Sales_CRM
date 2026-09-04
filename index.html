@@ -4131,9 +4131,10 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
       if(!isSalesRole(myRole())) return;
       var wrap = document.createElement('div');
       wrap.id = 'oc-incentive';
-      wrap.style.marginBottom = '16px';
+      /* Incentive ab informative dashboard ke NEECHE aata hai (pehle upar tha) */
+      wrap.style.marginTop = '16px';
       wrap.innerHTML = dashHTML(metricsFor(myOrders()), 'My Incentive Dashboard', '');
-      content.insertBefore(wrap, content.firstChild);
+      content.appendChild(wrap);
     }catch(e){ console.warn('incentive panel error', e); }
   };
 
@@ -5470,9 +5471,10 @@ window.renderDashboard = function(){
     if(!html) return;
     var wrap = document.createElement('div');
     wrap.id = 'oc-team-incentive';
-    wrap.style.marginBottom = '16px';
+    /* Incentive ab informative dashboard ke NEECHE aata hai (pehle upar tha) */
+    wrap.style.marginTop = '16px';
     wrap.innerHTML = html;
-    content.insertBefore(wrap, content.firstChild);
+    content.appendChild(wrap);
   }catch(e){ console.warn('team incentive panel error', e); }
 };
 })();
@@ -7919,7 +7921,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.04.1';
+var OC_WEB_BUILD = '2026.09.04.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10112,6 +10114,98 @@ document.addEventListener('visibilitychange', function(){ if(!document.hidden) s
 setInterval(check, 20000);
 
 console.log('[oc v19] assignment alerts active');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 22. OAKCRAFT v20 — DASHBOARD                                            *
+ *   a) Meta Leads bhi enquiry hain. Dashboard ke har enquiry wale         *
+ *      number me ab wo bhi ginte hain:                                    *
+ *        - Total Enquiries KPI aur uska month-over-month delta            *
+ *        - Conversion Rate (Won / total) aur uska delta                   *
+ *        - Sales Funnel ka pehla stage                                    *
+ *        - Enquiry Sources chart (Meta · Facebook / Meta · Instagram)     *
+ *        - Sales by Person / State-wise / Salesperson pie                 *
+ *      Meta lead ko enquiry ki shakal me badal kar jodte hain, sirf       *
+ *      dashboard render ke dauran -- Enquiries section, uska badge aur    *
+ *      exports pehle jaise hi rehte hain.                                 *
+ *   b) Incentive dashboard ab informative dashboard ke NEECHE aata hai.   *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocDashMeta) return; window.__ocDashMeta = true;
+
+function S(v){ return v == null ? '' : String(v); }
+
+function metaRaw(){
+  try{ var a = JSON.parse(localStorage.getItem('metaLeads') || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+
+/* Meta ka 'dd-MM-yyyy HH:mm:ss' -> 'YYYY-MM-DD' (dashboard ke month wale
+   hisaab ko yahi format chahiye) */
+function isoDate(v){
+  var s = S(v).trim(); if(!s) return '';
+  var m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(s);
+  if(m) return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? m[0] : '';
+}
+
+function platformLabel(p){
+  var v = S(p).trim().toLowerCase();
+  if(v === 'fb' || v === 'facebook')  return 'Meta · Facebook';
+  if(v === 'ig' || v === 'instagram') return 'Meta · Instagram';
+  return v ? ('Meta · ' + S(p).trim()) : 'Meta Ads';
+}
+
+/* Meta lead -> enquiry jaisa record. owner waisa hi rehta hai, isliye
+   scope() khud tay kar leta hai ki kis user ko kya dikhega. */
+window.ocMetaAsEnq = function(){
+  var out = [];
+  metaRaw().forEach(function(l){
+    if(!l || !l.id) return;
+    out.push({
+      id: S(l.id),
+      date: isoDate(l.created_time_ist),
+      customer: S(l.full_name),
+      product: '',
+      qty: 1,
+      source: platformLabel(l.platform),
+      salesperson: S(l.assigned_to),
+      value: 0,
+      priority: '',
+      stage: S(l.stage) || 'New',
+      note: S(l.city_state),
+      owner: S(l.owner),
+      ownerEmail: S(l.owner),
+      custId: '',
+      __meta: true
+    });
+  });
+  return out;
+};
+
+/* Sirf dashboard render ke dauran DB.enquiries() dono deta hai. Ek hi jagah
+   se poora dashboard cover ho jaata hai -- KPI, delta, funnel aur saare
+   charts wahi list padhte hain. Baaki app par koi asar nahi. */
+var _dbEnqD = DB.enquiries;
+var _renderDashD = window.renderDashboard;
+if(typeof _renderDashD === 'function'){
+  window.renderDashboard = function(){
+    var restore = DB.enquiries;
+    DB.enquiries = function(){
+      var base = [];
+      try{ base = _dbEnqD.call(DB) || []; }catch(e){ base = []; }
+      try{ return base.concat(window.ocMetaAsEnq()); }catch(e){ return base; }
+    };
+    try{ return _renderDashD.apply(this, arguments); }
+    finally{ DB.enquiries = restore; }
+  };
+}
+
+console.log('[oc v20] dashboard: meta leads counted as enquiries; incentive moved below');
 })();
 </script>
 
