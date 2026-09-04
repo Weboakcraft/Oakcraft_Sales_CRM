@@ -33,6 +33,12 @@
  *   3. Theek lage to `installMetaAutoSync` EK BAAR chalayein — pointer set
  *      ho jayega aur 1-minute ka trigger lag jayega.
  *
+ * Sync Status (column H)
+ *   Lead CRM me pahunchte hi source sheet ke column H me `Sync_Done_CRM`
+ *   likh diya jaata hai -- bilkul waise hi jaise pehle wale leads par hai.
+ *   Purani rows jinpar nishaan reh gaya ho: `markSyncedInSource` ek baar
+ *   chala dijiye.
+ *
  *   Band karna ho:  `removeMetaAutoSync`
  *   Abhi chalana ho: `runMetaAutoSyncNow`
  *   Pointer dubara set karna ho: `resetMetaAutoSyncPointer`
@@ -53,6 +59,8 @@ var MAS_MINUTES    = 1;
 var MAS_MAX_PER_RUN = 100;         // ek run me itne se zyada nahi (safety)
 var MAS_PROP_ROW   = 'mas_lastRow';
 var MAS_PROP_KEY   = 'mas_lastKey';   // us row ka ts+phone -- pointer self-heal ke liye
+var MAS_STATUS_COL  = 8;                 // column H = "Sync Status"
+var MAS_STATUS_DONE = 'Sync_Done_CRM';   // sync hone par yahi likha jaata hai
 
 /* Yahan tak ka data pehle hi sync ho chuka hai. */
 var MAS_START_AFTER_TS    = '04-09-2026 09:45:17';
@@ -126,7 +134,7 @@ function mas_srcSheet_(){
 function mas_srcRows_(){
   var sh = mas_srcSheet_(), last = sh.getLastRow();
   if(last < 2) return [];
-  var vals = sh.getRange(2, 1, last - 1, 7).getValues();
+  var vals = sh.getRange(2, 1, last - 1, MAS_STATUS_COL).getValues();
   var out = [];
   for(var i = 0; i < vals.length; i++){
     var v = vals[i];
@@ -140,7 +148,8 @@ function mas_srcRows_(){
       phone: ph, phoneRaw: mas_str_(v[3]).trim(),
       city_state: mas_str_(v[4]).trim(),
       lead_status: mas_code_(v[5]) || 'CREATED',
-      assigned_to: mas_str_(v[6]).trim()
+      assigned_to: mas_str_(v[6]).trim(),
+      syncStatus: mas_str_(v[MAS_STATUS_COL - 1]).trim()
     });
   }
   return out;
@@ -168,6 +177,26 @@ function mas_write_(recs){
     return payload.length;
   }
   throw new Error('Code.gs ka _upsertMany / _upsert nahi mila — kuch nahi likha gaya.');
+}
+
+/**
+ * Source sheet ke column H ("Sync Status") me Sync_Done_CRM likh do --
+ * bilkul waise hi jaise pehle wale leads par likha hai. Ye CRM me lead
+ * pahunchne ke BAAD hi likha jaata hai. Yahan fail ho jaye to bhi lead
+ * CRM me hai, isliye sirf log karte hain.
+ */
+function mas_markDone_(rowNumbers){
+  if(!rowNumbers.length) return 0;
+  var done = 0;
+  try{
+    var sh = mas_srcSheet_();
+    rowNumbers.forEach(function(n){
+      try{ sh.getRange(n, MAS_STATUS_COL).setValue(MAS_STATUS_DONE); done++; }
+      catch(e){ Logger.log('MetaAutoSync: row ' + n + ' ka Sync Status nahi likh paaye — ' + e); }
+    });
+    SpreadsheetApp.flush();
+  }catch(err){ Logger.log('MetaAutoSync: Sync Status likhne me dikkat — ' + err); }
+  return done;
 }
 
 /* ------------------------------------------------------------------ *
@@ -342,9 +371,12 @@ function mas_run_(dryRun){
     var wrote = mas_write_(fresh.map(function(f){ return f.rec; }));
     SpreadsheetApp.flush();
 
+    /* CRM me pahunch gaya -> source sheet ke column H par nishaan laga do */
+    var marked = mas_markDone_(fresh.map(function(f){ return f.row; }));
+
     mas_setPointer_(fresh[fresh.length - 1].row, rows);
 
-    Logger.log('MetaAutoSync: ' + wrote + ' naya lead add hua —\n  '
+    Logger.log('MetaAutoSync: ' + wrote + ' naya lead add hua (' + marked + ' row par Sync Status likha) —\n  '
       + fresh.map(function(f){
           return f.rec.full_name + ' | ' + f.rec.phone_number + ' -> ' + (f.rec.owner || '(owner nahi mila)');
         }).join('\n  '));
@@ -401,6 +433,32 @@ function resetMetaAutoSyncPointer(){
   Logger.log('MetaAutoSync: pointer wapas row ' + start + ' par set.');
 }
 
+/**
+ * Backfill — jo lead pehle se CRM me hai par source sheet me uska column H
+ * khaali reh gaya, uspar Sync_Done_CRM likh do. Ek baar chala dijiye; baad
+ * me har naya lead apne aap mark hota rahega.
+ */
+function markSyncedInSource(){
+  var rows = mas_srcRows_();
+  var existing = mas_read_(MAS_COLL);
+  var havePhone = {}, haveTs = {};
+  existing.forEach(function(l){
+    var p = mas_phone_(l.phone_number); if(p) havePhone[p] = 1;
+    var t = mas_tsKey_(l.created_time_ist); if(t) haveTs[t] = 1;
+  });
+  var todo = [], names = [];
+  rows.forEach(function(r){
+    if(r.syncStatus) return;                                  /* pehle se likha hai */
+    if((r.phone && havePhone[r.phone]) || (r.tsKey && haveTs[r.tsKey])){
+      todo.push(r.row); names.push(r.row + ': ' + r.full_name);
+    }
+  });
+  if(!todo.length){ Logger.log('markSyncedInSource: sab rows par pehle se Sync Status hai.'); return 0; }
+  var n = mas_markDone_(todo);
+  Logger.log('markSyncedInSource: ' + n + ' row par Sync_Done_CRM likha —\n  ' + names.join('\n  '));
+  return n;
+}
+
 /** Abhi ki haalat dekhne ke liye. */
 function statusMetaAutoSync(){
   var rows = mas_srcRows_(), ptr = mas_getPointer_();
@@ -412,5 +470,7 @@ function statusMetaAutoSync(){
            + '\n  pointer row : ' + ptr
            + '\n  pending     : ' + pending
            + '\n  writer      : ' + writer
-           + '\n  CRM leads   : ' + mas_read_(MAS_COLL).length);
+           + '\n  CRM leads   : ' + mas_read_(MAS_COLL).length
+           + '\n  bina Sync Status ke rows : '
+           + rows.filter(function(r){ return !r.syncStatus; }).length);
 }
