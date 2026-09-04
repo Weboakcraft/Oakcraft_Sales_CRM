@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Nayi lead/enquiry assign hone par pop-up ke saath phone vibrate karta hai. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Android 13+ : nayi lead assign hone par notification dikhane ke liye. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Only needed on Android 6-9 to save Excel / PDF exports into the public Downloads folder.
          Android 10+ uses MediaStore and needs no permission. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
