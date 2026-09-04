@@ -3,6 +3,10 @@ package in.oakcraft.crm;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
 import android.content.DialogInterface;
@@ -59,6 +63,8 @@ import java.util.Map;
 public class MainActivity extends Activity {
 
     private static final String TAG = "OakCraftCRM";
+    private static final String NOTIF_CHANNEL = "oak_leads";
+    private static final int    REQ_NOTIF_PERM = 7701;
     static final String APP_HOST = "app.oakcraft.crm";               // fake host, never resolved
     static final String APP_ORIGIN = "https://" + APP_HOST;
     static final String START_URL = APP_ORIGIN + "/index.html";
@@ -126,11 +132,74 @@ public class MainActivity extends Activity {
 
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
         if (web.getUrl() == null) web.loadUrl(START_URL);
+
+        ensureNotifChannel();
+        askNotifPermission();
+    }
+
+    /* ---------------- lead assignment notification ---------------- *
+       WebView me browser ka Notification API nahi hota, isliye page se
+       OakAndroid.notify(...) call hota hai aur asli Android notification
+       yahan se banti hai -- sound, vibration aur heads-up ke saath. */
+    private void ensureNotifChannel() {
+        if (Build.VERSION.SDK_INT < 26) return;
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm == null || nm.getNotificationChannel(NOTIF_CHANNEL) != null) return;
+        NotificationChannel ch = new NotificationChannel(NOTIF_CHANNEL, "Naye leads", NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription("Nayi enquiry ya Meta lead assign hone par alert");
+        ch.enableVibration(true);
+        ch.setVibrationPattern(new long[]{ 0, 300, 140, 300 });
+        ch.enableLights(true);
+        nm.createNotificationChannel(ch);
+    }
+
+    private void askNotifPermission() {
+        try {
+            if (Build.VERSION.SDK_INT < 33) return;
+            if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED) return;
+            requestPermissions(new String[]{ "android.permission.POST_NOTIFICATIONS" }, REQ_NOTIF_PERM);
+        } catch (Exception e) { Log.w(TAG, "notif permission", e); }
+    }
+
+    void postLeadNotification(String title, String body, String tag) {
+        try {
+            ensureNotifChannel();
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            String t = (title == null || title.length() == 0) ? "OakCraft CRM" : title;
+            String b = body == null ? "" : body;
+
+            Intent open = new Intent(this, MainActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+            PendingIntent pi = PendingIntent.getActivity(this, 0, open, flags);
+
+            Notification.Builder nb = (Build.VERSION.SDK_INT >= 26)
+                ? new Notification.Builder(this, NOTIF_CHANNEL)
+                : new Notification.Builder(this);
+            nb.setSmallIcon(R.mipmap.ic_launcher)
+              .setContentTitle(t)
+              .setContentText(b)
+              .setStyle(new Notification.BigTextStyle().bigText(b))
+              .setAutoCancel(true)
+              .setContentIntent(pi);
+            if (Build.VERSION.SDK_INT < 26) {
+                nb.setPriority(Notification.PRIORITY_HIGH);
+                nb.setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE);
+            }
+            String key = (tag == null || tag.length() == 0) ? String.valueOf(System.currentTimeMillis()) : tag;
+            nm.notify(Math.abs(key.hashCode()), nb.build());
+        } catch (Exception e) { Log.w(TAG, "postLeadNotification failed", e); }
     }
 
     @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); web.saveState(out); }
     @Override protected void onResume() { super.onResume(); web.onResume(); }
-    @Override protected void onPause() { web.onPause(); super.onPause(); }
+    /* WebView ko jaan-boojh kar pause NAHI karte. App minimize hone par bhi
+       background sync chalta rahe, taaki nayi lead assign hote hi notification
+       aa jaye. Android khud kuch der baad process ko freeze kar dega -- isliye
+       pakki guarantee ke liye email alert (AssignNotify.gs) hai. */
+    @Override protected void onPause() { super.onPause(); }
     @Override protected void onDestroy() { try { web.destroy(); } catch (Exception ignored) {} super.onDestroy(); }
 
     private String versionName() {
@@ -524,6 +593,15 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String getVersion() { return versionName(); }
         @JavascriptInterface public int getVersionCode() {
             try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception e) { return 0; }
+        }
+        @JavascriptInterface public void notify(final String title, final String body, final String tag) {
+            ui.post(new Runnable() { @Override public void run() { postLeadNotification(title, body, tag); } });
+        }
+        @JavascriptInterface public boolean canNotify() {
+            try {
+                if (Build.VERSION.SDK_INT < 33) return true;
+                return checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED;
+            } catch (Exception e) { return false; }
         }
         @JavascriptInterface public String getPlatform() { return "android"; }
     }
