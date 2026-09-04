@@ -570,7 +570,7 @@ function setView(v){
 
 /* ---------- Dashboard ---------- */
 function renderDashboard(){
-  const enq=scope(DB.enquiries()), quo=scope(DB.quotations()), ord=scope(DB.orders()), dis=scope(DB.dispatch());
+  const enq=scope(DB.enquiries(), 'enquiries'), quo=scope(DB.quotations(), 'quotations'), ord=scope(DB.orders()), dis=scope(DB.dispatch(), 'dispatch');
   const totalEnq=enq.length;
   const won=enq.filter(e=>e.stage==='Won').length;
   const conv=totalEnq? Math.round(won/totalEnq*100):0;
@@ -764,7 +764,7 @@ function prioTag(p){return `<span class="prio p-${(p||'').toLowerCase()}">${p}</
 /* ---------- Enquiries ---------- */
 let enqFilter={q:'',stage:'',sales:''};
 function renderEnquiries(){
-  const list=scope(DB.enquiries());
+  const list=scope(DB.enquiries(), 'enquiries');
   content.innerHTML=`
     <div class="card">
       <div class="card-head"><h3>Enquiries <span class="chip c-neutral" style="margin-left:4px">${list.length}</span></h3>
@@ -783,7 +783,7 @@ function renderEnquiries(){
 }
 function paintEnq(){
   const q=(document.getElementById('globalSearch').value||'').toLowerCase();
-  let rows=scope(DB.enquiries()).filter(e=>
+  let rows=scope(DB.enquiries(), 'enquiries').filter(e=>
     (!enqFilter.stage||e.stage===enqFilter.stage)&&(!enqFilter.sales||e.salesperson===enqFilter.sales)&&
     (!q||[e.id,e.customer,e.product].join(' ').toLowerCase().includes(q)));
   rows=rows.sort((a,b)=>b.date.localeCompare(a.date));
@@ -800,7 +800,7 @@ function paintEnq(){
 /* ---------- Pipeline board ---------- */
 function renderPipeline(){
   const stages=['New','Contacted','Qualified','Quoted','Won'];
-  const enq=scope(DB.enquiries());
+  const enq=scope(DB.enquiries(), 'enquiries');
   content.innerHTML=`<div class="pipeline">${stages.map(st=>{
     const items=enq.filter(e=>e.stage===st);
     const val=items.reduce((s,e)=>s+e.value,0);
@@ -816,7 +816,7 @@ function renderPipeline(){
 
 /* ---------- Quotations ---------- */
 function renderQuotations(){
-  const list=scope(DB.quotations());
+  const list=scope(DB.quotations(), 'quotations');
   content.innerHTML=table(`Quotations`,list.length,
     `<th>Quote ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Discount</th><th>Valid Till</th><th>Owner</th><th>Status</th><th></th>`,
     'quo-body','No quotations yet.',dlBtn('quotations')+`<a class="btn primary sm" href="quotation-builder.html" target="_blank" style="text-decoration:none">${I.doc}Quotation Builder</a>`);
@@ -893,7 +893,7 @@ function paintTable(bodyId){
       <td class="sub tabular">${o.expDispatch}</td><td>${orderChip(o.status)}</td>
       <td onclick="event.stopPropagation()">${nextStageBtn(o)}</td><td onclick="event.stopPropagation()">${waBtn(o)}</td></tr>`).join('')||emptyRow(10);
   } else if(bodyId==='dis-body'){
-    let rows=scope(DB.dispatch()).filter(d=>!q||[d.id,d.customer,d.tracking,d.orderId].join(' ').toLowerCase().includes(q)).sort((a,b)=>b.dispatchedOn.localeCompare(a.dispatchedOn));
+    let rows=scope(DB.dispatch(), 'dispatch').filter(d=>!q||[d.id,d.customer,d.tracking,d.orderId].join(' ').toLowerCase().includes(q)).sort((a,b)=>b.dispatchedOn.localeCompare(a.dispatchedOn));
     html=rows.map(d=>`<tr><td class="strong tabular">${d.id}</td><td class="tabular">${d.orderId}</td><td>${userCell(d.customer)}</td>
       <td>${d.product} <span class="sub">×${d.qty}</span></td><td>${d.courier}</td><td class="sub tabular">${d.tracking}</td>
       <td class="sub tabular">${d.dispatchedOn}</td><td class="sub tabular">${d.eta}</td><td>${disChip(d.status)}</td></tr>`).join('')||emptyRow(9);
@@ -913,7 +913,7 @@ function paintTable(bodyId){
       <td class="strong tabular">${money(p.price)}</td><td class="tabular">${p.stock} ${p.unit}</td><td class="tabular">${money(p.price*p.stock)}</td><td>${st}</td>
       <td><div class="row-actions" style="display:flex"><button onclick="openProdModal('${p.id}')">${I.edit}</button><button onclick="delRow('products','${p.id}')">${I.trash}</button></div></td></tr>`;}).join('')||emptyRow(9);
   } else if(bodyId==='quo-body'){
-    const list=scope(DB.quotations());
+    const list=scope(DB.quotations(), 'quotations');
     let rows=list.filter(x=>!q||[x.id,x.customer,x.product].join(' ').toLowerCase().includes(q)).sort((a,b)=>b.date.localeCompare(a.date));
     html=rows.map(x=>`<tr><td class="strong tabular">${x.id}</td><td class="sub tabular">${x.date}</td><td>${userCell(x.customer)}</td>
       <td>${x.product} <span class="sub">×${x.qty}</span></td><td class="strong tabular">${money(x.amount)}</td>
@@ -1855,10 +1855,10 @@ async function exportExcel(section){
   if(!await awaitXLSX()) return;
   const q=(document.getElementById('globalSearch')?.value||'').toLowerCase();
   let rows=[], name=section;
-  if(section==='enquiries'){ rows=scope(DB.enquiries()).map(e=>({'Enquiry ID':e.id,Date:e.date,Customer:e.customer,Product:e.product,Qty:e.qty,Source:e.source,Salesperson:e.salesperson,Value:e.value,Priority:e.priority,Stage:e.stage,Note:e.note})); }
-  else if(section==='quotations'){ rows=scope(DB.quotations()).map(x=>({'Quote ID':x.id,Date:x.date,Customer:x.customer,Product:x.product,Qty:x.qty,Amount:x.amount,'Discount %':x.discount,'Valid Till':x.validTill,Salesperson:x.salesperson,Status:x.status})); }
+  if(section==='enquiries'){ rows=scope(DB.enquiries(), 'enquiries').map(e=>({'Enquiry ID':e.id,Date:e.date,Customer:e.customer,Product:e.product,Qty:e.qty,Source:e.source,Salesperson:e.salesperson,Value:e.value,Priority:e.priority,Stage:e.stage,Note:e.note})); }
+  else if(section==='quotations'){ rows=scope(DB.quotations(), 'quotations').map(x=>({'Quote ID':x.id,Date:x.date,Customer:x.customer,Product:x.product,Qty:x.qty,Amount:x.amount,'Discount %':x.discount,'Valid Till':x.validTill,Salesperson:x.salesperson,Status:x.status})); }
   else if(section==='orders'){ rows=scope(DB.orders(),'orders').map(o=>({'Order ID':o.id,Date:o.date,'Fed On':(o.createdAt||''),Customer:o.customer,Salesperson:o.salesperson,Product:o.product,'Product Type':(o.productType||''),'Product Category':(function(){try{var a=(o.items||[]).map(function(it){return String((it&&it.category)||'').trim();}).filter(Boolean);var u=a.filter(function(x,i){return a.indexOf(x)===i;});return u.join(', ');}catch(e){return '';}})(),Qty:o.qty,'Amount (excl. GST)':o.amount,'Billing Amount (incl. 18% GST)':Math.round((+o.amount||0)*1.18*100)/100,Payment:o.payment,'Exp. Delivery':o.expDispatch,Status:o.status,Note:(o.note||'')})); }
-  else if(section==='dispatch'){ rows=scope(DB.dispatch()).map(d=>({'Dispatch ID':d.id,'Order ID':d.orderId,Customer:d.customer,Product:d.product,Qty:d.qty,Courier:d.courier,'Tracking No':d.tracking,Dispatched:d.dispatchedOn,ETA:d.eta,Status:d.status})); }
+  else if(section==='dispatch'){ rows=scope(DB.dispatch(), 'dispatch').map(d=>({'Dispatch ID':d.id,'Order ID':d.orderId,Customer:d.customer,Product:d.product,Qty:d.qty,Courier:d.courier,'Tracking No':d.tracking,Dispatched:d.dispatchedOn,ETA:d.eta,Status:d.status})); }
   else if(section==='customers'){ const ord=DB.orders(); rows=DB.customers().map(c=>{const co=ord.filter(o=>o.custId===c.id);return {'Customer ID':c.id,Company:c.name,'Contact Person':c.contact,Email:c.email,Phone:c.phone,City:c.city,Type:c.type,Orders:co.length,'Lifetime Value':co.reduce((s,o)=>s+o.amount,0)};}); }
   else if(section==='products'){ rows=DB.products().map(p=>({'Product ID':p.id,Name:p.name,SKU:p.sku,Category:p.cat,'Unit Price':p.price,Stock:p.stock,Unit:p.unit,'Stock Value':p.price*p.stock})); }
   if(!rows.length){ toast('Nothing to export'); return; }
@@ -2954,7 +2954,7 @@ function bindAppEvents(){
   window.renderMetaLeads = function(){
     mlStyle();
     var cfg = metaCfg(), admin = meIsAdmin();
-    var visible = scope(mlAll());
+    var visible = scope(mlAll(), 'metaLeads');
     var q = _lc(window.__mlQ || '');
     var list = !q ? visible : visible.filter(function(l){
       return [l.name, l.phone, l.email, l.city, l.campaign, l.product, l.note].join(' ').toLowerCase().indexOf(q) >= 0;
@@ -3194,7 +3194,7 @@ function bindAppEvents(){
       _renderAdmin.apply(this, arguments);
       try{
         var cfg = metaCfg();
-        var all = scope(mlAll());
+        var all = scope(mlAll(), 'metaLeads');
         var un = all.filter(function(l){ return !l.owner; }).length;
         var rows = cfg.stages.map(function(s){
           var n = all.filter(function(l){ return (l.stage || 'New') === s; }).length;
@@ -6339,7 +6339,7 @@ console.log('[oc v7] row-safe save active');
 
   function visibleLeads(){
     var all = mlNormAll(false);
-    var list = (typeof scope === 'function') ? scope(all) : all;
+    var list = (typeof scope === 'function') ? scope(all, 'metaLeads') : all;
     var f = window.__mlFilt, q = _lc(window.__mlQ);
     return list.filter(function(l){
       if(f.platform && platCode(l.platform) !== f.platform) return false;
@@ -6371,7 +6371,7 @@ console.log('[oc v7] row-safe save active');
     mlNormAll(true);
 
     var admin  = meIsAdmin();
-    var all    = (typeof scope === 'function') ? scope(mlAll()) : mlAll();
+    var all    = (typeof scope === 'function') ? scope(mlAll(), 'metaLeads') : mlAll();
     var list   = sortList(visibleLeads());
     var lim    = Math.min(window.__mlLim, list.length);
     var rows   = list.slice(0, lim);
@@ -7473,7 +7473,7 @@ window.paintTable = function(bodyId){
     return;
   }
   /* quotations */
-  var rowsQ = scope(DB.quotations()).filter(function(x){ return x && (!q || [x.id, x.customer, x.product, x.salesperson].join(' ').toLowerCase().indexOf(q) >= 0); })
+  var rowsQ = scope(DB.quotations(), 'quotations').filter(function(x){ return x && (!q || [x.id, x.customer, x.product, x.salesperson].join(' ').toLowerCase().indexOf(q) >= 0); })
     .sort(function(a,b){ return S(b.date).localeCompare(S(a.date)); });
   body.innerHTML = rowsQ.map(function(x){
     var sp = S(x.salesperson); var enq = x.enqId ? '<div class="sub">from ' + esc(x.enqId) + '</div>' : '';
@@ -7622,7 +7622,7 @@ window.ocQuoteFromEnq = function(id){
                      salesperson:e.salesperson, status:'Draft', note:e.note ? 'Enquiry note: ' + e.note : '' });
 };
 window.renderQuotations = function(){
-  var list = scope(DB.quotations()) || [];
+  var list = scope(DB.quotations(), 'quotations') || [];
   var stat = {}; list.forEach(function(q){ stat[q.status] = (stat[q.status] || 0) + 1; });
   content.innerHTML = table('Quotations', list.length,
     '<th>Quote ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Discount</th><th>Valid Till</th><th>Owner</th><th>Status</th><th></th>',
@@ -7674,7 +7674,7 @@ window.ocMoveEnqBy = function(id, dir){
   ocMoveEnq(id, PIPE_STAGES[n]);
 };
 window.renderPipeline = function(){
-  var enq = scope(DB.enquiries()) || [];
+  var enq = scope(DB.enquiries(), 'enquiries') || [];
   var canEdit = can('enquiries', 'edit');
   content.innerHTML = '<div class="sub" style="margin-bottom:10px;font-size:12px;color:var(--muted)">' + (canEdit ? 'Card ko drag karke doosre stage me chhodo, ya ◀ ▶ se move karo. Card par click = edit.' : 'Read-only view') + '</div>'
     + '<div class="pipeline" id="pipeBoard">' + PIPE_STAGES.map(function(st, si){
@@ -7921,7 +7921,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.04.2';
+var OC_WEB_BUILD = '2026.09.04.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8014,7 +8014,7 @@ window.ocQuoView = function(id, ev){
 };
 
 window.renderQuotations = function(){
-  var list = scope(DB.quotations()) || [];
+  var list = scope(DB.quotations(), 'quotations') || [];
   var stat = {}; list.forEach(function(q){ if(q) stat[q.status] = (stat[q.status] || 0) + 1; });
   content.innerHTML = table('Quotations', list.length,
     '<th>Quote ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Amount</th><th>Discount</th><th>Valid Till</th><th>Owner</th><th>Status</th><th></th>',
@@ -8032,7 +8032,7 @@ window.paintTable = function(bodyId){
   if(bodyId !== 'quo-body') return _paintV10.apply(this, arguments);
   var body = $(bodyId); if(!body) return;
   var gs = $('globalSearch'); var q = LC(gs && gs.value);
-  var rows = scope(DB.quotations()).filter(function(x){
+  var rows = scope(DB.quotations(), 'quotations').filter(function(x){
     return x && (!q || [x.id, x.customer, x.product, x.salesperson].join(' ').toLowerCase().indexOf(q) >= 0);
   }).sort(function(a, b){ return S(b.date).localeCompare(S(a.date)); });
   body.innerHTML = rows.map(function(x){
@@ -8743,11 +8743,11 @@ function metaAll(){
 /* har count wahi expression use karta hai jo us section ka render karta hai */
 function liveCounts(){
   var c = {};
-  try{ c.enq  = scope(DB.enquiries()).length; }catch(e){}
-  try{ c.quo  = scope(DB.quotations()).length; }catch(e){}
+  try{ c.enq  = scope(DB.enquiries(), 'enquiries').length; }catch(e){}
+  try{ c.quo  = scope(DB.quotations(), 'quotations').length; }catch(e){}
   try{ c.ord  = scope(DB.orders(), 'orders').filter(function(o){ return o && !isDis(o); }).length; }catch(e){}
   try{ c.dis  = scope(DB.dispatch(), 'dispatch').length; }catch(e){}
-  try{ c.meta = scope(metaAll()).length; }catch(e){}
+  try{ c.meta = scope(metaAll(), 'metaLeads').length; }catch(e){}
   return c;
 }
 window.ocLiveCounts = liveCounts;
@@ -10206,6 +10206,82 @@ if(typeof _renderDashD === 'function'){
 }
 
 console.log('[oc v20] dashboard: meta leads counted as enquiries; incentive moved below');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 23. OAKCRAFT v21 — VIEW-ONLY FULL ACCESS                                *
+ *                                                                        *
+ *   Kuch users ko poora data dekhna hota hai par badalne ka haq nahi.     *
+ *   Abhi: pc2oakcraft@gmail.com ko Enquiries/Leads aur Meta Leads ka      *
+ *   SAARA data dikhega (sirf apna nahi), lekin sirf DEKH aur FILTER kar   *
+ *   sakega -- add / edit / delete kuch nahi.                              *
+ *                                                                        *
+ *   Naya user jodna ho to bas VIEW_ONLY_USERS me email aur uske sections  *
+ *   likh dijiye. Sections ke naam wahi jo permissions me hain:            *
+ *     enquiries · metaLeads · quotations · orders · dispatch ·            *
+ *     customers · products                                                *
+ *                                                                        *
+ *   ZAROORI: poora data server se aata hai, isliye Code.gs ke             *
+ *   FULL_DATA_USERS me bhi wahi email + collection hona chahiye --        *
+ *   warna server wo rows bhejta hi nahi aur yahan kuch nahi dikhega.      *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocViewOnly) return; window.__ocViewOnly = true;
+
+var VIEW_ONLY_USERS = {
+  'pc2oakcraft@gmail.com': ['enquiries', 'metaLeads']
+};
+window.OC_VIEW_ONLY_USERS = VIEW_ONLY_USERS;
+
+function S(v){ return v == null ? '' : String(v); }
+function myMail(){ try{ return S((AUTH.current() || {}).email).trim().toLowerCase(); }catch(e){ return ''; } }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+
+/* is user ko is section ka poora data (par read-only) milna chahiye? */
+function viewOnlyFor(section){
+  if(isAdm()) return false;                       /* admin par koi rok nahi */
+  var list = VIEW_ONLY_USERS[myMail()];
+  return !!(list && list.indexOf(S(section)) >= 0);
+}
+window.ocIsViewOnly = viewOnlyFor;
+
+/* ---- 1. poora data: FULL_DATA_USERS me jod do ----
+   v13 wala block usi object ko padhta hai jo window.OC_FULL_DATA_USERS par
+   hai, isliye yahan usme entry jodne se scope() aur canTouch() dono par
+   chhoot apne aap lag jaati hai. */
+try{
+  var FD = window.OC_FULL_DATA_USERS;
+  if(FD){
+    Object.keys(VIEW_ONLY_USERS).forEach(function(em){
+      VIEW_ONLY_USERS[em].forEach(function(coll){
+        var arr = FD[coll] = FD[coll] || [];
+        if(arr.indexOf(em) < 0) arr.push(em);
+      });
+    });
+  }
+}catch(e){ console.warn('[oc v21] full-data grant failed', e); }
+
+/* ---- 2. read-only: create / edit / delete band ----
+   view chalu rehta hai, isliye list, search aur saare filter waise hi
+   kaam karte hain. Baaki sab ka enforcement pehle se maujood hai:
+   applyViewPerms() buttons chhupata hai, guardDelete()/ML ke guards
+   action rokte hain, aur pipeline ka drag bhi apne aap band ho jaata hai. */
+var _canV21 = window.can;
+if(typeof _canV21 === 'function'){
+  window.can = function(section, action){
+    if(action !== 'view' && viewOnlyFor(section)) return false;
+    return _canV21.apply(this, arguments);
+  };
+}
+
+/* ---- 3. record khol kar dekhne dena, par edit form nahi ----
+   canTouch() ko FULL_DATA_USERS se true milta hai (detail drawer khulta
+   rahe), par edit/delete can() se pehle hi ruk jaate hain. */
+
+console.log('[oc v21] view-only full access:', Object.keys(VIEW_ONLY_USERS).join(', '));
 })();
 </script>
 
