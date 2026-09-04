@@ -7919,7 +7919,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.03.4';
+var OC_WEB_BUILD = '2026.09.03.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9823,6 +9823,277 @@ window.ocClearPendingOrders = function(){
 setInterval(flush, 10 * 60 * 1000);
 
 console.log('[oc v18] pending-order flush active');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 21. OAKCRAFT v19 — LEAD / ENQUIRY ASSIGNMENT ALERTS                     *
+ *                                                                        *
+ *   Jaise hi koi Enquiry ya Meta Lead kisi user ke naam par aata hai,     *
+ *   us user ko turant pata chalna chahiye. Ye block wahi karta hai:       *
+ *     - har sync ke baad dekhta hai ki mere naam par kya naya aaya        *
+ *     - beech screen par bada pop-up (lead ki poori detail ke saath)      *
+ *     - notification sound (WebAudio - koi file download nahi hoti)       *
+ *     - phone par vibration (APK me VIBRATE permission ke saath)          *
+ *     - browser/system notification (agar user ne permission di ho) --    *
+ *       isse tab background me ho tab bhi alert dikhta hai                *
+ *     - sidebar me unread bell badge, aur "Dekho" par seedha record khulta*
+ *                                                                        *
+ *   Pehli baar login par backlog nahi bhejta -- us waqt ke saare records  *
+ *   chup-chaap "dekhe hue" mark ho jaate hain, alert uske baad hi aata    *
+ *   hai. Har user ka apna record hai (email ke hisaab se).                *
+ *                                                                        *
+ *   NOTE: app poori tarah band ho / phone locked ho tab OS-level alert    *
+ *   Apps Script wale email notifier se aata hai (apps-script/AssignNotify *
+ *   .gs, 1 minute ka trigger). Sachcha instant push (FCM) ke liye alag    *
+ *   Firebase setup chahiye -- wo yahan shaamil nahi hai.                  *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocNotify) return; window.__ocNotify = true;
+
+function S(v){ return v == null ? '' : String(v); }
+function LC(v){ return S(v).trim().toLowerCase(); }
+function E(v){
+  try{ return esc(S(v)); }
+  catch(e){ return S(v).replace(/[&<>"]/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+}
+function J(k, d){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function P(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+function me(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function myName(){ try{ return LC((AUTH.current() || {}).name); }catch(e){ return ''; } }
+function key(){ return 'oc_notifSeen_' + (me() || 'anon'); }
+
+/* ---------------- kaun sa record mera hai ---------------- */
+function mine(r){
+  if(!r) return false;
+  var m = me(); if(!m) return false;
+  if(LC(r.owner) === m || LC(r.ownerEmail) === m || LC(r.createdBy) === m) return true;
+  var n = myName();
+  if(n && (LC(r.salesperson) === n || LC(r.assigned_to) === n)) return true;
+  return false;
+}
+function enqList(){ try{ return DB.enquiries() || []; }catch(e){ return []; } }
+function metaList(){ try{ var a = JSON.parse(localStorage.getItem('metaLeads') || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+
+/* ---------------- awaaz ---------------- */
+var AC = null;
+function beep(){
+  try{
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    if(AC.state === 'suspended'){ try{ AC.resume(); }catch(e){} }
+    [0, 0.22, 0.44].forEach(function(t, i){
+      var o = AC.createOscillator(), g = AC.createGain();
+      o.type = 'sine';
+      o.frequency.value = i === 2 ? 1046 : 784;              /* G5, G5, C6 */
+      g.gain.setValueAtTime(0.0001, AC.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.28, AC.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + t + 0.18);
+      o.connect(g); g.connect(AC.destination);
+      o.start(AC.currentTime + t); o.stop(AC.currentTime + t + 0.2);
+    });
+  }catch(e){}
+}
+function buzz(){ try{ if(navigator.vibrate) navigator.vibrate([300, 140, 300]); }catch(e){} }
+
+/* ---------------- system notification ---------------- */
+function canNotify(){ try{ return typeof Notification !== 'undefined' && Notification.permission === 'granted'; }catch(e){ return false; } }
+function sysNotify(n){
+  if(!canNotify()) return;
+  try{
+    var t = new Notification(n.kind === 'meta' ? 'Naya Meta Lead aapko mila' : 'Nayi Enquiry aapko mili', {
+      body: n.title + (n.sub ? '\n' + n.sub : ''),
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      tag: n.kind + ':' + n.id,
+      requireInteraction: true
+    });
+    t.onclick = function(){ try{ window.focus(); }catch(e){} open(n); try{ t.close(); }catch(e){} };
+  }catch(e){}
+}
+/* permission maangna user ke click par hi ho sakta hai -- isliye ek chhota bar */
+function askPermBar(){
+  try{
+    if(typeof Notification === 'undefined') return;
+    if(Notification.permission !== 'default') return;
+    if(document.getElementById('oc-perm-bar')) return;
+    if(J('oc_notifPermAsked', 0)) return;
+    var b = document.createElement('div');
+    b.id = 'oc-perm-bar';
+    b.setAttribute('style', 'position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:95;'
+      + 'display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:11px;'
+      + 'font:500 13px var(--sans);background:var(--surface);color:var(--text);'
+      + 'border:1px solid var(--border);box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:92vw');
+    b.innerHTML = '<span>\u{1F514} Nayi lead ka alert phone par chahiye? Notifications on kar lijiye.</span>';
+    var yes = document.createElement('button');
+    yes.className = 'btn primary sm'; yes.textContent = 'On karein';
+    yes.onclick = function(){
+      P('oc_notifPermAsked', 1);
+      try{ Notification.requestPermission().then(function(){ try{ beep(); }catch(e){} }); }catch(e){}
+      b.remove();
+    };
+    var no = document.createElement('button');
+    no.className = 'btn sm'; no.textContent = 'Abhi nahi';
+    no.onclick = function(){ P('oc_notifPermAsked', 1); b.remove(); };
+    b.appendChild(yes); b.appendChild(no);
+    document.body.appendChild(b);
+  }catch(e){}
+}
+
+/* ---------------- pop-up ---------------- */
+var QUEUE = [], SHOWING = false;
+
+function open(n){
+  try{
+    if(n.kind === 'meta'){
+      setView('metaLeads');
+      setTimeout(function(){ try{ if(window.ML && ML.form) ML.form(n.id); }catch(e){} }, 260);
+    } else {
+      setView('enquiries');
+      setTimeout(function(){
+        try{ if(typeof openEnqDetail === 'function') openEnqDetail(n.id); else if(typeof openEnqModal === 'function') openEnqModal(n.id); }catch(e){}
+      }, 260);
+    }
+  }catch(e){}
+}
+window.ocNotifOpen = function(){ var n = QUEUE[0]; close(); if(n) open(n); };
+window.ocNotifNext = function(){ close(); };
+
+function close(){
+  QUEUE.shift();
+  var w = document.getElementById('oc-notif-wrap');
+  if(w) w.remove();
+  SHOWING = false;
+  bell();
+  if(QUEUE.length) setTimeout(paint, 220);
+}
+
+function paint(){
+  var n = QUEUE[0]; if(!n) return;
+  if(document.getElementById('oc-notif-wrap')) return;
+  SHOWING = true;
+  var more = QUEUE.length > 1 ? '<div style="font-size:11.5px;color:var(--muted);margin-top:10px">+ ' + (QUEUE.length - 1) + ' aur naye ' + (n.kind === 'meta' ? 'lead' : 'record') + ' hain</div>' : '';
+  var rows = n.rows.map(function(r){
+    return '<div style="display:flex;justify-content:space-between;gap:14px;padding:7px 0;border-bottom:1px solid var(--border)">'
+         + '<span style="font-size:12.5px;color:var(--muted)">' + E(r[0]) + '</span>'
+         + '<span style="font-size:13.5px;font-weight:600;text-align:right">' + E(r[1] || '—') + '</span></div>';
+  }).join('');
+
+  var w = document.createElement('div');
+  w.id = 'oc-notif-wrap';
+  w.setAttribute('style', 'position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;'
+    + 'background:rgba(6,10,14,.62);padding:18px');
+  w.innerHTML =
+      '<div role="alertdialog" aria-live="assertive" style="width:min(420px,100%);background:var(--surface);border:1px solid var(--border);'
+    +      'border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.42);overflow:hidden;animation:ocPop .22s ease-out">'
+    +   '<div style="padding:16px 20px;background:linear-gradient(135deg,#0e6f6b,#12908a);color:#fff">'
+    +     '<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;opacity:.85;font-weight:600">'
+    +       (n.kind === 'meta' ? 'Naya Meta Lead' : 'Nayi Enquiry') + ' · aapke naam par</div>'
+    +     '<div style="font-size:19px;font-weight:700;margin-top:4px;line-height:1.25">' + E(n.title) + '</div>'
+    +     (n.sub ? '<div style="font-size:13px;opacity:.9;margin-top:2px">' + E(n.sub) + '</div>' : '')
+    +   '</div>'
+    +   '<div style="padding:6px 20px 14px">' + rows + more + '</div>'
+    +   '<div style="display:flex;gap:10px;padding:0 20px 18px">'
+    +     '<button class="btn" style="flex:1" onclick="ocNotifNext()">Baad me</button>'
+    +     '<button class="btn primary" style="flex:1" onclick="ocNotifOpen()">Dekho</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(w);
+  if(!document.getElementById('oc-notif-css')){
+    var st = document.createElement('style'); st.id = 'oc-notif-css';
+    st.textContent = '@keyframes ocPop{from{opacity:0;transform:scale(.92) translateY(10px)}to{opacity:1;transform:none}}'
+      + '@media (prefers-reduced-motion:reduce){#oc-notif-wrap>div{animation:none}}';
+    document.head.appendChild(st);
+  }
+  beep(); buzz(); sysNotify(n);
+}
+
+/* ---------------- sidebar bell ---------------- */
+function bell(){
+  try{
+    var host = document.querySelector('.nav'); if(!host) return;
+    var el = document.getElementById('oc-bell');
+    if(!QUEUE.length){ if(el) el.remove(); return; }
+    if(!el){
+      el = document.createElement('a');
+      el.id = 'oc-bell'; el.href = '#';
+      el.setAttribute('style', 'display:flex;align-items:center;gap:10px;cursor:pointer');
+      el.onclick = function(ev){ ev.preventDefault(); paint(); };
+      host.insertBefore(el, host.firstChild);
+    }
+    el.innerHTML = '\u{1F514} <span>Naye assignments</span> <span class="chip c-new" style="margin-left:auto">' + QUEUE.length + '</span>';
+  }catch(e){}
+}
+
+/* ---------------- watcher ---------------- */
+function rowsFor(kind, r){
+  if(kind === 'meta'){
+    return [['Phone', r.phone_number], ['City', r.city_state], ['Platform', r.platform],
+            ['Status', r.lead_status], ['Aaya', r.created_time_ist]];
+  }
+  return [['Customer', r.customer], ['Product', r.product], ['Qty', r.qty],
+          ['Source', r.source], ['Value', r.value], ['Stage', r.stage]];
+}
+function titleFor(kind, r){
+  if(kind === 'meta') return S(r.full_name) || S(r.phone_number) || 'Naya lead';
+  return S(r.customer) || S(r.product) || 'Nayi enquiry';
+}
+function subFor(kind, r){
+  if(kind === 'meta') return [S(r.city_state), S(r.platform)].filter(Boolean).join(' · ');
+  return [S(r.product), S(r.source)].filter(Boolean).join(' · ');
+}
+
+function check(){
+  try{
+    if(!me()) return;
+    if(typeof AUTH === 'undefined' || !AUTH.session || !AUTH.session()) return;
+    var seen = J(key(), null);
+    var first = !seen;
+    seen = seen || { enq: {}, meta: {}, t: Date.now() };
+    seen.enq = seen.enq || {}; seen.meta = seen.meta || {};
+
+    var fresh = [], changed = false;
+    [['enq', enqList()], ['meta', metaList()]].forEach(function(pair){
+      var kind = pair[0], list = pair[1] || [];
+      list.forEach(function(r){
+        var id = S(r && r.id); if(!id || !mine(r)) return;
+        if(seen[kind][id]) return;
+        seen[kind][id] = 1; changed = true;
+        if(!first) fresh.push({ kind: kind === 'meta' ? 'meta' : 'enq', id: id,
+                                title: titleFor(kind, r), sub: subFor(kind, r), rows: rowsFor(kind, r) });
+      });
+    });
+    if(changed) P(key(), seen);
+    if(first) return;                    /* pehli baar: backlog chup-chaap seed */
+    if(!fresh.length) return;
+
+    /* jo pehle se queue me hai use dobara mat jodo */
+    var have = {}; QUEUE.forEach(function(q){ have[q.kind + ':' + q.id] = 1; });
+    fresh.forEach(function(f){ if(!have[f.kind + ':' + f.id]) QUEUE.push(f); });
+    bell();
+    if(!SHOWING) paint(); else { beep(); buzz(); fresh.forEach(sysNotify); }
+  }catch(e){ console.warn('[oc v19] notify check failed', e); }
+}
+window.ocNotifCheck = check;
+
+/* har pull ke baad turant check */
+try{
+  var _pullN = CLOUD.pull;
+  CLOUD.pull = function(){
+    var p = _pullN.apply(this, arguments);
+    return Promise.resolve(p).then(function(r){ setTimeout(check, 60); return r; },
+                                   function(e){ throw e; });
+  };
+}catch(e){}
+/* tab wapas focus me aaye to bhi */
+document.addEventListener('visibilitychange', function(){ if(!document.hidden) setTimeout(check, 400); });
+
+[3000, 9000].forEach(function(ms){ setTimeout(function(){ check(); askPermBar(); }, ms); });
+setInterval(check, 20000);
+
+console.log('[oc v19] assignment alerts active');
 })();
 </script>
 
