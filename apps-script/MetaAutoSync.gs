@@ -51,6 +51,7 @@ var MAS_COLL       = 'metaLeads';
 var MAS_MINUTES    = 1;
 var MAS_MAX_PER_RUN = 100;         // ek run me itne se zyada nahi (safety)
 var MAS_PROP_ROW   = 'mas_lastRow';
+var MAS_PROP_KEY   = 'mas_lastKey';   // us row ka ts+phone -- pointer self-heal ke liye
 
 /* Yahan tak ka data pehle hi sync ho chuka hai. */
 var MAS_START_AFTER_TS    = '04-09-2026 09:45:17';
@@ -205,7 +206,38 @@ function mas_ownerFor_(assignedTo, roster){
  * ------------------------------------------------------------------ */
 function mas_props_(){ return PropertiesService.getScriptProperties(); }
 function mas_getPointer_(){ var v = mas_props_().getProperty(MAS_PROP_ROW); return v ? parseInt(v, 10) || 0 : 0; }
-function mas_setPointer_(n){ mas_props_().setProperty(MAS_PROP_ROW, String(n)); }
+function mas_rowKey_(r){ return r ? (r.tsKey + '|' + r.phone) : ''; }
+function mas_setPointer_(n, rows){
+  mas_props_().setProperty(MAS_PROP_ROW, String(n));
+  if(rows){
+    for(var i = 0; i < rows.length; i++){
+      if(rows[i].row === n){ mas_props_().setProperty(MAS_PROP_KEY, mas_rowKey_(rows[i])); break; }
+    }
+  }
+}
+/**
+ * Pointer ek row NUMBER hai. Agar kisi ne final_meta_leads me beech me row
+ * insert ya delete kar di to wo number galat ho jaata -- naye lead chup-chaap
+ * skip ho sakte the. Isliye us row ka ts+phone bhi yaad rakhte hain aur har
+ * run me pointer ko dobara usi record par le aate hain.
+ */
+function mas_healPointer_(rows, ptr){
+  var key = mas_props_().getProperty(MAS_PROP_KEY);
+  if(!key) return ptr;
+  for(var i = 0; i < rows.length; i++){
+    if(mas_rowKey_(rows[i]) === key){
+      if(rows[i].row !== ptr){
+        Logger.log('MetaAutoSync: pointer ' + ptr + ' -> ' + rows[i].row
+                 + ' (rows shift ho gayi thin, khud theek kar diya).');
+        mas_props_().setProperty(MAS_PROP_ROW, String(rows[i].row));
+      }
+      return rows[i].row;
+    }
+  }
+  Logger.log('MetaAutoSync: WARNING -- pointer wali row (' + key + ') ab sheet me nahi hai. '
+           + 'Row number ' + ptr + ' hi maana ja raha hai. Duplicate check phir bhi lagta hai.');
+  return ptr;
+}
 
 /** Jo aakhri record pehle se sync hai, uski row dhoondo. */
 function mas_findStartRow_(rows){
@@ -239,7 +271,9 @@ function mas_run_(dryRun){
         Logger.log('MetaAutoSync: WARNING — start wali row nahi mili. Safety ke liye pointer aakhri row ('
                    + ptr + ') par set kar diya, purana kuch import nahi hoga.');
       }
-      if(!dryRun) mas_setPointer_(ptr);
+      if(!dryRun) mas_setPointer_(ptr, rows);
+    } else {
+      ptr = mas_healPointer_(rows, ptr);
     }
 
     /* CRM me pehle se kya hai — phone aur timestamp dono ke set */
@@ -318,7 +352,7 @@ function mas_run_(dryRun){
     t.sheet.getRange(t.sheet.getLastRow() + 1, 1, block.length, t.cols).setValues(block);
     SpreadsheetApp.flush();
 
-    mas_setPointer_(fresh[fresh.length - 1].row);
+    mas_setPointer_(fresh[fresh.length - 1].row, rows);
 
     Logger.log('MetaAutoSync: ' + fresh.length + ' naya lead add hua —\n  '
       + fresh.map(function(f){
@@ -349,11 +383,11 @@ function installMetaAutoSync(){
   var rows = mas_srcRows_();
   var start = mas_findStartRow_(rows);
   if(start){
-    mas_setPointer_(start);
+    mas_setPointer_(start, rows);
     Logger.log('MetaAutoSync: pointer row ' + start + ' par set (Arvind Shivhare | 9783895182). '
              + 'Isse upar ka kuch import nahi hoga.');
   } else if(rows.length){
-    mas_setPointer_(rows[rows.length - 1].row);
+    mas_setPointer_(rows[rows.length - 1].row, rows);
     Logger.log('MetaAutoSync: WARNING — start wali row nahi mili, pointer aakhri row par set kar diya.');
   }
   ScriptApp.newTrigger('metaAutoSyncTick').timeBased().everyMinutes(MAS_MINUTES).create();
@@ -373,7 +407,7 @@ function removeMetaAutoSync(){
 function resetMetaAutoSyncPointer(){
   var rows = mas_srcRows_(), start = mas_findStartRow_(rows);
   if(!start){ Logger.log('MetaAutoSync: start wali row nahi mili.'); return; }
-  mas_setPointer_(start);
+  mas_setPointer_(start, rows);
   Logger.log('MetaAutoSync: pointer wapas row ' + start + ' par set.');
 }
 
