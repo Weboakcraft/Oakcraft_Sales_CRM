@@ -7919,7 +7919,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.03.5';
+var OC_WEB_BUILD = '2026.09.04.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9898,12 +9898,29 @@ function beep(){
 }
 function buzz(){ try{ if(navigator.vibrate) navigator.vibrate([300, 140, 300]); }catch(e){} }
 
-/* ---------------- system notification ---------------- */
-function canNotify(){ try{ return typeof Notification !== 'undefined' && Notification.permission === 'granted'; }catch(e){ return false; } }
+/* ---------------- system notification ---------------- *
+   Android app ek WebView hai aur WebView me browser ka Notification API
+   hota hi nahi. Isliye APK ke andar hum native bridge se asli Android
+   notification banwate hain (sound + vibration + heads-up); browser me
+   pehle jaisa Web Notification chalta hai. */
+function androidBridge(){
+  try{ return (window.OakAndroid && typeof OakAndroid.notify === 'function') ? OakAndroid : null; }
+  catch(e){ return null; }
+}
+function canNotify(){
+  if(androidBridge()) return true;
+  try{ return typeof Notification !== 'undefined' && Notification.permission === 'granted'; }catch(e){ return false; }
+}
 function sysNotify(n){
+  var head = (n.kind === 'meta' ? 'Naya Meta Lead aapko mila' : 'Nayi Enquiry aapko mili');
+  var A = androidBridge();
+  if(A){
+    try{ A.notify(head, n.title + (n.sub ? ' \u2014 ' + n.sub : ''), n.kind + ':' + n.id); return; }
+    catch(e){}
+  }
   if(!canNotify()) return;
   try{
-    var t = new Notification(n.kind === 'meta' ? 'Naya Meta Lead aapko mila' : 'Nayi Enquiry aapko mili', {
+    var t = new Notification(head, {
       body: n.title + (n.sub ? '\n' + n.sub : ''),
       icon: 'icons/icon-192.png',
       badge: 'icons/icon-192.png',
@@ -9916,6 +9933,7 @@ function sysNotify(n){
 /* permission maangna user ke click par hi ho sakta hai -- isliye ek chhota bar */
 function askPermBar(){
   try{
+    if(androidBridge()) return;                 /* APK: Android khud permission maangta hai */
     if(typeof Notification === 'undefined') return;
     if(Notification.permission !== 'default') return;
     if(document.getElementById('oc-perm-bar')) return;
