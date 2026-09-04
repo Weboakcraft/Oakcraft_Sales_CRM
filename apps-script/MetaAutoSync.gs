@@ -40,8 +40,9 @@
  * SAFETY
  *   - Sirf metaLeads collection me NAYI rows add karta hai. Kisi maujooda
  *     lead ko na badalta hai na hataata hai.
- *   - Agar metaLeads ka storage tab pehchaana na ja sake to kuch nahi likhta,
- *     sirf error log karta hai (fail-safe).
+ *   - Likhne ke liye Code.gs ka apna _upsertMany() istemal hota hai, isliye
+ *     schema / Drive / merge sab wahi rehta hai jo CRM khud karta hai.
+ *     Wo function na mile to kuch nahi likhta, sirf error log (fail-safe).
  *   - LockService se do run kabhi ek saath nahi chalte.
  */
 
@@ -146,33 +147,27 @@ function mas_srcRows_(){
 }
 
 /* ------------------------------------------------------------------ *
- * target: metaLeads ka storage tab                                    *
+ * writer: Code.gs ka apna _upsertMany                                 *
  * ------------------------------------------------------------------ */
 /**
- * CRM har collection ko ek tab me {id, data(JSON), updatedAt} ki tarah rakhta
- * hai. Tab ka naam / column order guess nahi karte — runtime par dhoondte
- * hain. Na mile to kuch likhte hi nahi.
+ * CRM har collection ko flattened columns me rakhta hai (ek column per
+ * field path), isliye tab me seedha row likhna GALAT hai. Code.gs ka
+ * apna writer _upsertMany(name, [{id,data}]) hi istemal karte hain --
+ * wahi schema, wahi Drive handling, wahi merge logic. Wo na mile to
+ * kuch likhte hi nahi (fail-safe).
  */
-function mas_targetTab_(){
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if(!ss) throw new Error('Active spreadsheet nahi mila — ye script CRM ki sheet se bound honi chahiye');
-
-  var want = ['metaleads', 'meta_leads_data', 'meta_leads_store'];
-  var sheets = ss.getSheets(), sh = null;
-  for(var i = 0; i < sheets.length; i++){
-    var nm = mas_lc_(sheets[i].getName()).replace(/\s+/g, '');
-    if(want.indexOf(nm) >= 0){ sh = sheets[i]; break; }
+function mas_writerReady_(){
+  return (typeof _upsertMany === 'function') || (typeof _upsert === 'function');
+}
+function mas_write_(recs){
+  if(!recs.length) return 0;
+  var payload = recs.map(function(r){ return { id: r.id, data: r }; });
+  if(typeof _upsertMany === 'function'){ _upsertMany(MAS_COLL, payload); return payload.length; }
+  if(typeof _upsert === 'function'){
+    payload.forEach(function(p){ _upsert(MAS_COLL, p); });
+    return payload.length;
   }
-  if(!sh) throw new Error('metaLeads ka storage tab nahi mila. Tab ka naam bata dijiye, script me set kar denge.');
-
-  var lastCol = sh.getLastColumn();
-  if(lastCol < 2) throw new Error('Tab "' + sh.getName() + '" me expected columns nahi hain');
-  var head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h){ return mas_lc_(h); });
-  var iId = head.indexOf('id'), iData = head.indexOf('data');
-  if(iId < 0 || iData < 0){
-    throw new Error('Tab "' + sh.getName() + '" me "id" / "data" column nahi mila — header: ' + head.join(' | '));
-  }
-  return { sheet: sh, head: head, cols: lastCol, iId: iId, iData: iData, iUpd: head.indexOf('updatedat') };
+  throw new Error('Code.gs ka _upsertMany / _upsert nahi mila — kuch nahi likha gaya.');
 }
 
 /* ------------------------------------------------------------------ *
@@ -338,23 +333,18 @@ function mas_run_(dryRun){
       return;
     }
 
-    /* --- likho --- */
-    var t = mas_targetTab_();
-    var now = new Date();
-    var block = fresh.map(function(f){
-      var line = new Array(t.cols);
-      for(var c = 0; c < t.cols; c++) line[c] = '';
-      line[t.iId]   = f.rec.id;
-      line[t.iData] = JSON.stringify(f.rec);
-      if(t.iUpd >= 0) line[t.iUpd] = now;
-      return line;
-    });
-    t.sheet.getRange(t.sheet.getLastRow() + 1, 1, block.length, t.cols).setValues(block);
+    /* --- likho (Code.gs ke apne writer se) --- */
+    if(!mas_writerReady_()){
+      Logger.log('MetaAutoSync ERROR: _upsertMany/_upsert nahi mila. Ye file CRM ke Apps Script '
+               + 'project (Code.gs ke saath) me honi chahiye. Kuch nahi likha gaya.');
+      return;
+    }
+    var wrote = mas_write_(fresh.map(function(f){ return f.rec; }));
     SpreadsheetApp.flush();
 
     mas_setPointer_(fresh[fresh.length - 1].row, rows);
 
-    Logger.log('MetaAutoSync: ' + fresh.length + ' naya lead add hua —\n  '
+    Logger.log('MetaAutoSync: ' + wrote + ' naya lead add hua —\n  '
       + fresh.map(function(f){
           return f.rec.full_name + ' | ' + f.rec.phone_number + ' -> ' + (f.rec.owner || '(owner nahi mila)');
         }).join('\n  '));
@@ -415,11 +405,12 @@ function resetMetaAutoSyncPointer(){
 function statusMetaAutoSync(){
   var rows = mas_srcRows_(), ptr = mas_getPointer_();
   var pending = rows.filter(function(r){ return r.row > ptr; }).length;
-  var tab = '';
-  try{ tab = mas_targetTab_().sheet.getName(); }catch(e){ tab = 'NAHI MILA — ' + e; }
+  var writer = (typeof _upsertMany === 'function') ? '_upsertMany OK'
+             : (typeof _upsert === 'function') ? '_upsert OK'
+             : 'NAHI MILA — ye file CRM ke Apps Script project me nahi hai';
   Logger.log('MetaAutoSync status:\n  source rows : ' + rows.length
            + '\n  pointer row : ' + ptr
            + '\n  pending     : ' + pending
-           + '\n  target tab  : ' + tab
+           + '\n  writer      : ' + writer
            + '\n  CRM leads   : ' + mas_read_(MAS_COLL).length);
 }
