@@ -7921,7 +7921,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.04.3';
+var OC_WEB_BUILD = '2026.09.09.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -7989,6 +7989,29 @@ function qbOpen(hash){
 }
 function quoById(id){ return (DB.quotations() || []).filter(function(x){ return x && x.id === id; })[0] || null; }
 
+/* ---- Valid Till: legacy rows ko bhi sahi dikhao -------------------------
+   Purane quotation-builder me ek dead code path `validTill` me DINON ki
+   ginti likh deta tha (15 / 1 / 2) us field me jise ye list DATE ki tarah
+   dikhati hai. Wo bug ab theek hai, lekin purani rows Sheet me waise hi
+   padi hain. Display par unhe asli tareekh me badal dete hain:
+   quotation ki date + utne din. Data ko chhua nahi jaata. */
+function ocQuoValidTill(q){
+  var v = S(q && q.validTill).trim();
+  if(/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  var days = parseFloat(v);
+  if(!days) days = parseFloat(S(q && q.validDays));
+  var base = S(q && q.date).slice(0, 10);
+  if(days > 0 && days < 400 && /^\d{4}-\d{2}-\d{2}$/.test(base)){
+    var d = new Date(base + 'T00:00:00');
+    if(!isNaN(d.getTime())){
+      d.setDate(d.getDate() + Math.round(days));
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+  }
+  return '';
+}
+window.ocQuoValidTill = ocQuoValidTill;
+
 /* New / Edit dono yahi se guzarte hain — isliye header ka "New Quotation",
    list ka "Add Quotation", row ka Edit aur enquiry ka "→ Quote", sab builder
    me khulte hain. Permissions pehle jaisi hi lagti hain. */
@@ -8038,7 +8061,7 @@ window.paintTable = function(bodyId){
   body.innerHTML = rows.map(function(x){
     var sp = S(x.salesperson);
     var enq = x.enqId ? '<div class="sub">from ' + esc(x.enqId) + '</div>' : '';
-    var vt = S(x.validTill);
+    var vt = ocQuoValidTill(x);
     return '<tr><td class="strong tabular">' + esc(x.id) + enq + '</td>'
       + '<td class="sub tabular">' + esc(x.date) + '</td>'
       + '<td>' + userCell(x.customer || '—') + '</td>'

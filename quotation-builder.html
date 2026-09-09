@@ -603,7 +603,26 @@ const FY = fyPrefix(today);
    uska apna FY chahiye, aaj ka nahi). Naye quotation me ye FY ke barabar hi rehta hai. */
 let FY_ACTIVE = FY;
 window.__ocFY = function(v){ if(v) FY_ACTIVE = v; return FY_ACTIVE; };
-const STORE_KEY = 'oakcraft-qno-' + FY;
+const STORE_KEY = 'oakcraft-qno-' + FY;   /* legacy key -- ab use nahi hota */
+
+/* ---- CRM session se logged-in user ka email ----------------------------
+   Quotation par `owner` isi se lagta hai. CRM ki list owner ke hisaab se
+   filter hoti hai (scope() index.html me), isliye bina owner wali quotation
+   banane wale ko hi nahi dikhti. Server bhi owner stamp karta hai, to dono
+   copies ek jaisi rehti hain -- local aur Sheet. */
+function ocSessionEmail(){
+  try{
+    var s = JSON.parse(localStorage.getItem('crm_session') || 'null');
+    if(s && s.email) return String(s.email).trim().toLowerCase();
+  }catch(e){}
+  try{
+    var t = localStorage.getItem('crm_sid') || '';
+    var b = String(t).split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+    if(b){ var f = atob(b).split('|'); if(f[0]) return String(f[0]).trim().toLowerCase(); }
+  }catch(e){}
+  return '';
+}
+window.ocSessionEmail = ocSessionEmail;
 
 let S = {
   qno: 1001, date: (function(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })(today), valid: 15, gst: 18,
@@ -622,43 +641,60 @@ let S = {
     "Subject to Delhi jurisdiction. E.&O.E."
   ].join("\n")
 };
-let numberReserved = false;
+let numberFinal = false;      /* true = server se mila hua pakka number */
+let _allocPromise = null;     /* ek waqt me sirf ek allocation */
 let dateManual = false;
 let lastPdfUrl = null;
 
-/* ================= SHARED AUTO-NUMBERING ================= */
+/* ================= SHARED AUTO-NUMBERING =================
+   Ek quotation ko number SIRF EK BAAR milta hai, aur wo SERVER deta hai.
+   Code.gs ka _nextQuoteNo() LockService ke andar chalta hai aur allocate
+   kiya hua number wapas karta hai -- hum wahi number rakhte hain, apna
+   andaaza kabhi nahi. Isi wajah se do users ek saath quotation banayein
+   to bhi dono ko alag-alag number milta hai.
+
+   Save hone se pehle screen par jo number dikhta hai wo sirf PROVISIONAL
+   hai (peekQuoteNo se), aur wo counter aage nahi badhata. */
 async function initNumber(){
-  if(window.__ocQ && window.__ocQ.id) return;   /* existing quotation: uska apna number rehta hai */
+  if(window.__ocQ && window.__ocQ.id) return;   /* purani quotation: uska apna number */
+  if(numberFinal) return;                       /* allocate ho chuka -- chhedna nahi */
   const el = document.getElementById('storeStatus');
   try{
-    let last = 1000;
-    try{
-      const r = await window.storage.get(STORE_KEY, true);
-      if(r && r.value) last = parseInt(JSON.parse(r.value)) || 1000;
-    }catch(e){ /* key doesn't exist yet */ }
-    S.qno = last + 1;
-    el.textContent = `Shared team numbering active — next number is ${fmtQno()} (FY ${FY}). It is reserved when you download the PDF.`;
-    el.style.color = 'var(--ok)';
+    const no = await window.ocQuoteNo.peek(FY);
+    S.qno = no;
+    if(el){
+      el.textContent = 'Provisional number ' + fmtQno() + ' (FY ' + FY + ') \u2014 pakka number Save / Download PDF par server deta hai.';
+      el.style.color = 'var(--muted)';
+    }
   }catch(e){
-    el.textContent = 'Shared numbering unavailable here — enter the number manually.';
+    if(el){
+      el.textContent = 'Numbering service abhi nahi mil rahi \u2014 number Save karte waqt milega.';
+      el.style.color = 'var(--err)';
+    }
   }
   syncInputs(); R();
 }
-async function reserveNumber(){
-  if(window.__ocQ && window.__ocQ.id) return;   /* edit: counter aage nahi badhta */
-  if(numberReserved) return;
-  try{
-    let last = 1000;
-    try{
-      const r = await window.storage.get(STORE_KEY, true);
-      if(r && r.value) last = parseInt(JSON.parse(r.value)) || 1000;
-    }catch(e){}
-    if(last >= S.qno) S.qno = last + 1;
-    await window.storage.set(STORE_KEY, JSON.stringify(S.qno), true);
-    numberReserved = true;
-    syncInputs();
-  }catch(e){ /* offline — keep manual number */ }
+
+/* Atomically number allocate karo -- sirf EK BAAR per quotation.
+   Fail hone par THROW karta hai, taaki bina pakke number ke koi record
+   kabhi save na ho (aur duplicate number kabhi na bane). */
+async function allocateNumber(){
+  if(window.__ocQ && window.__ocQ.id) return S.qno;   /* edit: number pehle se hai */
+  if(numberFinal) return S.qno;                      /* pehle hi allocate ho chuka */
+  if(_allocPromise) return _allocPromise;            /* double-click / do parallel call */
+  _allocPromise = (async function(){
+    const no = await window.ocQuoteNo.next(FY);       /* server-side, lock ke andar */
+    S.qno = no;
+    window.__ocFY(FY);
+    numberFinal = true;
+    syncInputs(); R();
+    return no;
+  })();
+  try{ return await _allocPromise; }
+  finally{ _allocPromise = null; }
 }
+/* purana naam bhi chalta rahe (kahin se call ho jaye to) */
+async function reserveNumber(){ return allocateNumber(); }
 
 /* ================= HELPERS ================= */
 const fmtQno = () => `OAK/${FY_ACTIVE}/${S.qno}`;
@@ -682,7 +718,7 @@ function numToWordsIndian(num){
   if(num) out += three(num);
   return out.trim();
 }
-function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function fmtDate(iso){
   if(!iso) return '';
   const d = new Date(iso+'T00:00:00');
@@ -1275,74 +1311,11 @@ function repMissing(){
   return names.length > 0;
 }
 
-async function downloadPDF(){
-  if(repMissing()) return;
-  const btn = document.getElementById('dlBtn');
-  btn.disabled = true; btn.textContent = 'Preparing PDF…';
-  try{
-    if(typeof html2pdf === 'undefined'){
-      const bar = document.getElementById('pdfbar');
-      bar.classList.add('show');
-      document.getElementById('pdfmsg').textContent = 'PDF engine could not load in this viewer — use the Print button and choose "Save as PDF" instead.';
-      document.getElementById('pdfOpen').style.display = 'none';
-      return;
-    }
-    document.getElementById('pdfOpen').style.display = '';
-    document.getElementById('pdfmsg').textContent = '✓ PDF generated.';
-    if(!dateManual){ S.date = new Date().toISOString().slice(0,10); syncInputs(); }
-    await reserveNumber();
-    R();
-    const fname = `OakCraft-ProForma-OAK-${FY}-${S.qno}.pdf`;
-    document.body.classList.add('exporting');
-
-    /* render EACH page separately — one page element = exactly one PDF page */
-    const pageEls = [...document.querySelectorAll('#printArea .page')];
-    let pdf = null;
-    for(let i=0; i<pageEls.length; i++){
-      if(i === 0){
-        pdf = await html2pdf().set({
-          margin: 0,
-          image: {type:'jpeg', quality:0.92},
-          html2canvas: {scale:2, useCORS:true, logging:false},
-          jsPDF: {unit:'mm', format:'a4', orientation:'portrait'},
-          pagebreak: {mode:['avoid-all']}
-        }).from(pageEls[0]).toPdf().get('pdf');
-      }else{
-        const canvas = await html2pdf().set({
-          html2canvas: {scale:2, useCORS:true, logging:false}
-        }).from(pageEls[i]).toCanvas().get('canvas');
-        const img = canvas.toDataURL('image/jpeg', 0.92);
-        const h = Math.min(297, canvas.height * 210 / canvas.width);
-        pdf.addPage('a4', 'portrait');
-        pdf.addImage(img, 'JPEG', 0, 0, 210, h);
-      }
-    }
-    document.body.classList.remove('exporting');
-
-    const blob = pdf.output('blob');
-    if(lastPdfUrl) URL.revokeObjectURL(lastPdfUrl);
-    lastPdfUrl = URL.createObjectURL(blob);
-
-    /* Path 1 — native download */
-    try{
-      const a = document.createElement('a');
-      a.href = lastPdfUrl; a.download = fname;
-      document.body.appendChild(a); a.click(); a.remove();
-    }catch(e){}
-
-    /* Path 2 — always offer Open PDF as backup */
-    document.getElementById('pdfOpen').href = lastPdfUrl;
-    document.getElementById('pdfbar').classList.add('show');
-  }catch(e){
-    document.body.classList.remove('exporting');
-    window.print();   // final fallback
-  }finally{
-    btn.disabled = false; btn.textContent = '⤓ Download PDF';
-    fitPreview();
-  }
-}
+/* purana html2pdf wala downloadPDF() hata diya gaya -- html2pdf kabhi load
+   hi nahi hota tha aur ye neeche wale vector-PDF version se override ho chuka
+   tha. Asli implementation neeche "window.downloadPDF" me hai. */
 function newQuotation(){
-  numberReserved = false;
+  numberFinal = false;
   dateManual = false;
   S.co=""; S.attn=""; S.addr=""; S.cgstin=""; S.cph=""; S.state="Delhi"; S.shipTo="";
   S.items=[]; S.freight=0; S.freightMode="none";
@@ -1388,7 +1361,8 @@ document.getElementById('inRepSel').innerHTML =
 addItem();
 syncInputs();
 R();
-initNumber();
+/* initNumber() yahan se hata diya gaya -- window.ocQuoteNo neeche wale
+   integration block me banta hai, isliye wahan se call hota hai. */
 fitPreview();
 window.addEventListener('focus', ()=>{
   if(!dateManual){
@@ -1422,137 +1396,67 @@ window.addEventListener('focus', ()=>{
   window.__ocGasSaveIn = function(coll, rec){ return gas('save', { collection: coll, record: { id: rec.id, data: rec } }); };
   window.__ocGasReady = function(){ return configured; };
 
-  window.storage = {
-    async get(key, shared){
-      // translate to CRM backend: peekQuoteNo returns next-available number
-      const r = await gas('peekQuoteNo', { fy: (typeof FY!=='undefined'?FY:'') });
-      const next = (r && r.no) ? r.no : 1001;
-      return { key: key, value: JSON.stringify(next - 1), shared: !!shared };
+  /* ---- shared quotation numbering (server-side, atomic) ----------------
+     peek : sirf dikhane ke liye -- counter aage nahi badhta
+     next : asli allocation. Code.gs me LockService ke andar hota hai aur
+            allocate kiya hua number wapas bhejta hai. Purana code ye
+            number phenk deta tha aur apna guess rakhta tha -- isi se do
+            users ko ek hi number milta tha. Ab server ka number hi chalta hai. */
+  window.ocQuoteNo = {
+    peek: async function(fy){
+      const r = await gas('peekQuoteNo', { fy: fy || (typeof FY !== 'undefined' ? FY : '') });
+      const n = +(r && r.no);
+      if(!n) throw new Error('peekQuoteNo did not return a number');
+      return n;
     },
-    async set(key, value, shared){
-      // reserve the number for real (nextQuoteNo increments the counter)
-      await gas('nextQuoteNo', { fy: (typeof FY!=='undefined'?FY:'') });
-      return { key: key, value: value, shared: !!shared };
+    next: async function(fy){
+      const r = await gas('nextQuoteNo', { fy: fy || (typeof FY !== 'undefined' ? FY : '') });
+      const n = +(r && r.no);
+      if(!n) throw new Error('nextQuoteNo did not return a number');
+      return n;
     }
   };
 
-  function buildPayload(){
-    const C = calc();
-    return {
-      qnoFormatted: fmtQno(),
-      fy: FY,
-      qno: S.qno,
-      date: S.date,
-      valid: S.valid,
-      gst: S.gst,
-      rep: S.rep,
-      repPh: S.repPh,
-      co: S.co,
-      attn: S.attn,
-      addr: S.addr,
-      cgstin: S.cgstin,
-      cph: S.cph,
-      state: S.state,
-      shipTo: S.shipTo,
-      freightMode: S.freightMode,
-      freight: C.fr,
-      sub: C.sub,
-      taxable: C.taxable,
-      cgstAmt: C.cgst,
-      sgstAmt: C.sgst,
-      igstAmt: C.igst,
-      roundoff: Number(C.roundoff.toFixed(2)),
-      grand: C.grand,
-      warranty: S.warranty,
-      payTerms: S.payTerms,
-      terms: S.terms,
-      items: C.rows.map(function(r, i){
-        return {
-          line: i + 1, name: r.name, desc: r.desc, hsn: r.hsn,
-          qty: r.qty, price: r.price, disc: r.disc || 0,
-          net: Number(r.net.toFixed(2)), amt: Number(r.amt.toFixed(2)),
-          del: r.del
-        };
-      })
-    };
-  }
+  /* Save ka ASLI nateeja check karo. Server ok:true ke saath bhi record ko
+     skip kar sakta hai (kisi aur ka record) ya reject (adhoora record).
+     Purana code sirf data.ok dekhta tha, isliye "saved" dikh jaata tha
+     jabki Sheet par kuch likha hi nahi gaya. */
+  window.__ocGasSaveChecked = async function(rec){
+    const r = await gas('save', { collection: 'quotations', record: { id: rec.id, data: rec } });
+    if(r && r.rejected && r.rejected.length){
+      const miss = (r.rejected[0].missing || []).join(', ');
+      throw new Error('Server ne record reject kiya \u2014 ye field zaroori hain: ' + (miss || 'unknown'));
+    }
+    if(r && r.skipped && !r.done){
+      throw new Error('Ye quotation aapki nahi hai \u2014 sirf iska owner ise edit kar sakta hai.');
+    }
+    if(r && r.done === 0){
+      throw new Error('Server ne kuch save nahi kiya (done:0).');
+    }
+    return r;
+  };
 
+  /* ek quotation server se laao (dusre device par bani ho to bhi khule) */
+  window.__ocGasFetchQuo = async function(id){
+    const r = await gas('list', { collection: 'quotations' });
+    const rows = (r && r.data) || [];
+    for(var i = 0; i < rows.length; i++){
+      var d = (rows[i] && rows[i].data !== undefined) ? rows[i].data : rows[i];
+      if(d && String(d.id) === String(id)) return d;
+    }
+    return null;
+  };
+
+  /* -- dead code hata diya gaya --------------------------------------
+     buildPayload() / crmRec / purana __saveQuoteToCRM / downloadPDF wrapper.
+     Ye teeno neeche wale blocks se override ho chuke the (dead the), lekin
+     inme `validTill: P.valid` tha -- yaani validity ke DIN date wale field
+     me chale jaate the. Isi se 66 me se 47 quotations me "Valid Till" = 15
+     / 1 / 2 likha hua hai. Dobara zinda na ho jaye, isliye hata diya. */
   function setStatus(msg, ok){
     const el = document.getElementById('storeStatus');
     if(el){ el.textContent = msg; el.style.color = ok ? 'var(--ok)' : 'var(--err)'; }
   }
-
-  window.__saveQuoteToCRM = async function(){
-    if(!configured){
-      setStatus('Google Sheets not connected yet — paste your Web App URL into the integration script.', false);
-      return;
-    }
-    try{
-      setStatus('Saving ' + fmtQno() + ' to Google Sheets…', true);
-      const P = buildPayload();
-      const firstItem = (P.items && P.items[0]) ? P.items[0].name : '';
-      const totalQty = (P.items||[]).reduce(function(a,it){ return a + (Number(it.qty)||0); }, 0) || 1;
-      const avgDisc = (P.items && P.items.length) ? Math.round((P.items.reduce(function(a,it){return a+(Number(it.disc)||0);},0) / P.items.length)) : 0;
-      const crmRec = {
-        id: P.qnoFormatted,
-        date: P.date,
-        customer: P.co || P.attn || '—',
-        product: firstItem + ((P.items && P.items.length>1) ? (' +' + (P.items.length-1) + ' more') : ''),
-        qty: totalQty,
-        amount: Number(P.grand)||0,
-        discount: avgDisc,
-        validTill: P.valid || '',
-        salesperson: P.rep || '',
-        status: 'Sent',
-        source: 'Quotation Builder',
-        items: P.items
-      };
-      await gas('save', { collection: 'quotations', record: { id: crmRec.id, data: crmRec } });
-      setStatus('✓ ' + crmRec.id + ' saved to your CRM Quotations tab.', true);
-    }catch(err){
-      console.error('Sheets save failed:', err);
-      setStatus('Could not save to Google Sheets: ' + err.message + ' — the PDF itself downloaded fine.', false);
-    }
-  };
-
-  const originalDownloadPDF = window.downloadPDF;
-  window.downloadPDF = async function(){
-    await originalDownloadPDF.apply(this, arguments);
-
-    if(typeof repMissing === 'function' && repMissing()) return;
-    if(!configured){
-      setStatus('Google Sheets not connected yet — paste your Web App URL into the integration script.', false);
-      return;
-    }
-    try{
-      setStatus('Saving ' + fmtQno() + ' to Google Sheets…', true);
-      const P = buildPayload();
-      // primary product name (first line item) + total qty
-      const firstItem = (P.items && P.items[0]) ? P.items[0].name : '';
-      const totalQty = (P.items||[]).reduce(function(a,it){ return a + (Number(it.qty)||0); }, 0) || 1;
-      const avgDisc = (P.items && P.items.length) ? Math.round((P.items.reduce(function(a,it){return a+(Number(it.disc)||0);},0) / P.items.length)) : 0;
-      // record shaped exactly how the CRM Quotations tab reads it
-      const crmRec = {
-        id: P.qnoFormatted,
-        date: P.date,
-        customer: P.co || P.attn || '—',
-        product: firstItem + ((P.items && P.items.length>1) ? (' +' + (P.items.length-1) + ' more') : ''),
-        qty: totalQty,
-        amount: Number(P.grand)||0,
-        discount: avgDisc,
-        validTill: P.valid || '',
-        salesperson: P.rep || '',
-        status: 'Sent',
-        source: 'Quotation Builder',
-        items: P.items
-      };
-      const r = await gas('save', { collection: 'quotations', record: { id: crmRec.id, data: crmRec } });
-      setStatus('✓ ' + crmRec.id + ' saved to your CRM Quotations tab.', true);
-    }catch(err){
-      console.error('Sheets save failed:', err);
-      setStatus('Could not save to Google Sheets: ' + err.message + ' — the PDF itself downloaded fine.', false);
-    }
-  };
 
   if(configured){
     initNumber();
@@ -1770,9 +1674,24 @@ window.addEventListener('focus', ()=>{
     if(typeof repMissing === 'function' && repMissing()) return;
     if(btn){ btn.disabled = true; btn.textContent = 'Preparing PDF\u2026'; }
     try{
-      /* PI number ko yahin lock kar do, warna counter kabhi aage nahi badhega */
-      if(typeof reserveNumber === 'function') await reserveNumber();
-      if(typeof R === 'function') R();                 // latest data se page dobara render
+      /* PDF banane se PEHLE quotation save hoti hai. Isse teen cheezein pakki hoti hain:
+           - number server se atomically allocate hota hai, sirf ek baar
+           - PDF par wahi number chhapta hai jo record me save hua hai
+           - PDF download se koi NAYA record nahi banta (save wahi id upsert
+             karta hai). Pehle ulta tha: pehle PDF, phir save -- isliye har
+             download ek naya number aur naya record bana deta tha
+             (jaise 1055 / 1056 / 1057 -- ek hi quotation, teen records). */
+      var _q = window.__ocQ || {};
+      if(_q.mode !== 'view'){
+        var _saved = (typeof window.ocSaveQuotation === 'function')
+          ? await window.ocSaveQuotation() : false;
+        if(!_saved){
+          /* asli wajah hint() me pehle hi dikh chuki hai */
+          if(btn){ btn.disabled = false; btn.textContent = label || '\u2913 Download PDF'; }
+          return;
+        }
+      }
+      if(typeof R === 'function') R();                 // ab pakke number se dobara render
       if(document.fonts && document.fonts.ready) { try{ await document.fonts.ready; }catch(e){} }
       /* saari images load hone do warna PDF me miss ho jaayengi */
       var imgs = [].slice.call(document.querySelectorAll('#printArea img'));
@@ -1791,7 +1710,8 @@ window.addEventListener('focus', ()=>{
       var qn = (typeof S !== 'undefined' && S && S.qno) ? S.qno : '';
       var fy = (window.__ocFY ? window.__ocFY() : (typeof FY !== 'undefined' ? FY : ''));
       doc.save('OakCraft-ProForma-OAK-' + fy + '-' + qn + '.pdf');
-      if(typeof window.__saveQuoteToCRM === 'function'){ await window.__saveQuoteToCRM(); }
+      /* yahan save NAHI hota -- upar ho chuka hai. Dobara save karne se hi
+         duplicate records bante the. */
     }catch(e){
       console.error('vector pdf failed', e);
       pdfError();
@@ -1914,7 +1834,8 @@ window.addEventListener('focus', ()=>{
     var avgDisc = items.length ? Math.round(items.reduce(function(a, it){ return a + (Number(it.disc) || 0); }, 0) / items.length) : 0;
     var now = new Date().toISOString();
     var rec = {
-      id: fmtQno(),
+      /* edit par wahi id rehti hai -> wahi record update hota hai, naya nahi banta */
+      id: (current && current.id) ? String(current.id) : fmtQno(),
       date: S.date,
       customer: S.co || S.attn || '—',
       product: first + (items.length > 1 ? (' +' + (items.length - 1) + ' more') : ''),
@@ -1939,6 +1860,17 @@ window.addEventListener('focus', ()=>{
     }
     if(!rec.createdAt) rec.createdAt = now;
     if(!rec.enqId && window.__ocPrefillEnq) rec.enqId = window.__ocPrefillEnq;
+
+    /* ---- OWNER ----------------------------------------------------------
+       Har dusre module ki tarah (orders / enquiries / customers) quotation par
+       bhi banane wale ka email lagta hai. Iske bina index.html ka scope()
+       record ko chhupa deta hai -- yani banane wale ko hi apni quotation nahi
+       dikhti thi. Server bhi yahi owner stamp karta hai, isliye local aur
+       Sheet dono par ek hi value rehti hai. Edit par purana owner nahi badalta. */
+    if(!rec.owner){
+      var _me = (typeof ocSessionEmail === 'function') ? ocSessionEmail() : '';
+      if(_me){ rec.owner = _me; rec.updatedBy = _me; }
+    }
 
     /* Sheet ki ek cell 50,000 character tak hi le sakti hai. Isliye record me
        poori image kabhi nahi jaati — wo items[].image se Drive par chali jaati hai.
@@ -1976,36 +1908,78 @@ window.addEventListener('focus', ()=>{
       return reshrink(it.thumb, max, q).then(function(v){ it.thumb = v; });
     }));
   }
+  var _saveInFlight = null;
+
   window.ocSaveQuotation = function(opts){
     opts = opts || {};
+    if(Q.mode === 'view') return Promise.resolve(false);
+    if(_saveInFlight) return _saveInFlight;                 /* double-click / PDF+Save race guard */
     if(typeof repMissing === 'function' && repMissing()) return Promise.resolve(false);
-    return Promise.resolve(fitThumbs()).then(function(){ return doSave(opts); });
+    _saveInFlight = Promise.resolve(fitThumbs())
+      .then(function(){ return doSave(opts); })
+      .then(function(v){ _saveInFlight = null; return v; },
+            function(e){ _saveInFlight = null; hint('Save fail: ' + (e && e.message ? e.message : e), false); return false; });
+    return _saveInFlight;
   };
+
+  /* Save ka poora order (jaan-boojh kar isi kram me):
+       1) NAYA quotation ho to pehle SERVER se number allocate karo (atomic).
+          Ye har quotation ke liye sirf EK BAAR hota hai -- save fail hone par
+          retry wahi number dobara use karta hai, isliye na duplicate record
+          banta hai na numbering me gap padta hai.
+       2) Us pakke number se record banao, owner ke saath.
+       3) Pehle SHEET par likho aur nateeja check karo (done / skipped / rejected).
+       4) Sheet par pakka likhne ke BAAD hi local list, URL aur mode badlo.
+     Purana code ulta tha (pehle local, phir server) -- isliye server fail hone
+     par CRM me ek phantom quotation dikh jaati thi jo agle sync par gayab. */
   function doSave(opts){
-    var rec;
-    try{ rec = buildRecord(); }
-    catch(err){ hint('Quotation banane me dikkat: ' + err.message, false); return Promise.resolve(false); }
+    var p = (!Q.id && !numberFinal)
+      ? allocateNumber().catch(function(err){
+          throw new Error('Quotation number allocate nahi ho paaya (' +
+            (err && err.message ? err.message : err) + '). Internet check karke dobara Save dabayein.');
+        })
+      : Promise.resolve(S.qno);
 
-    var full = qbState();                                   /* photos ke saath poori copy */
-    try{ lsSet(LOCAL_QB + rec.id, full); }catch(e){}
-    upsertLocal(rec);                                       /* CRM list turant update */
-    current = rec;
-    if(Q.mode !== 'view'){ Q.mode = 'edit'; Q.id = rec.id; try{ history.replaceState(null, '', '#edit=' + encodeURIComponent(rec.id)); }catch(e){} paintMode(); }
+    return p.then(function(){
+      var rec;
+      try{ rec = buildRecord(); }
+      catch(err){ hint('Quotation banane me dikkat: ' + err.message, false); return false; }
 
-    hint('Saving ' + rec.id + ' to Google Sheets…', true);
-    if(!(window.__ocGasReady && window.__ocGasReady())){
-      hint('Google Sheets connected nahi hai — quotation is device par save ho gayi.', false);
-      return Promise.resolve(false);
-    }
-    return window.__ocGasSave(rec).then(function(){
-      linkEnquiry(rec);
-      hint('✓ ' + rec.id + ' saved — CRM ki Quotations list me update ho gayi.', true);
-      return true;
+      if(!rec.owner){
+        hint('Aap CRM me logged-in nahi lag rahe \u2014 pehle CRM kholkar login karein, phir Save karein.', false);
+        return false;
+      }
+      /* photos wali poori copy hamesha local rakho taaki kaam na jaye */
+      try{ lsSet(LOCAL_QB + rec.id, qbState()); }catch(e){}
+
+      if(!(window.__ocGasReady && window.__ocGasReady())){
+        hint('Google Sheets connected nahi hai \u2014 quotation save nahi hui.', false);
+        return false;
+      }
+      hint('Saving ' + rec.id + ' to Google Sheets\u2026', true);
+
+      return window.__ocGasSaveChecked(rec).then(function(){
+        upsertLocal(rec);
+        current = rec;
+        if(Q.mode !== 'view' && Q.id !== rec.id){
+          Q.mode = 'edit'; Q.id = rec.id;
+          try{ history.replaceState(null, '', '#edit=' + encodeURIComponent(rec.id)); }catch(e){}
+        }
+        paintMode();
+        linkEnquiry(rec);
+        hint('\u2713 ' + rec.id + ' saved \u2014 CRM ki Quotations list me aa gayi.', true);
+        return true;
+      }).catch(function(err){
+        hint('Sheet par save nahi hui: ' + (err && err.message ? err.message : err) +
+             ' \u2014 number ' + rec.id + ' aapke liye reserve hai, dobara Save dabayein.', false);
+        return false;
+      });
     }).catch(function(err){
-      hint('Sheet save fail: ' + (err && err.message ? err.message : err) + ' — is device par save hai, dobara Save dabayein.', false);
+      hint((err && err.message ? err.message : String(err)), false);
       return false;
     });
   }
+
   /* Enquiry se bani quotation: us enquiry ka stage 'Quoted' ho jaata hai —
      bilkul waise hi jaise pehle CRM ke quotation form se hota tha. */
   function linkEnquiry(rec){
@@ -2038,8 +2012,10 @@ window.addEventListener('focus', ()=>{
       if(badge){ badge.style.display = ''; badge.textContent = 'EDITING'; }
       if(save) save.style.display = '';
     } else {
-      if(badge) badge.style.display = 'none';
-      if(save) save.style.display = 'none';
+      /* NAYA quotation: Save button ab dikhta hai. Pehle ye chhupa hota tha,
+         isliye quotation sirf "Download PDF" dabane par hi save ho paati thi. */
+      if(badge){ badge.style.display = ''; badge.textContent = 'NEW'; }
+      if(save) save.style.display = '';
     }
   }
 
@@ -2111,9 +2087,28 @@ window.addEventListener('focus', ()=>{
     }
     var rec = findQuo(Q.id);
     if(!rec){
-      hint('Quotation ' + Q.id + ' is device par nahi mili — CRM kholkar sync hone dein, phir dobara try karein.', false);
+      /* dusre device par bani quotation bhi khulni chahiye: server se maang lo */
+      hint('Quotation ' + Q.id + ' server se laa rahe hain\u2026', true);
+      if(typeof window.__ocGasFetchQuo === 'function'){
+        window.__ocGasFetchQuo(Q.id).then(function(r){
+          if(!r){
+            hint('Quotation ' + Q.id + ' nahi mili \u2014 ho sakta hai ye aapki na ho.', false);
+            return;
+          }
+          upsertLocal(r);
+          bootWith(r);
+        }).catch(function(e){
+          hint('Quotation load nahi hui: ' + (e && e.message ? e.message : e), false);
+        });
+      }else{
+        hint('Quotation ' + Q.id + ' is device par nahi mili.', false);
+      }
       return;
     }
+    bootWith(rec);
+  }
+
+  function bootWith(rec){
     current = rec;
     var local = lsGet(LOCAL_QB + rec.id, null);           /* photos wali poori copy */
     var qb = rec.qb;
