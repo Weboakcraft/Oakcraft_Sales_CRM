@@ -7974,7 +7974,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.10';
+var OC_WEB_BUILD = '2026.09.10.11';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10724,6 +10724,22 @@ function gate(coll, recId, to, info, proceed){
  *    Purana function bilkul waise ka waisa chalta hai.              *
  * ================================================================ */
 
+/* Detail drawer khula ho aur usi order ka status badle to drawer purana
+   status dikhata reh jaata tha (kyunki "Advance to ..." ka onclick modal ko
+   turant band karke dobara khol deta hai, aur us waqt remark modal abhi
+   khula hota hai). Ab change hone ke baad drawer khud refresh ho jaata hai. */
+function refreshDetail(id){
+  try{
+    if(T(window.__ocDetailId) !== T(id)) return;
+    setTimeout(function(){
+      try{
+        var mb = document.getElementById('modalBg');
+        if(mb && mb.classList.contains('show')) window.openOrderDetail(id);
+      }catch(e){}
+    }, 80);
+  }catch(e){}
+}
+
 function ordersArrX(){ try{ return DB.orders() || []; }catch(e){ return []; } }
 function enqArrX(){ try{ return DB.enquiries() || []; }catch(e){ return []; } }
 function disArrX(){ try{ return DB.dispatch() || []; }catch(e){ return []; } }
@@ -10819,6 +10835,7 @@ function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.i
         logChange({ coll:'orders', recId:o.id, recName:after.customer, field:'status',
                     from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
                     createdAt:o.createdAt || (o.date ? o.date + 'T09:00:00.000Z' : '') });
+        refreshDetail(o.id);
       }
       return r;
     });
@@ -10847,6 +10864,7 @@ function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.i
         logChange({ coll:'orders', recId:id, recName:after.customer, field:'status',
                     from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
                     createdAt:o.createdAt || (o.date ? o.date + 'T09:00:00.000Z' : '') });
+        refreshDetail(id);
       }
       return r;
     });
@@ -10875,6 +10893,7 @@ function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.i
         logChange({ coll:'orders', recId:id, recName:after.customer, field:'status',
                     from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
                     createdAt:o.createdAt || (o.date ? o.date + 'T09:00:00.000Z' : '') });
+        refreshDetail(id);
       }
       return r;
     });
@@ -11522,6 +11541,74 @@ try{
     window.bindAppEvents = function(){ var r = _bind.apply(this, arguments); try{ addNav(); }catch(e){} return r; };
   }
 }catch(e){}
+
+/* ================================================================ *
+ * 10. ORDERS TAB — detail drawer me History button                  *
+ *    Orders ki table me row-action buttons hain hi nahi (poori row  *
+ *    click par detail drawer khulta hai), isliye History wahin      *
+ *    lagti hai -- Status button ke bilkul saath. v14 ka wahi        *
+ *    tareeka use kiya hai, koi purana code chhua nahi.              *
+ * ================================================================ */
+window.__ocDetailId = '';
+function addOrderHistoryBtn(id){
+  try{
+    var mb = document.getElementById('modalBg');
+    if(!mb || !mb.classList.contains('show')) return;
+    var foot = document.querySelector('#modal .modal-foot'); if(!foot) return;
+    if(foot.querySelector('[data-oc-histbtn]')) return;
+    var b = document.createElement('button');
+    b.className = 'btn';
+    b.setAttribute('data-oc-histbtn', '1');
+    b.setAttribute('type', 'button');
+    b.title = 'Is order ka poora status history \u2014 kab, kisne, kyun badla';
+    b.innerHTML = '\u23F1 History';
+    b.onclick = function(){ window.ocTrackHistory('orders', id); };
+    var st = foot.querySelector('[data-oc-statusbtn]');
+    if(st && st.parentNode) st.parentNode.insertBefore(b, st.nextSibling);
+    else foot.insertBefore(b, foot.firstChild);
+  }catch(e){}
+}
+(function(){
+  var _od = window.openOrderDetail;
+  if(typeof _od !== 'function') return;
+  window.openOrderDetail = function(id){
+    window.__ocDetailId = T(id);
+    var r = _od.apply(this, arguments);
+    [0, 140, 360].forEach(function(t){ setTimeout(function(){ addOrderHistoryBtn(id); }, t); });
+    return r;
+  };
+  var _cm = window.closeModal;
+  if(typeof _cm === 'function'){
+    window.closeModal = function(){ window.__ocDetailId = ''; return _cm.apply(this, arguments); };
+  }
+})();
+
+/* ================================================================ *
+ * 11. ENQUIRIES TAB — har row me History button                     *
+ * ================================================================ */
+(function(){
+  var _pe = window.paintEnq;
+  if(typeof _pe !== 'function') return;
+  window.paintEnq = function(){
+    var r = _pe.apply(this, arguments);
+    try{
+      var body = document.getElementById('enq-body'); if(!body) return r;
+      body.querySelectorAll('tr').forEach(function(tr){
+        if(tr.querySelector('[data-oc-histbtn]')) return;
+        var edit = tr.querySelector('button[onclick^="openEnqModal("]'); if(!edit) return;
+        var m = /openEnqModal\('([^']+)'\)/.exec(edit.getAttribute('onclick') || ''); if(!m) return;
+        var b = document.createElement('button');
+        b.setAttribute('data-oc-histbtn', '1');
+        b.setAttribute('type', 'button');
+        b.title = 'Stage history \u2014 kab, kisne, kyun badla';
+        b.innerHTML = '\u23F1';
+        b.setAttribute('onclick', "ocTrackHistory('enquiries','" + m[1] + "')");
+        edit.parentNode.insertBefore(b, edit);
+      });
+    }catch(e){}
+    return r;
+  };
+})();
 
 try{ flushQueue(); }catch(e){}
 setInterval(function(){ try{ flushQueue(); }catch(e){} }, 60000);
