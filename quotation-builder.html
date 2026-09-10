@@ -611,14 +611,20 @@ const STORE_KEY = 'oakcraft-qno-' + FY;   /* legacy key -- ab use nahi hota */
    banane wale ko hi nahi dikhti. Server bhi owner stamp karta hai, to dono
    copies ek jaisi rehti hain -- local aur Sheet. */
 function ocSessionEmail(){
-  try{
-    var s = JSON.parse(localStorage.getItem('crm_session') || 'null');
-    if(s && s.email) return String(s.email).trim().toLowerCase();
-  }catch(e){}
+  /* 1) SIGNED SERVER TOKEN pehle. Server har request ko isi token se
+        authenticate karta hai, isliye owner bhi isi se nikalna chahiye.
+        crm_session sirf local hai aur token se alag ho sakta hai (shared
+        device, purana login) -- us halat me quotation galat naam par lag
+        jaati thi aur asli banane wala use edit nahi kar paata tha. */
   try{
     var t = localStorage.getItem('crm_sid') || '';
     var b = String(t).split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
     if(b){ var f = atob(b).split('|'); if(f[0]) return String(f[0]).trim().toLowerCase(); }
+  }catch(e){}
+  /* 2) token na mile to local session */
+  try{
+    var s = JSON.parse(localStorage.getItem('crm_session') || 'null');
+    if(s && s.email) return String(s.email).trim().toLowerCase();
   }catch(e){}
   return '';
 }
@@ -1421,17 +1427,33 @@ window.addEventListener('focus', ()=>{
      skip kar sakta hai (kisi aur ka record) ya reject (adhoora record).
      Purana code sirf data.ok dekhta tha, isliye "saved" dikh jaata tha
      jabki Sheet par kuch likha hi nahi gaya. */
-  window.__ocGasSaveChecked = async function(rec){
-    const r = await gas('save', { collection: 'quotations', record: { id: rec.id, data: rec } });
+  window.__ocGasSaveChecked = async function(rec, opts){
+    opts = opts || {};
+    var payload = rec;
+    /* NAYE record par owner SERVER ko decide karne do. Server request ko
+       crm_sid se authenticate karta hai aur khud owner stamp karta hai; agar
+       client owner bhej de to server usi ko rakh leta hai (ob.owner || u.email),
+       aur galat owner lag sakta hai. Local copy par owner phir bhi lagta hai
+       (sid token se) taaki list me turant dikhe. */
+    if(opts.isNew && payload && payload.owner !== undefined){
+      payload = {}; for(var k in rec) payload[k] = rec[k];
+      delete payload.owner;
+    }
+    const r = await gas('save', { collection: 'quotations', record: { id: payload.id, data: payload } });
+    var e;
     if(r && r.rejected && r.rejected.length){
       const miss = (r.rejected[0].missing || []).join(', ');
-      throw new Error('Server ne record reject kiya \u2014 ye field zaroori hain: ' + (miss || 'unknown'));
+      e = new Error('Server ne record reject kiya \u2014 ye field zaroori hain: ' + (miss || 'unknown'));
+      e.code = 'rejected'; throw e;
     }
     if(r && r.skipped && !r.done){
-      throw new Error('Ye quotation aapki nahi hai \u2014 sirf iska owner ise edit kar sakta hai.');
+      /* is id ka record pehle se hai aur kisi aur ke naam par hai */
+      e = new Error('Ye number kisi aur ki quotation ka hai.');
+      e.code = 'taken'; throw e;
     }
     if(r && r.done === 0){
-      throw new Error('Server ne kuch save nahi kiya (done:0).');
+      e = new Error('Server ne kuch save nahi kiya (done:0).');
+      e.code = 'nothing'; throw e;
     }
     return r;
   };
@@ -1933,14 +1955,21 @@ window.addEventListener('focus', ()=>{
      Purana code ulta tha (pehle local, phir server) -- isliye server fail hone
      par CRM me ek phantom quotation dikh jaati thi jo agle sync par gayab. */
   function doSave(opts){
-    var p = (!Q.id && !numberFinal)
+    var isNew = !Q.id;
+    var p = (isNew && !numberFinal)
       ? allocateNumber().catch(function(err){
           throw new Error('Quotation number allocate nahi ho paaya (' +
             (err && err.message ? err.message : err) + '). Internet check karke dobara Save dabayein.');
         })
       : Promise.resolve(S.qno);
 
-    return p.then(function(){
+    return p.then(function(){ return attempt(true); }).catch(function(err){
+      hint((err && err.message ? err.message : String(err)), false);
+      return false;
+    });
+
+    /* canRetry = number takraane par ek baar naya number lekar dobara koshish */
+    function attempt(canRetry){
       var rec;
       try{ rec = buildRecord(); }
       catch(err){ hint('Quotation banane me dikkat: ' + err.message, false); return false; }
@@ -1949,7 +1978,6 @@ window.addEventListener('focus', ()=>{
         hint('Aap CRM me logged-in nahi lag rahe \u2014 pehle CRM kholkar login karein, phir Save karein.', false);
         return false;
       }
-      /* photos wali poori copy hamesha local rakho taaki kaam na jaye */
       try{ lsSet(LOCAL_QB + rec.id, qbState()); }catch(e){}
 
       if(!(window.__ocGasReady && window.__ocGasReady())){
@@ -1958,7 +1986,7 @@ window.addEventListener('focus', ()=>{
       }
       hint('Saving ' + rec.id + ' to Google Sheets\u2026', true);
 
-      return window.__ocGasSaveChecked(rec).then(function(){
+      return window.__ocGasSaveChecked(rec, { isNew: isNew }).then(function(){
         upsertLocal(rec);
         current = rec;
         if(Q.mode !== 'view' && Q.id !== rec.id){
@@ -1970,14 +1998,27 @@ window.addEventListener('focus', ()=>{
         hint('\u2713 ' + rec.id + ' saved \u2014 CRM ki Quotations list me aa gayi.', true);
         return true;
       }).catch(function(err){
+        /* NUMBER TAKRA GAYA: is number ki quotation kisi aur ki ban chuki hai.
+           User ko atkaane ke bajaye chupchaap agla number lekar dobara save
+           karte hain -- na koi record kho ta hai, na duplicate banta hai. */
+        if(err && err.code === 'taken' && isNew && canRetry){
+          hint('Number ' + rec.id + ' kisi aur ki quotation ka nikla \u2014 naya number le rahe hain\u2026', true);
+          numberFinal = false;
+          return allocateNumber().then(function(){ return attempt(false); })
+            .catch(function(e2){
+              hint('Naya number nahi mil paaya: ' + (e2 && e2.message ? e2.message : e2), false);
+              return false;
+            });
+        }
+        if(err && err.code === 'taken'){
+          hint('Ye quotation aapki nahi hai \u2014 sirf iska owner ise edit kar sakta hai.', false);
+          return false;
+        }
         hint('Sheet par save nahi hui: ' + (err && err.message ? err.message : err) +
              ' \u2014 number ' + rec.id + ' aapke liye reserve hai, dobara Save dabayein.', false);
         return false;
       });
-    }).catch(function(err){
-      hint((err && err.message ? err.message : String(err)), false);
-      return false;
-    });
+    }
   }
 
   /* Enquiry se bani quotation: us enquiry ka stage 'Quoted' ho jaata hai —
