@@ -7935,7 +7935,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.4';
+var OC_WEB_BUILD = '2026.09.10.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8265,12 +8265,42 @@ function inDispatch(o){
 }
 window.ocInDispatch = inDispatch;
 
+/* ---- "dekh liya" list --------------------------------------------------
+   Jo orders is device par PEHLE SE dispatched/delivered dikhe, unke liye
+   dobara row nahi banti. Zaroori hai kyunki server data OWNER se filter
+   karta hai: agar kisi order ki dispatch row kisi AUR ke owner ki hai to
+   order ke owner ko wo dikhti hi nahi, aur back-fill karne par duplicate
+   ban jaati hai (10 Sep ko ORD0641 / ORD0639 / ORD1895994272 par yahi hua).
+   Nayi transition par row phir bhi banti hai -- wo order is list me nahi
+   hota. Row banane ka asli kaam waise bhi advanceOrder / status picker
+   karta hai; ye sirf uska backup hai. */
+var DSP_SEEN_KEY = 'oc_dspEnsured';
+function dspSeenGet(){
+  try{ var v = localStorage.getItem(DSP_SEEN_KEY); return v ? JSON.parse(v) : null; }
+  catch(e){ return null; }
+}
+function dspSeenSet(m){
+  try{ localStorage.setItem(DSP_SEEN_KEY, JSON.stringify(m)); }catch(e){}
+}
+
 function ensureDispatchRows(orders){
   if(window.__ocDispBusy) return 0;
   var dis = DB.dispatch() || [], have = {}, add = 0;
   dis.forEach(function(d){ if(d && d.orderId) have[S(d.orderId)] = 1; });
+
+  var seen = dspSeenGet();
+  if(!seen){
+    /* pehli baar: jo abhi dispatched/delivered hain unhe note karke chhod do */
+    seen = {};
+    (orders || []).forEach(function(o){ if(o && o.id && inDispatch(o)) seen[S(o.id)] = 1; });
+    dspSeenSet(seen);
+    return 0;
+  }
+
   (orders || []).forEach(function(o){
-    if(!o || !o.id || !inDispatch(o) || have[S(o.id)]) return;
+    if(!o || !o.id || !inDispatch(o)) return;
+    var k = S(o.id);
+    if(have[k] || seen[k]){ seen[k] = 1; return; }   /* row hai, ya pehle dekha ja chuka */
     dis.unshift({
       id: ocDspAutoId(o.id), orderId: o.id, customer: o.customer || '', custId: o.custId || '',
       product: o.product || '', qty: o.qty || 1, courier: '', tracking: '',
@@ -8279,8 +8309,10 @@ function ensureDispatchRows(orders){
       salesperson: o.salesperson || '', owner: LC(o.owner || o.ownerEmail || ''),
       createdAt: new Date().toISOString(), autoFrom: 'order'
     });
-    have[S(o.id)] = 1; add++;
+    have[k] = 1; seen[k] = 1; add++;
   });
+  dspSeenSet(seen);
+
   if(add){
     window.__ocDispBusy = 1;
     try{ DB.save('dispatch', dis); }finally{ window.__ocDispBusy = 0; }
