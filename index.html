@@ -6520,6 +6520,9 @@ console.log('[oc v7] row-safe save active');
         + '<td><div class="rowact">'
             + '<button onclick="ML.form(\'' + l.id + '\')">Edit</button>'
             + '<button onclick="ML.convert(\'' + l.id + '\')" title="Enquiry banao">→ Enq</button>'
+            /* v22: is lead ki status history -- baaki sections me tracking view hai,
+               Meta Leads me yahi seedha raasta hai */
+            + '<button onclick="ocTrackHistory(\'metaLeads\',\'' + l.id + '\')" title="Status history">⏱</button>'
             + (canEdit ? '<button class="dz" onclick="ML.del(\'' + l.id + '\')" title="Delete">✕</button>' : '')
           + '</div></td>'
         + '</tr>';
@@ -7971,7 +7974,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.9';
+var OC_WEB_BUILD = '2026.09.10.10';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -11145,6 +11148,13 @@ function renderTrack(coll){
   trackTable(coll);
 }
 
+/* kisi bhi collection se ek record nikaalo (history modal ke baseline ke liye) */
+function recFor(coll, id){
+  var a = [];
+  try{ a = JSON.parse(localStorage.getItem(coll) || '[]') || []; }catch(e){ a = []; }
+  return byId(a, id);
+}
+
 /* ---- ek record ki poori history ---- */
 window.ocTrackHistory = function(coll, id){
   var hist = actAll().filter(function(a){ return a && a.coll === coll && T(a.recId) === T(id); })
@@ -11166,9 +11176,33 @@ window.ocTrackHistory = function(coll, id){
       +   '</div>'
       + '</div></div>';
   }).join('');
+  /* ---- baseline ----------------------------------------------------------
+     Recording us din shuru hui jab ye feature laga. Usse pehle ke changes
+     kahin likhe hi nahi gaye the, isliye khali "koi history nahi" dikhana
+     confusing hai. Ab hamesha ek line dikhti hai: abhi status kya hai, kab
+     se hai, aur saaf likha ki purana record kyun nahi hai. */
+  var rec = recFor(coll, id);
+  var curStage = rec ? TR(coll === 'enquiries' ? rec.stage : (coll === 'metaLeads' ? rec.lead_status : rec.status)) : '';
+  var sinceTs  = rec ? (T(rec.stageChangedAt) || T(rec.statusChangedAt) || T(rec.updatedAt) || recCreatedAt(rec)) : '';
+  var base = '<div style="display:flex;gap:10px;padding:10px 0' + (rows ? ';border-bottom:1px solid var(--border,#e7ecf4)' : '') + '">'
+    + '<div style="flex:0 0 8px;padding-top:5px"><div style="width:8px;height:8px;border-radius:50%;background:var(--muted,#9aa5b8)"></div></div>'
+    + '<div style="flex:1;min-width:0">'
+    +   '<div style="font-weight:600;font-size:13px">Abhi: ' + E(curStage || '—') + '</div>'
+    +   '<div class="sub" style="font-size:11.5px;color:var(--muted,#7a869a);margin-top:4px">'
+    +     (sinceTs ? E(fmtTS(sinceTs)) + ' se' : 'time record nahi hai')
+    +     (rec && rec.owner ? '  ·  ' + E(nameOfEmail(rec.owner)) : '')
+    +   '</div>'
+    + '</div></div>';
+  var note = rows ? ''
+    : '<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--border,#e7ecf4);border-left:3px solid var(--brand,#2a78d6);'
+      + 'border-radius:9px;font-size:12px;color:var(--muted,#7a869a)">'
+      + 'Is record ka <b>pehle ka</b> koi stage-change record nahi hai — history recording 10 Sept 2026 se shuru hui hai. '
+      + 'Usse pehle CRM kahin likhta hi nahi tha ki kisne kab status badla, isliye purana data kahin se nahi aa sakta. '
+      + 'Ab se har badlav yahan time, naam aur wajah ke saath aata rahega.'
+      + '</div>';
   var html = '<div class="modal-head"><h3>History — ' + E(id) + '</h3>'
            + '<button class="icon-btn" onclick="closeModal()">✕</button></div>'
-           + '<div class="modal-body">' + (rows || '<div class="empty">Is record ki koi history abhi nahi hai.</div>') + '</div>'
+           + '<div class="modal-body">' + base + rows + note + '</div>'
            + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Close</button></div>';
   try{ openModal(html); }catch(e){ alert('History: ' + hist.length + ' events'); }
 };
