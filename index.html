@@ -7971,7 +7971,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.8';
+var OC_WEB_BUILD = '2026.09.10.9';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -11260,10 +11260,14 @@ function perfCardHTML(){
          + 'yahan ranking, average TAT aur delay dikhne lagega.</div></div>';
   }
   var medal = ['🥇', '🥈', '🥉'];
+  /* Medal tabhi jab kisi ne sach me kaam kiya ho. Jab tak ek bhi stage change
+     record nahi hua, ranking sirf pending overdue par hai -- us waqt kisi ko
+     "winner" dikhana galat message deta hai. */
+  var anyMoves = rows.some(function(r){ return r.moves > 0; });
   var body = rows.map(function(r, i){
     var mine = (r.email === meMail());
     return '<tr' + (mine ? ' style="background:rgba(42,120,214,.07)"' : '') + '>'
-      + '<td class="strong">' + (i < 3 && seesTeam() ? medal[i] + ' ' : '') + (i + 1) + '</td>'
+      + '<td class="strong">' + (anyMoves && i < 3 && seesTeam() ? medal[i] + ' ' : '') + (i + 1) + '</td>'
       + '<td class="strong">' + E(r.name) + (mine ? ' <span class="chip c-new" style="margin-left:4px">you</span>' : '')
       +   '<div class="sub" style="font-size:11px">' + E(r.email) + '</div></td>'
       + '<td class="tabular">' + r.moves + '</td>'
@@ -11280,7 +11284,10 @@ function perfCardHTML(){
        +     '<button class="btn sm" onclick="setView(\'enqTrack\')">Enquiry Tracking</button>'
        +     '<button class="btn sm" onclick="setView(\'ordTrack\')">Order Tracking</button></div></div>'
        + '<div style="padding:0 20px 8px;font-size:12px;color:var(--muted,#7a869a)">'
-       +   'Score = on-time % − (abhi pending overdue × 3) − speed penalty. Sirf stage/status changes ginte hain.</div>'
+       +   'Score = on-time % − (abhi pending overdue × 3) − speed penalty. Sirf stage/status changes ginte hain.'
+       +   (anyMoves ? '' : '<br><b>Abhi tak koi stage change record nahi hua</b>, isliye ranking filhaal sirf '
+       +     'pending overdue records par hai. Jaise-jaise team stage badlegi, TAT aur on-time % bharte jaayenge.')
+       + '</div>'
        + '<div style="overflow-x:auto"><table><thead><tr>'
        +   '<th>#</th><th>User</th><th>Changes</th><th>Avg TAT</th><th>On time</th>'
        +   '<th>Late moves</th><th>Open overdue</th><th>Score</th>'
