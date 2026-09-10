@@ -5870,11 +5870,42 @@ console.log('[oc v7] row-safe save active');
      compares lowercased) always matches on the round-trip. This is safe
      for every user and simply guarantees a record created by someone is
      visible to that same someone after a Sheet round-trip. */
+  /* ---- OWNER = JISNE SALE KI --------------------------------------------
+     Record par jo `salesperson` chuna gaya hai, agar wo naam kisi ACTIVE user
+     se match karta hai to owner wahi banta hai -- chahe form kisi aur ne bhara
+     ho. Isse Pinki (process coordinator) doosron ke order bhare/process kare
+     to bhi wo order ASLI salesperson ka hi rehta hai aur use dikhta hai.
+     Naam khali ho, match na kare, ya do users ka same naam ho -> purana
+     behaviour, yaani owner = banane wala. */
+  window.ocOwnerBySalesperson = function(rec){
+    try{
+      var nm = String((rec && rec.salesperson) || '').trim().toUpperCase().replace(/\s+/g, ' ');
+      if(!nm) return '';
+      var list = [];
+      try{ list = JSON.parse(localStorage.getItem('users') || '[]') || []; }catch(e){ list = []; }
+      var seen = {}, dup = {};
+      for(var i = 0; i < list.length; i++){
+        var u = list[i]; if(!u) continue;
+        var em = String(u.email || '').trim().toLowerCase(); if(!em) continue;
+        var st = String(u.status || '').trim().toLowerCase(); if(st && st !== 'active') continue;
+        var un = String(u.name || '').trim().toUpperCase().replace(/\s+/g, ' '); if(!un) continue;
+        if(seen[un] && seen[un] !== em) dup[un] = 1;
+        seen[un] = em;
+      }
+      if(dup[nm]) return '';                 /* same naam ke do users -> risk mat lo */
+      return seen[nm] || '';
+    }catch(e){ return ''; }
+  };
+
   try{
     var _stamp = window.stampOwner;
     if(typeof _stamp === 'function'){
       window.stampOwner = function(rec){
         var r = _stamp.apply(this, arguments);
+        try{
+          var sp = window.ocOwnerBySalesperson(r);
+          if(sp) r.owner = sp;               /* sale jiski, owner wahi */
+        }catch(e){}
         try{ if(r && r.owner) r.owner = LC(r.owner); }catch(e){}
         return r;
       };
@@ -7425,7 +7456,9 @@ window.saveDis = function(id){
   if(ex){ Object.assign(ex, rec); ex.updatedAt = new Date().toISOString(); }
   else {
     rec.id = uid('DSP-'); rec.createdAt = new Date().toISOString();
-    rec.owner = LC(o.owner || o.ownerEmail || me().email || '');
+    /* dispatch bhi usi salesperson ka jiska order hai */
+    rec.owner = LC((window.ocOwnerBySalesperson ? window.ocOwnerBySalesperson(rec) : '')
+                   || o.owner || o.ownerEmail || me().email || '');
     list.unshift(rec);
   }
   DB.save('dispatch', list);
@@ -7512,7 +7545,10 @@ window.advanceOrder = function(id){
     if(!d){
       d = { id: ocDspAutoId(o.id), orderId:o.id, customer:o.customer, custId:o.custId || '', product:o.product, qty:o.qty,
             courier:'', tracking:'', status:'Shipped', dispatchedOn:localToday(), eta:plusDays(localToday(), 5),
-            salesperson:o.salesperson || '', owner: LC(o.owner || o.ownerEmail || me().email || ''), createdAt:new Date().toISOString() };
+            salesperson:o.salesperson || '',
+            owner: LC((window.ocOwnerBySalesperson ? window.ocOwnerBySalesperson(o) : '')
+                      || o.owner || o.ownerEmail || me().email || ''),
+            createdAt:new Date().toISOString() };
       dis.unshift(d); DB.save('dispatch', dis);
     }
     say('Order dispatched — courier & tracking details bharein');
@@ -7935,7 +7971,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.5';
+var OC_WEB_BUILD = '2026.09.10.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8306,7 +8342,9 @@ function ensureDispatchRows(orders){
       product: o.product || '', qty: o.qty || 1, courier: '', tracking: '',
       status: S(o.status) === 'Delivered' ? 'Delivered' : 'Shipped',
       dispatchedOn: localToday(), eta: plusDays(localToday(), 5),
-      salesperson: o.salesperson || '', owner: LC(o.owner || o.ownerEmail || ''),
+      salesperson: o.salesperson || '',
+      owner: LC((window.ocOwnerBySalesperson ? window.ocOwnerBySalesperson(o) : '')
+                || o.owner || o.ownerEmail || ''),
       createdAt: new Date().toISOString(), autoFrom: 'order'
     });
     have[k] = 1; seen[k] = 1; add++;
@@ -8873,7 +8911,13 @@ console.log('[oc v12] sidebar badges now count exactly what each section lists')
 /* ---------------------------------------------------------------- *
  * a) per-user full data access                                       *
  * ---------------------------------------------------------------- */
-var FULL_DATA_USERS = { quotations: ['accounts@oakcraft.in'] };
+/* Kis user ko kis section ka POORA data (sabhi ka) dikhega.
+   dispatch -> Pinki Kumari (process coordinator). Uska kaam sab ke orders
+   process karna hai, isliye use har dispatch row dikhni chahiye -- bhale hi
+   ab row ka owner asli salesperson ho.
+   >>> Yahi list Code.gs me bhi honi chahiye, warna server data bhejta hi nahi. */
+var FULL_DATA_USERS = { quotations: ['accounts@oakcraft.in'],
+                        dispatch:   ['pc2oakcraft@gmail.com'] };
 window.OC_FULL_DATA_USERS = FULL_DATA_USERS;
 
 function myMail(){
