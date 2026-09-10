@@ -409,6 +409,20 @@ const CLOUD = {
 const money = n => '₹' + Number(n||0).toLocaleString('en-IN');
 const short = n => n>=1e7 ? '₹'+(n/1e7).toFixed(2)+'Cr' : n>=1e5 ? '₹'+(n/1e5).toFixed(2)+'L' : n>=1e3 ? '₹'+(n/1e3).toFixed(1)+'K' : '₹'+n;
 const uid = p => p + Date.now().toString(36).slice(-4).toUpperCase() + Math.floor(Math.random()*90+10);
+/* ---- auto-bani dispatch row ki DETERMINISTIC id -------------------------
+   uid() random hai. ensureDispatchRows() har orders-save par aur har pull ke
+   baad chalta hai aur "row hai ya nahi" sirf LOCAL copy se dekhta hai, isliye
+   do browsers/tabs dono ko lagta tha ki row nahi hai aur dono ALAG id waali
+   row bana dete the -- Sheet upsert-by-id karta hai to dono zinda reh jaati
+   thin, aur Dispatch me ek hi order DO BAAR dikhta tha.
+   Ab id order se hi banti hai: dono clients ek hi id banate hain aur upsert
+   unhe ek hi row me mila deta hai. Manual "Add Dispatch" random id hi rakhta
+   hai, kyunki ek order ki ek se zyada asli shipment ho sakti hai. */
+function ocDspAutoId(orderId){
+  var s = String(orderId == null ? '' : orderId).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return s ? ('DSP-A-' + s) : ('DSP-' + Date.now().toString(36).toUpperCase());
+}
+window.ocDspAutoId = ocDspAutoId;
 const today = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
     /* ---------- Order date + working-day helpers ----------
        Working week is Monday to Saturday. Sunday is a non-working day and is always skipped. */
@@ -939,7 +953,7 @@ function advanceOrder(id){
   if(o.status==='Dispatched'){ // auto-create dispatch record
     const dis=DB.dispatch();
     if(!dis.find(d=>d.orderId===o.id)){
-      dis.push({id:uid('DSP-'),orderId:o.id,customer:o.customer,product:o.product,qty:o.qty,
+      dis.push({id:ocDspAutoId(o.id),orderId:o.id,customer:o.customer,product:o.product,qty:o.qty,
         courier:'BlueDart',tracking:'TRK'+Math.floor(Math.random()*9000000+1000000),status:'Shipped',
         dispatchedOn:today(),eta:addDays(today(),5)});
       DB.save('dispatch',dis);
@@ -7496,7 +7510,7 @@ window.advanceOrder = function(id){
   if(o.status === 'Dispatched'){
     var dis = DB.dispatch(), d = dis.filter(function(x){ return x.orderId === o.id; })[0];
     if(!d){
-      d = { id: uid('DSP-'), orderId:o.id, customer:o.customer, custId:o.custId || '', product:o.product, qty:o.qty,
+      d = { id: ocDspAutoId(o.id), orderId:o.id, customer:o.customer, custId:o.custId || '', product:o.product, qty:o.qty,
             courier:'', tracking:'', status:'Shipped', dispatchedOn:localToday(), eta:plusDays(localToday(), 5),
             salesperson:o.salesperson || '', owner: LC(o.owner || o.ownerEmail || me().email || ''), createdAt:new Date().toISOString() };
       dis.unshift(d); DB.save('dispatch', dis);
@@ -7921,7 +7935,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.3';
+var OC_WEB_BUILD = '2026.09.10.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8258,7 +8272,7 @@ function ensureDispatchRows(orders){
   (orders || []).forEach(function(o){
     if(!o || !o.id || !inDispatch(o) || have[S(o.id)]) return;
     dis.unshift({
-      id: uid('DSP-'), orderId: o.id, customer: o.customer || '', custId: o.custId || '',
+      id: ocDspAutoId(o.id), orderId: o.id, customer: o.customer || '', custId: o.custId || '',
       product: o.product || '', qty: o.qty || 1, courier: '', tracking: '',
       status: S(o.status) === 'Delivered' ? 'Delivered' : 'Shipped',
       dispatchedOn: localToday(), eta: plusDays(localToday(), 5),
