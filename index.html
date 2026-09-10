@@ -7971,7 +7971,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.7';
+var OC_WEB_BUILD = '2026.09.10.8';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10424,6 +10424,1068 @@ if(typeof _canV21 === 'function'){
    rahe), par edit/delete can() se pehle hi ruk jaate hain. */
 
 console.log('[oc v21] view-only full access:', Object.keys(VIEW_ONLY_USERS).join(', '));
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 24. OAKCRAFT v22 — TRACKING, SLA & AUDIT HISTORY                        *
+ *                                                                        *
+ *   Ye block SIRF naya tracking jodta hai. Kisi purane feature ko na      *
+ *   badalta hai na hataata hai -- sab kuch wrapper ke zariye hota hai:    *
+ *   purana function pehle jaisa hi chalta hai, bas uske aage-peeche       *
+ *   history likh di jaati hai.                                           *
+ *                                                                        *
+ *   KYA JODA GAYA                                                        *
+ *     1. 'activity' collection  -- har stage/status badlav ki ek row      *
+ *        (kab, kisne, kya se kya, kyun, kitna time laga, SLA me tha ya    *
+ *        nahi). Sheet me 'activity' tab apne aap ban jaata hai.           *
+ *     2. Stage change par REMARK zaroori -- enquiries, orders, meta       *
+ *        leads, dispatch. Bina wajah likhe change nahi hoga.              *
+ *     3. Do naye read-only view: Enquiry Tracking aur Order Tracking.     *
+ *     4. Ek Activity Log view -- poori audit history, filter ke saath.    *
+ *     5. Dashboard par team performance ranking.                          *
+ *     6. Admin Panel me SLA target editor (ghanton me).                   *
+ *                                                                        *
+ *   DIKHTA KISKO HAI                                                      *
+ *     Admin aur Sales Manager -> poori team ka data aur ranking.          *
+ *     Baaki users -> sirf apne records aur apni performance.              *
+ *     Server par bhi yahi rule hai (FULL_DATA_ROLES.activity).            *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocTrack) return; window.__ocTrack = true;
+
+/* ---------------------------------------------------------------- 0. chhote helpers */
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LCx(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function A(v){ return E(v).replace(/"/g,'&quot;'); }
+function $$(id){ return document.getElementById(id); }
+function nowISO(){ return new Date().toISOString(); }
+function meMail(){ try{ return LCx((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function meName(){ try{ return TR((AUTH.current() || {}).name) || meMail(); }catch(e){ return meMail(); } }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function myRole(){ try{ return LCx((AUTH.current() || {}).role); }catch(e){ return ''; } }
+/* manager = poori team dikhti hai */
+function seesTeam(){ return isAdm() || myRole() === 'sales manager'; }
+function users(){ try{ return AUTH.users() || []; }catch(e){ try{ return JSON.parse(localStorage.getItem('users') || '[]'); }catch(x){ return []; } } }
+function nameOfEmail(em){
+  var e = LCx(em); if(!e) return '';
+  var u = users().filter(function(x){ return LCx(x.email) === e; })[0];
+  return (u && TR(u.name)) || e;
+}
+function toast(m){ try{ if(typeof say === 'function') return say(m); }catch(e){} try{ if(typeof toast === 'function') return; }catch(e){} }
+function tell(m){ try{ if(typeof say === 'function') say(m); else alert(m); }catch(e){ alert(m); } }
+
+function hoursBetween(aISO, bISO){
+  var a = Date.parse(aISO), b = Date.parse(bISO);
+  if(!(a > 0) || !(b > 0)) return null;
+  return Math.round(((b - a) / 36e5) * 10) / 10;
+}
+function fmtHrs(h){
+  if(h == null || h === '') return '—';
+  h = +h; if(!isFinite(h)) return '—';
+  if(h < 1) return Math.max(1, Math.round(h * 60)) + 'm';
+  if(h < 48) return (Math.round(h * 10) / 10) + 'h';
+  return (Math.round(h / 24 * 10) / 10) + 'd';
+}
+function fmtTS(ts){
+  var d = new Date(ts); if(isNaN(d)) return '—';
+  var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear()
+       + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+/* ---------------------------------------------------------------- 1. SLA config */
+/* Har stage ka target GHANTON me: "is stage me record kitni der reh sakta hai".
+   Admin Panel se badla ja sakta hai; '*' baaki sab stages ke liye default hai. */
+var SLA_DEFAULT = {
+  enquiries: { 'New': 24, 'Contacted': 48, 'Qualified': 48, 'Quoted': 72, '*': 72 },
+  orders:    { 'Confirmed': 24, 'In Production': 168, 'Ready': 48, 'Dispatched': 120, '*': 72 },
+  metaLeads: { 'CREATED': 24, 'CONTACTED': 48, '*': 48 },
+  dispatch:  { 'Pending': 24, 'Packed': 24, 'Shipped': 120, 'Out for Delivery': 24, '*': 72 }
+};
+var SLA_KEY = 'slacfg';
+function slaCfg(){
+  var c = null;
+  try{ c = JSON.parse(localStorage.getItem(SLA_KEY) || 'null'); }catch(e){ c = null; }
+  if(!c || typeof c !== 'object') return SLA_DEFAULT;
+  var out = {};
+  Object.keys(SLA_DEFAULT).forEach(function(k){
+    out[k] = {};
+    Object.keys(SLA_DEFAULT[k]).forEach(function(s){ out[k][s] = SLA_DEFAULT[k][s]; });
+    if(c[k] && typeof c[k] === 'object'){
+      Object.keys(c[k]).forEach(function(s){ if(+c[k][s] > 0) out[k][s] = +c[k][s]; });
+    }
+  });
+  return out;
+}
+/* stage jisme record tha, uska target */
+function slaFor(coll, fromStage){
+  var c = slaCfg()[coll]; if(!c) return null;
+  var v = c[TR(fromStage)];
+  if(v == null) v = c['*'];
+  return (+v > 0) ? +v : null;
+}
+window.ocSlaCfg = slaCfg;
+
+/* ---------------------------------------------------------------- 2. activity store */
+var ACT = 'activity';
+function actAll(){
+  try{ var a = JSON.parse(localStorage.getItem(ACT) || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+/* SIRF local copy likhte hain. Poori collection kabhi push nahi karte --
+   activity hazaaron rows tak jaayegi, har change par sab bhejna bekaar aur
+   dheema hai. Nayi row alag se, ek-ek karke, server par jaati hai. */
+function actSave(arr){
+  try{ localStorage.setItem(ACT, JSON.stringify(arr)); }catch(e){}
+}
+/* ek row server par -- fetch shim sid apne aap jod deta hai */
+function actPushOne(row){
+  try{
+    fetch(CLOUD.url, {
+      method: 'POST', redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action:'save', collection:ACT, record:{ id:row.id, data:row } })
+    }).catch(function(){ queueRetry(row); });
+  }catch(e){ queueRetry(row); }
+}
+/* net na ho to row local queue me rakho aur baad me dobara bhejo */
+var ACT_Q = 'oc_actQueue';
+function queueRetry(row){
+  try{
+    var q = JSON.parse(localStorage.getItem(ACT_Q) || '[]');
+    q.push(row); if(q.length > 300) q = q.slice(-300);
+    localStorage.setItem(ACT_Q, JSON.stringify(q));
+  }catch(e){}
+}
+function flushQueue(){
+  var q = [];
+  try{ q = JSON.parse(localStorage.getItem(ACT_Q) || '[]'); }catch(e){ q = []; }
+  if(!q.length) return;
+  try{ localStorage.removeItem(ACT_Q); }catch(e){}
+  q.forEach(function(r){ actPushOne(r); });
+}
+/* jo rows is user ko dikhni chahiye */
+function actMine(){
+  var all = actAll();
+  if(seesTeam()) return all;
+  var me = meMail(); if(!me) return [];
+  return all.filter(function(r){ return LCx(r && r.owner) === me || LCx(r && r.by) === me; });
+}
+window.ocActivity = actMine;
+
+function newActId(){
+  return 'ACT-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+}
+/* is record ka pichhla stage-change kab hua tha */
+function lastStageTs(coll, recId, createdFallback){
+  var best = '';
+  actAll().forEach(function(r){
+    if(!r || r.coll !== coll || T(r.recId) !== T(recId)) return;
+    if(r.field !== 'stage' && r.field !== 'status' && r.field !== 'created') return;
+    if(!best || T(r.ts) > best) best = T(r.ts);
+  });
+  return best || T(createdFallback) || '';
+}
+
+/* EK ACTIVITY ROW LIKHO -- ye poore tracking ka dil hai */
+function logChange(o){
+  try{
+    var coll   = o.coll, recId = T(o.recId);
+    if(!coll || !recId) return null;
+    var ts     = nowISO();
+    var prevTs = lastStageTs(coll, recId, o.createdAt);
+    var hrs    = prevTs ? hoursBetween(prevTs, ts) : null;
+    var sla    = (o.field === 'created') ? null : slaFor(coll, o.from);
+    var late   = (hrs != null && sla != null && hrs > sla);
+    var row = {
+      id: newActId(),
+      ts: ts,
+      coll: coll,
+      recId: recId,
+      recName: TR(o.recName),
+      field: o.field || 'stage',
+      from: TR(o.from),
+      to: TR(o.to),
+      remark: TR(o.remark),
+      by: meMail(),
+      byName: meName(),
+      owner: LCx(o.owner || meMail()),
+      sp: TR(o.sp),
+      prevTs: prevTs,
+      hrs: (hrs == null ? '' : hrs),
+      sla: (sla == null ? '' : sla),
+      late: late ? 1 : 0,
+      delayHrs: late ? Math.round((hrs - sla) * 10) / 10 : 0,
+      updatedAt: ts
+    };
+    var arr = actAll(); arr.unshift(row); actSave(arr);
+    actPushOne(row);
+    return row;
+  }catch(e){ console.warn('[oc v22] logChange', e); return null; }
+}
+window.ocLogChange = logChange;
+
+/* ---------------------------------------------------------------- 3. REMARK modal */
+/* Purane function synchronous hain. Isliye pattern ye hai:
+     1. wrapper dekhta hai ki stage badal raha hai
+     2. remark pending nahi hai -> modal kholo aur ruk jao
+     3. user remark likhe -> pending set karke WAHI function dobara chalao
+     4. ab pending mil gaya -> purana function chalta hai aur history likh di jaati hai */
+var PEND = null;                       /* { key: '...', remark: '...' } */
+function pendKey(coll, recId, to){ return coll + '|' + recId + '|' + TR(to); }
+function takePend(coll, recId, to){
+  if(PEND && PEND.key === pendKey(coll, recId, to)){ var r = PEND.remark; PEND = null; return r; }
+  return null;
+}
+function hasPend(coll, recId, to){ return !!(PEND && PEND.key === pendKey(coll, recId, to)); }
+
+function ensureRemarkModal(){
+  var w = $$('oc-rem-wrap'); if(w) return w;
+  w = document.createElement('div');
+  w.id = 'oc-rem-wrap';
+  w.style.cssText = 'position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(10,14,25,.55);backdrop-filter:blur(2px);padding:16px';
+  w.innerHTML =
+      '<div style="background:var(--surface,#fff);color:inherit;border:1px solid var(--border,#dde3ee);border-radius:14px;'
+    +      'max-width:460px;width:100%;box-shadow:0 18px 50px rgba(0,0,0,.28);overflow:hidden">'
+    +   '<div style="padding:14px 18px;border-bottom:1px solid var(--border,#dde3ee)">'
+    +     '<div style="font-weight:700;font-size:15px" id="oc-rem-title">Stage change</div>'
+    +     '<div class="sub" style="font-size:12px;color:var(--muted,#7a869a);margin-top:2px" id="oc-rem-sub"></div>'
+    +   '</div>'
+    +   '<div style="padding:16px 18px">'
+    +     '<label class="lbl" style="font-size:11.5px;font-weight:600">Wajah / Remark <span style="color:var(--crit,#d03b3b)">*</span></label>'
+    +     '<textarea id="oc-rem-text" rows="3" placeholder="Is change ki wajah likhiye (kam se kam 3 akshar)" '
+    +       'style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border,#dde3ee);border-radius:9px;font:inherit;background:var(--surface-2,#f7f9fc);color:inherit"></textarea>'
+    +     '<div id="oc-rem-err" style="display:none;color:var(--crit,#d03b3b);font-size:12px;margin-top:6px"></div>'
+    +     '<div class="sub" style="font-size:11px;color:var(--muted,#7a869a);margin-top:8px">'
+    +       'Ye wajah history me hamesha ke liye save hoti hai — aapke naam aur time ke saath.</div>'
+    +   '</div>'
+    +   '<div style="padding:12px 18px;border-top:1px solid var(--border,#dde3ee);display:flex;gap:8px;justify-content:flex-end">'
+    +     '<button type="button" class="btn" id="oc-rem-cancel">Cancel</button>'
+    +     '<button type="button" class="btn primary" id="oc-rem-ok">Save &amp; Continue</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(w);
+  return w;
+}
+var REM_CB = null;
+function askRemark(info, cb){
+  var w = ensureRemarkModal();
+  REM_CB = cb;
+  $$('oc-rem-title').textContent = info.title || 'Stage change';
+  $$('oc-rem-sub').textContent   = info.sub || '';
+  var t = $$('oc-rem-text'); t.value = '';
+  $$('oc-rem-err').style.display = 'none';
+  w.style.display = 'flex';
+  setTimeout(function(){ try{ t.focus(); }catch(e){} }, 30);
+}
+function closeRemark(){ var w = $$('oc-rem-wrap'); if(w) w.style.display = 'none'; REM_CB = null; }
+document.addEventListener('click', function(ev){
+  var t = ev.target;
+  if(!t || !t.id) return;
+  if(t.id === 'oc-rem-cancel'){ closeRemark(); return; }
+  if(t.id === 'oc-rem-ok'){
+    var box = $$('oc-rem-text'), v = TR(box && box.value);
+    if(v.length < 3){
+      var er = $$('oc-rem-err'); er.textContent = 'Kam se kam 3 akshar ki wajah likhiye.'; er.style.display = '';
+      try{ box.focus(); }catch(e){}
+      return;
+    }
+    var cb = REM_CB; closeRemark();
+    if(typeof cb === 'function') cb(v);
+  }
+});
+document.addEventListener('keydown', function(ev){
+  var w = $$('oc-rem-wrap');
+  if(!w || w.style.display === 'none') return;
+  if(ev.key === 'Escape'){ closeRemark(); }
+  else if(ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)){ var b = $$('oc-rem-ok'); if(b) b.click(); }
+});
+
+/* ek jaisa wrapper banane wala helper */
+function gate(coll, recId, to, info, proceed){
+  if(hasPend(coll, recId, to)) return proceed();
+  askRemark(info, function(rem){
+    PEND = { key: pendKey(coll, recId, to), remark: rem };
+    proceed();
+  });
+  return undefined;
+}
+
+/* ================================================================ *
+ * 4. WRAPPERS — har stage/status change par remark + history        *
+ *    Purana function bilkul waise ka waisa chalta hai.              *
+ * ================================================================ */
+
+function ordersArrX(){ try{ return DB.orders() || []; }catch(e){ return []; } }
+function enqArrX(){ try{ return DB.enquiries() || []; }catch(e){ return []; } }
+function disArrX(){ try{ return DB.dispatch() || []; }catch(e){ return []; } }
+function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.id) === T(id); })[0] || null; }
+
+/* ---------------------------------------------------------------- 4a. Enquiry: pipeline drag / arrows */
+(function(){
+  var _orig = window.ocMoveEnq;
+  if(typeof _orig !== 'function') return;
+  window.ocMoveEnq = function(id, stage){
+    var self = this, args = arguments;
+    var e = byId(enqArrX(), id);
+    if(!e) return _orig.apply(self, args);
+    var from = TR(e.stage), to = TR(stage);
+    if(!to || from === to) return _orig.apply(self, args);
+    /* permission fail ho to purana function hi apna message dikhaye */
+    try{
+      if(typeof can === 'function' && !can('enquiries', 'edit')) return _orig.apply(self, args);
+      if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')) return _orig.apply(self, args);
+      if(typeof PIPE_STAGES !== 'undefined' && PIPE_STAGES.indexOf(to) < 0) return _orig.apply(self, args);
+    }catch(err){}
+    return gate('enquiries', id, to, {
+      title: 'Enquiry stage: ' + from + ' → ' + to,
+      sub: TR(e.customer) + '  ·  ' + T(id)
+    }, function(){
+      var rem = takePend('enquiries', id, to);
+      var r = _orig.apply(self, args);
+      var after = byId(enqArrX(), id);
+      if(after && TR(after.stage) === to){
+        logChange({ coll:'enquiries', recId:id, recName:e.customer, field:'stage',
+                    from:from, to:to, remark:rem, owner:e.owner, sp:e.salesperson,
+                    createdAt:e.createdAt || (e.date ? e.date + 'T09:00:00.000Z' : '') });
+      }
+      return r;
+    });
+  };
+})();
+
+/* ---------------------------------------------------------------- 4b. Enquiry: modal save */
+(function(){
+  var _orig = window.saveEnq;
+  if(typeof _orig !== 'function') return;
+  window.saveEnq = function(id){
+    var self = this, args = arguments;
+    if(!id) return _orig.apply(self, args);                 /* naya record -> neeche 'created' log */
+    var e = byId(enqArrX(), id);
+    var sel = $$('m-stage');
+    if(!e || !sel) return _orig.apply(self, args);
+    var from = TR(e.stage), to = TR(sel.value);
+    if(!to || from === to) return _orig.apply(self, args);
+    return gate('enquiries', id, to, {
+      title: 'Enquiry stage: ' + from + ' → ' + to,
+      sub: TR(e.customer) + '  ·  ' + T(id)
+    }, function(){
+      var rem = takePend('enquiries', id, to);
+      var r = _orig.apply(self, args);
+      var after = byId(enqArrX(), id);
+      if(after && TR(after.stage) === to){
+        logChange({ coll:'enquiries', recId:id, recName:after.customer, field:'stage',
+                    from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
+                    createdAt:e.createdAt || (e.date ? e.date + 'T09:00:00.000Z' : '') });
+      }
+      return r;
+    });
+  };
+})();
+
+/* ---------------------------------------------------------------- 4c. Order: status picker */
+(function(){
+  var PICKED = '';
+  var _pick = window.ocStatusPicker;
+  if(typeof _pick === 'function'){
+    window.ocStatusPicker = function(id){ PICKED = T(id); return _pick.apply(this, arguments); };
+  }
+  var _apply = window.ocStatusApply;
+  if(typeof _apply !== 'function') return;
+  window.ocStatusApply = function(){
+    var self = this, args = arguments;
+    var sel = document.querySelector('input[name="oc-st"]:checked');
+    var to  = sel ? TR(sel.value) : '';
+    var o   = byId(ordersArrX(), PICKED);
+    if(!o || !to) return _apply.apply(self, args);
+    var from = TR(o.status);
+    if(from === to) return _apply.apply(self, args);        /* purana function hi bata dega */
+    return gate('orders', o.id, to, {
+      title: 'Order status: ' + from + ' → ' + to,
+      sub: TR(o.customer) + '  ·  ' + T(o.id)
+    }, function(){
+      var rem = takePend('orders', o.id, to);
+      var r = _apply.apply(self, args);
+      var after = byId(ordersArrX(), o.id);
+      if(after && TR(after.status) === to){
+        logChange({ coll:'orders', recId:o.id, recName:after.customer, field:'status',
+                    from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
+                    createdAt:o.createdAt || (o.date ? o.date + 'T09:00:00.000Z' : '') });
+      }
+      return r;
+    });
+  };
+})();
+
+/* ---------------------------------------------------------------- 4d. Order: "Advance to ..." button */
+(function(){
+  var _orig = window.advanceOrder;
+  if(typeof _orig !== 'function') return;
+  window.advanceOrder = function(id){
+    var self = this, args = arguments;
+    var o = byId(ordersArrX(), id);
+    if(!o || typeof ORDER_FLOW === 'undefined') return _orig.apply(self, args);
+    var i = ORDER_FLOW.indexOf(TR(o.status));
+    if(i < 0 || i + 1 >= ORDER_FLOW.length) return _orig.apply(self, args);
+    var from = TR(o.status), to = ORDER_FLOW[i + 1];
+    return gate('orders', id, to, {
+      title: 'Order status: ' + from + ' → ' + to,
+      sub: TR(o.customer) + '  ·  ' + T(id)
+    }, function(){
+      var rem = takePend('orders', id, to);
+      var r = _orig.apply(self, args);
+      var after = byId(ordersArrX(), id);
+      if(after && TR(after.status) === to){
+        logChange({ coll:'orders', recId:id, recName:after.customer, field:'status',
+                    from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
+                    createdAt:o.createdAt || (o.date ? o.date + 'T09:00:00.000Z' : '') });
+      }
+      return r;
+    });
+  };
+})();
+
+/* ---------------------------------------------------------------- 4e. Order: modal save */
+(function(){
+  var _orig = window.saveOrder;
+  if(typeof _orig !== 'function') return;
+  window.saveOrder = function(id){
+    var self = this, args = arguments;
+    if(!id) return _orig.apply(self, args);
+    var o = byId(ordersArrX(), id), sel = $$('o-stat');
+    if(!o || !sel) return _orig.apply(self, args);
+    var from = TR(o.status), to = TR(sel.value);
+    if(!to || from === to) return _orig.apply(self, args);
+    return gate('orders', id, to, {
+      title: 'Order status: ' + from + ' → ' + to,
+      sub: TR(o.customer) + '  ·  ' + T(id)
+    }, function(){
+      var rem = takePend('orders', id, to);
+      var r = _orig.apply(self, args);
+      var after = byId(ordersArrX(), id);
+      if(after && TR(after.status) === to){
+        logChange({ coll:'orders', recId:id, recName:after.customer, field:'status',
+                    from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
+                    createdAt:o.createdAt || (o.date ? o.date + 'T09:00:00.000Z' : '') });
+      }
+      return r;
+    });
+  };
+})();
+
+/* ---------------------------------------------------------------- 4f. Dispatch: modal save */
+(function(){
+  var _orig = window.saveDis;
+  if(typeof _orig !== 'function') return;
+  window.saveDis = function(id){
+    var self = this, args = arguments;
+    if(!id) return _orig.apply(self, args);
+    var d = byId(disArrX(), id), sel = $$('d-status');
+    if(!d || !sel) return _orig.apply(self, args);
+    var from = TR(d.status), to = TR(sel.value);
+    if(!to || from === to) return _orig.apply(self, args);
+    return gate('dispatch', id, to, {
+      title: 'Dispatch status: ' + from + ' → ' + to,
+      sub: TR(d.customer) + '  ·  order ' + T(d.orderId)
+    }, function(){
+      var rem = takePend('dispatch', id, to);
+      var r = _orig.apply(self, args);
+      var after = byId(disArrX(), id);
+      if(after && TR(after.status) === to){
+        logChange({ coll:'dispatch', recId:id, recName:after.customer, field:'status',
+                    from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
+                    createdAt:d.createdAt || (d.dispatchedOn ? d.dispatchedOn + 'T09:00:00.000Z' : '') });
+      }
+      return r;
+    });
+  };
+})();
+
+/* ---------------------------------------------------------------- 4g. Meta Leads: inline status */
+(function(){
+  if(!window.ML || typeof window.ML.setStatus !== 'function') return;
+  var _orig = window.ML.setStatus;
+  window.ML.setStatus = function(id, val){
+    var self = this, args = arguments;
+    var arr = []; try{ arr = JSON.parse(localStorage.getItem('metaLeads') || '[]') || []; }catch(e){ arr = []; }
+    var l = byId(arr, id);
+    if(!l) return _orig.apply(self, args);
+    var from = TR(l.lead_status), to = TR(val).toUpperCase().replace(/\s+/g, '_');
+    if(!to || from === to) return _orig.apply(self, args);
+    try{ if(typeof canTouch === 'function' && !canTouch(l)) return _orig.apply(self, args); }catch(e){}
+    return gate('metaLeads', id, to, {
+      title: 'Meta lead status: ' + (from || '—') + ' → ' + to,
+      sub: TR(l.full_name || l.phone_number) + '  ·  ' + T(id)
+    }, function(){
+      var rem = takePend('metaLeads', id, to);
+      var r = _orig.apply(self, args);
+      var after = null;
+      try{ after = byId(JSON.parse(localStorage.getItem('metaLeads') || '[]') || [], id); }catch(e){}
+      if(after && TR(after.lead_status) === to){
+        logChange({ coll:'metaLeads', recId:id, recName:(after.full_name || after.phone_number), field:'status',
+                    from:from, to:to, remark:rem, owner:after.owner, sp:after.assigned_to,
+                    createdAt:l.createdAt || l.created_time || '' });
+      }
+      return r;
+    });
+  };
+  /* assignment bhi history me jaaye (remark ke bina -- ye stage change nahi hai) */
+  if(typeof window.ML.setAssign === 'function'){
+    var _asg = window.ML.setAssign;
+    window.ML.setAssign = function(id, email){
+      var arr = []; try{ arr = JSON.parse(localStorage.getItem('metaLeads') || '[]') || []; }catch(e){}
+      var l = byId(arr, id), fromOwner = l ? TR(l.owner) : '';
+      var r = _asg.apply(this, arguments);
+      try{
+        var after = byId(JSON.parse(localStorage.getItem('metaLeads') || '[]') || [], id);
+        if(after && TR(after.owner) !== fromOwner){
+          logChange({ coll:'metaLeads', recId:id, recName:(after.full_name || after.phone_number),
+                      field:'assigned', from:nameOfEmail(fromOwner), to:nameOfEmail(after.owner),
+                      remark:'Lead assign kiya gaya', owner:after.owner, sp:after.assigned_to,
+                      createdAt:(l && (l.createdAt || l.created_time)) || '' });
+        }
+      }catch(e){}
+      return r;
+    };
+  }
+})();
+
+/* ---------------------------------------------------------------- 4h. NAYE record ka 'created' event */
+/* stampOwner sirf naye record par chalta hai -- isi se creation timestamp mil jaata hai. */
+(function(){
+  var _stamp = window.stampOwner;
+  if(typeof _stamp !== 'function') return;
+  window.stampOwner = function(rec){
+    var r = _stamp.apply(this, arguments);
+    try{
+      if(r && r.id){
+        var coll = /^ENQ-/i.test(T(r.id)) ? 'enquiries'
+                 : /^ORD/i.test(T(r.id))  ? 'orders'
+                 : /^DSP-/i.test(T(r.id)) ? 'dispatch' : '';
+        if(coll){
+          setTimeout(function(){
+            logChange({ coll:coll, recId:r.id, recName:(r.customer || ''), field:'created',
+                        from:'', to:TR(r.stage || r.status) || 'New',
+                        remark:'Record banaya gaya', owner:r.owner, sp:r.salesperson,
+                        createdAt:nowISO() });
+          }, 0);
+        }
+      }
+    }catch(e){}
+    return r;
+  };
+})();
+
+/* ================================================================ *
+ * 5. TRACKING DATA — har record ka current status + SLA hisaab      *
+ * ================================================================ */
+var CLOSED = { enquiries: { 'Won':1, 'Lost':1 }, orders: { 'Delivered':1, 'Cancelled':1 } };
+
+function scopeX(list, section){
+  try{ if(typeof scope === 'function') return scope(list, section) || []; }catch(e){}
+  return list || [];
+}
+function recCreatedAt(r){
+  return T(r.createdAt) || (T(r.date) ? T(r.date) + 'T09:00:00.000Z' : '');
+}
+function actIndex(coll){
+  var m = {};
+  actAll().forEach(function(a){
+    if(!a || a.coll !== coll) return;
+    var k = T(a.recId); (m[k] = m[k] || []).push(a);
+  });
+  Object.keys(m).forEach(function(k){ m[k].sort(function(x, y){ return T(y.ts).localeCompare(T(x.ts)); }); });
+  return m;
+}
+
+/* ek section ki poori tracking list */
+function trackRows(coll){
+  var recs = (coll === 'enquiries') ? scopeX(enqArrX(), 'enquiries') : scopeX(ordersArrX(), 'orders');
+  var idx  = actIndex(coll), now = nowISO();
+  return recs.map(function(r){
+    var stage = TR(coll === 'enquiries' ? r.stage : r.status);
+    var hist  = idx[T(r.id)] || [];
+    var last  = hist[0] || null;
+    var since = (last && T(last.ts))
+             || T(coll === 'enquiries' ? r.stageChangedAt : r.statusChangedAt)
+             || recCreatedAt(r);
+    var created  = recCreatedAt(r);
+    var inStage  = since ? hoursBetween(since, now) : null;
+    var age      = created ? hoursBetween(created, now) : null;
+    var closed   = !!(CLOSED[coll] && CLOSED[coll][stage]);
+    var sla      = closed ? null : slaFor(coll, stage);
+    var overdue  = (!closed && sla != null && inStage != null && inStage > sla);
+    return {
+      id: r.id, name: TR(r.customer) || '—', stage: stage,
+      owner: LCx(r.owner || r.ownerEmail), ownerName: nameOfEmail(r.owner || r.ownerEmail),
+      sp: TR(r.salesperson), amount: (+r.amount || +r.value || 0),
+      created: created, since: since, inStage: inStage, age: age,
+      sla: sla, overdue: overdue, closed: closed,
+      lateBy: overdue ? Math.round((inStage - sla) * 10) / 10 : 0,
+      moves: hist.length,
+      lastRemark: last ? TR(last.remark) : '',
+      lastBy: last ? (TR(last.byName) || TR(last.by)) : '',
+      lastTs: last ? T(last.ts) : ''
+    };
+  });
+}
+window.ocTrackRows = trackRows;
+
+/* user-wise performance — ranking aur delay dono isi se */
+function perfRows(){
+  var acts = actMine().filter(function(a){ return a && (a.field === 'stage' || a.field === 'status'); });
+  var m = {};
+  function slot(em){
+    var k = LCx(em) || '(unknown)';
+    return m[k] || (m[k] = { email:k, name:nameOfEmail(k) || k, moves:0, sumHrs:0, timed:0, late:0, delay:0 });
+  }
+  acts.forEach(function(a){
+    var s = slot(a.by);
+    s.moves++;
+    if(a.hrs !== '' && a.hrs != null && isFinite(+a.hrs)){ s.sumHrs += +a.hrs; s.timed++; }
+    if(+a.late === 1){ s.late++; s.delay += (+a.delayHrs || 0); }
+  });
+  /* abhi khule pade overdue records bhi ginne hain */
+  ['enquiries', 'orders'].forEach(function(coll){
+    trackRows(coll).forEach(function(t){
+      if(!t.overdue) return;
+      var s = slot(t.owner); s.openOverdue = (s.openOverdue || 0) + 1;
+    });
+  });
+  var rows = Object.keys(m).map(function(k){
+    var s = m[k];
+    s.avgHrs  = s.timed ? Math.round(s.sumHrs / s.timed * 10) / 10 : null;
+    /* jisne abhi tak ek bhi stage nahi badla uska on-time % 0 dikhana galat hai
+       -- wo "0% achha kaam" nahi, "abhi koi data nahi" hai. */
+    s.onTime  = s.moves ? Math.round((s.moves - s.late) / s.moves * 100) : null;
+    s.openOverdue = s.openOverdue || 0;
+    /* score: on-time % sabse zyada matter karta hai, phir pending overdue, phir speed */
+    s.score = Math.round((s.moves ? s.onTime : 0) - (s.openOverdue * 3)
+                         - (s.avgHrs != null ? Math.min(20, s.avgHrs / 12) : 0));
+    return s;
+  }).filter(function(s){ return s.moves > 0 || s.openOverdue > 0; });
+  rows.sort(function(a, b){ return (b.score - a.score) || (b.moves - a.moves) || a.name.localeCompare(b.name); });
+  return rows;
+}
+window.ocPerfRows = perfRows;
+
+/* ================================================================ *
+ * 6. VIEWS                                                          *
+ * ================================================================ */
+function chip(txt, cls){ return '<span class="chip ' + (cls || 'c-neutral') + '">' + E(txt) + '</span>'; }
+function slaCell(t){
+  if(t.closed) return '<span class="sub" style="color:var(--muted,#7a869a)">closed</span>';
+  if(t.sla == null) return '<span class="sub">—</span>';
+  if(t.overdue) return '<span class="chip c-lost">late ' + E(fmtHrs(t.lateBy)) + '</span>';
+  return '<span class="chip c-won">on time</span>';
+}
+function trackTable(coll){
+  var rows = trackRows(coll);
+  var q = LCx(($$('oc-tr-q') || {}).value);
+  var f = TR(($$('oc-tr-f') || {}).value);
+  var view = rows.filter(function(t){
+    if(f === 'overdue' && !t.overdue) return false;
+    if(f === 'open' && t.closed) return false;
+    if(f === 'closed' && !t.closed) return false;
+    if(q && [t.id, t.name, t.stage, t.ownerName, t.sp].join(' ').toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  }).sort(function(a, b){
+    if(a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+    return (b.inStage || 0) - (a.inStage || 0);
+  });
+  var body = $$('oc-tr-body'); if(!body) return;
+  body.innerHTML = view.map(function(t){
+    return '<tr>'
+      + '<td class="strong tabular">' + E(t.id) + '</td>'
+      + '<td>' + E(t.name) + '</td>'
+      + '<td>' + chip(t.stage || '—', t.closed ? 'c-neutral' : 'c-prog') + '</td>'
+      + '<td class="sub tabular">' + E(fmtHrs(t.inStage)) + '</td>'
+      + '<td class="sub tabular">' + E(t.sla == null ? '—' : t.sla + 'h') + '</td>'
+      + '<td>' + slaCell(t) + '</td>'
+      + '<td class="sub tabular">' + E(fmtHrs(t.age)) + '</td>'
+      + '<td>' + E(t.ownerName || '—') + '</td>'
+      + '<td class="sub">' + E(t.lastRemark ? (t.lastRemark.length > 42 ? t.lastRemark.slice(0, 42) + '…' : t.lastRemark) : '—') + '</td>'
+      + '<td class="sub">' + E(t.lastBy || '—') + '<div class="sub" style="font-size:11px">' + E(t.lastTs ? fmtTS(t.lastTs) : '') + '</div></td>'
+      + '<td><button class="btn sm" onclick="ocTrackHistory(\'' + A(coll) + '\',\'' + A(t.id) + '\')">History</button></td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="11" class="empty">Koi record nahi mila.</td></tr>';
+  var s = $$('oc-tr-sum');
+  if(s){
+    var open = rows.filter(function(t){ return !t.closed; });
+    var od   = open.filter(function(t){ return t.overdue; });
+    s.innerHTML = chip(rows.length + ' total') + ' ' + chip(open.length + ' open', 'c-prog') + ' '
+                + (od.length ? chip(od.length + ' overdue', 'c-lost') : chip('0 overdue', 'c-won'));
+  }
+}
+window.ocTrackPaint = trackTable;
+
+function renderTrack(coll){
+  var title = coll === 'enquiries' ? 'Enquiry Tracking' : 'Order Tracking';
+  var note  = seesTeam() ? 'Poori team ka data.' : 'Sirf aapke apne records.';
+  content.innerHTML =
+      '<div class="card"><div class="card-head"><h3>' + E(title) + ' <span id="oc-tr-sum"></span></h3>'
+    +   '<div class="tools">'
+    +     '<input class="field" id="oc-tr-q" placeholder="Search id / customer / stage…" oninput="ocTrackPaint(\'' + A(coll) + '\')" style="min-width:190px">'
+    +     '<select class="field" id="oc-tr-f" onchange="ocTrackPaint(\'' + A(coll) + '\')">'
+    +       '<option value="open">Open only</option><option value="overdue">Overdue only</option>'
+    +       '<option value="closed">Closed only</option><option value="">All</option></select>'
+    +     '<button class="btn sm" onclick="ocTrackExport(\'' + A(coll) + '\')">Export CSV</button>'
+    +   '</div></div>'
+    +   '<div style="padding:0 20px 10px;font-size:12px;color:var(--muted,#7a869a)">' + E(note)
+    +     ' SLA target Admin Panel se badla ja sakta hai. "In stage" = is stage me abhi tak kitna time laga.</div>'
+    +   '<div style="overflow-x:auto"><table><thead><tr>'
+    +     '<th>ID</th><th>Customer</th><th>Stage</th><th>In stage</th><th>Target</th><th>SLA</th>'
+    +     '<th>Total age</th><th>Owner</th><th>Last remark</th><th>Changed by</th><th></th>'
+    +   '</tr></thead><tbody id="oc-tr-body"></tbody></table></div></div>';
+  trackTable(coll);
+}
+
+/* ---- ek record ki poori history ---- */
+window.ocTrackHistory = function(coll, id){
+  var hist = actAll().filter(function(a){ return a && a.coll === coll && T(a.recId) === T(id); })
+                     .sort(function(x, y){ return T(y.ts).localeCompare(T(x.ts)); });
+  var rows = hist.map(function(a){
+    return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border,#e7ecf4)">'
+      + '<div style="flex:0 0 8px;padding-top:5px"><div style="width:8px;height:8px;border-radius:50%;background:'
+      +   (+a.late === 1 ? 'var(--crit,#d03b3b)' : 'var(--brand,#2a78d6)') + '"></div></div>'
+      + '<div style="flex:1;min-width:0">'
+      +   '<div style="font-weight:600;font-size:13px">' + E(a.from || '—') + ' → ' + E(a.to || '—')
+      +     (+a.late === 1 ? ' <span class="chip c-lost" style="margin-left:6px">late ' + E(fmtHrs(a.delayHrs)) + '</span>' : '')
+      +   '</div>'
+      +   (TR(a.remark) ? '<div style="font-size:12.5px;margin-top:3px">' + E(a.remark) + '</div>' : '')
+      +   '<div class="sub" style="font-size:11.5px;color:var(--muted,#7a869a);margin-top:4px">'
+      +     E(fmtTS(a.ts)) + '  ·  ' + E(a.byName || a.by || '—')
+      +     (a.by ? ' <span style="opacity:.7">(' + E(a.by) + ')</span>' : '')
+      +     (a.hrs !== '' && a.hrs != null ? '  ·  is stage me ' + E(fmtHrs(a.hrs)) : '')
+      +     (a.sla !== '' && a.sla != null ? '  ·  target ' + E(a.sla) + 'h' : '')
+      +   '</div>'
+      + '</div></div>';
+  }).join('');
+  var html = '<div class="modal-head"><h3>History — ' + E(id) + '</h3>'
+           + '<button class="icon-btn" onclick="closeModal()">✕</button></div>'
+           + '<div class="modal-body">' + (rows || '<div class="empty">Is record ki koi history abhi nahi hai.</div>') + '</div>'
+           + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Close</button></div>';
+  try{ openModal(html); }catch(e){ alert('History: ' + hist.length + ' events'); }
+};
+
+/* ---- CSV export ---- */
+window.ocTrackExport = function(coll){
+  var rows = trackRows(coll);
+  var head = ['ID','Customer','Stage','In stage (hrs)','Target (hrs)','Overdue','Late by (hrs)','Total age (hrs)','Owner','Salesperson','Moves','Last remark','Changed by','Changed at'];
+  var q = function(v){ return '"' + T(v).replace(/"/g, '""') + '"'; };
+  var csv = [head.map(q).join(',')].concat(rows.map(function(t){
+    return [t.id, t.name, t.stage, (t.inStage == null ? '' : t.inStage), (t.sla == null ? '' : t.sla),
+            (t.overdue ? 'YES' : 'no'), t.lateBy, (t.age == null ? '' : t.age), t.ownerName, t.sp,
+            t.moves, t.lastRemark, t.lastBy, t.lastTs].map(q).join(',');
+  })).join('\r\n');
+  try{
+    var b = new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(b);
+    a.download = coll + '-tracking-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }catch(e){ tell('Export nahi ho paya'); }
+};
+
+/* ---- Activity log (poori audit history) ---- */
+window.ocActPaint = function(){
+  var q  = LCx(($$('oc-ac-q') || {}).value);
+  var fc = TR(($$('oc-ac-coll') || {}).value);
+  var fu = LCx(($$('oc-ac-user') || {}).value);
+  var rows = actMine().filter(function(a){
+    if(!a) return false;
+    if(fc && a.coll !== fc) return false;
+    if(fu && LCx(a.by) !== fu) return false;
+    if(q && [a.recId, a.recName, a.from, a.to, a.remark, a.byName, a.by].join(' ').toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  }).sort(function(x, y){ return T(y.ts).localeCompare(T(x.ts)); }).slice(0, 500);
+  var body = $$('oc-ac-body'); if(!body) return;
+  body.innerHTML = rows.map(function(a){
+    return '<tr>'
+      + '<td class="sub tabular">' + E(fmtTS(a.ts)) + '</td>'
+      + '<td class="sub">' + E(a.coll) + '</td>'
+      + '<td class="strong tabular">' + E(a.recId) + '</td>'
+      + '<td>' + E(a.recName || '—') + '</td>'
+      + '<td class="sub">' + E(a.from || '—') + ' → <b>' + E(a.to || '—') + '</b></td>'
+      + '<td class="sub">' + E(a.remark || '—') + '</td>'
+      + '<td>' + E(a.byName || '—') + '<div class="sub" style="font-size:11px">' + E(a.by || '') + '</div></td>'
+      + '<td class="sub tabular">' + E(fmtHrs(a.hrs)) + '</td>'
+      + '<td>' + (+a.late === 1 ? '<span class="chip c-lost">late ' + E(fmtHrs(a.delayHrs)) + '</span>' : '<span class="chip c-won">ok</span>') + '</td>'
+      + '</tr>';
+  }).join('') || '<tr><td colspan="9" class="empty">Koi activity nahi mili.</td></tr>';
+  var s = $$('oc-ac-sum'); if(s) s.innerHTML = chip(rows.length + (rows.length >= 500 ? '+ shown' : ' events'));
+};
+function renderActivity(){
+  var us = {}; actMine().forEach(function(a){ if(a && a.by) us[LCx(a.by)] = TR(a.byName) || LCx(a.by); });
+  content.innerHTML =
+      '<div class="card"><div class="card-head"><h3>Activity Log <span id="oc-ac-sum"></span></h3>'
+    +   '<div class="tools">'
+    +     '<input class="field" id="oc-ac-q" placeholder="Search…" oninput="ocActPaint()" style="min-width:170px">'
+    +     '<select class="field" id="oc-ac-coll" onchange="ocActPaint()"><option value="">All sections</option>'
+    +       ['enquiries','orders','dispatch','metaLeads'].map(function(c){ return '<option value="' + A(c) + '">' + E(c) + '</option>'; }).join('')
+    +     '</select>'
+    +     '<select class="field" id="oc-ac-user" onchange="ocActPaint()"><option value="">All users</option>'
+    +       Object.keys(us).map(function(k){ return '<option value="' + A(k) + '">' + E(us[k]) + '</option>'; }).join('')
+    +     '</select>'
+    +   '</div></div>'
+    +   '<div style="padding:0 20px 10px;font-size:12px;color:var(--muted,#7a869a)">'
+    +     'Har stage/status badlav ki permanent history — kab, kisne (asli login email), kya se kya, aur kyun. '
+    +     (seesTeam() ? 'Poori team ka.' : 'Sirf aapse juda hua.') + ' Latest 500 dikhte hain.</div>'
+    +   '<div style="overflow-x:auto"><table><thead><tr>'
+    +     '<th>When</th><th>Section</th><th>Record</th><th>Customer</th><th>Change</th>'
+    +     '<th>Remark</th><th>By</th><th>Took</th><th>SLA</th>'
+    +   '</tr></thead><tbody id="oc-ac-body"></tbody></table></div></div>';
+  window.ocActPaint();
+}
+
+/* ================================================================ *
+ * 7. DASHBOARD — team performance ranking                           *
+ * ================================================================ */
+function perfCardHTML(){
+  var rows = perfRows();
+  if(!seesTeam()){
+    var me = meMail();
+    rows = rows.filter(function(r){ return r.email === me; });
+  }
+  if(!rows.length){
+    return '<div class="card"><div class="card-head"><h3>Performance &amp; Delay Tracking</h3></div>'
+         + '<div style="padding:16px 20px;font-size:13px;color:var(--muted,#7a869a)">'
+         + 'Abhi tak koi stage change record nahi hua. Jaise hi team enquiry ya order ka stage badlegi, '
+         + 'yahan ranking, average TAT aur delay dikhne lagega.</div></div>';
+  }
+  var medal = ['🥇', '🥈', '🥉'];
+  var body = rows.map(function(r, i){
+    var mine = (r.email === meMail());
+    return '<tr' + (mine ? ' style="background:rgba(42,120,214,.07)"' : '') + '>'
+      + '<td class="strong">' + (i < 3 && seesTeam() ? medal[i] + ' ' : '') + (i + 1) + '</td>'
+      + '<td class="strong">' + E(r.name) + (mine ? ' <span class="chip c-new" style="margin-left:4px">you</span>' : '')
+      +   '<div class="sub" style="font-size:11px">' + E(r.email) + '</div></td>'
+      + '<td class="tabular">' + r.moves + '</td>'
+      + '<td class="tabular">' + E(fmtHrs(r.avgHrs)) + '</td>'
+      + '<td class="tabular">' + (r.onTime == null ? '—' : r.onTime + '%') + '</td>'
+      + '<td class="tabular">' + (r.late ? '<span style="color:var(--crit,#d03b3b)">' + r.late + '</span>' : '0') + '</td>'
+      + '<td class="tabular">' + (r.openOverdue ? '<span class="chip c-lost">' + r.openOverdue + '</span>' : '0') + '</td>'
+      + '<td class="strong tabular">' + r.score + '</td>'
+      + '</tr>';
+  }).join('');
+  return '<div class="card"><div class="card-head"><h3>Performance &amp; Delay Tracking '
+       +   chip(rows.length + (seesTeam() ? ' users' : ' (you)')) + '</h3>'
+       +   '<div class="tools"><button class="btn sm" onclick="setView(\'activity\')">Activity Log</button>'
+       +     '<button class="btn sm" onclick="setView(\'enqTrack\')">Enquiry Tracking</button>'
+       +     '<button class="btn sm" onclick="setView(\'ordTrack\')">Order Tracking</button></div></div>'
+       + '<div style="padding:0 20px 8px;font-size:12px;color:var(--muted,#7a869a)">'
+       +   'Score = on-time % − (abhi pending overdue × 3) − speed penalty. Sirf stage/status changes ginte hain.</div>'
+       + '<div style="overflow-x:auto"><table><thead><tr>'
+       +   '<th>#</th><th>User</th><th>Changes</th><th>Avg TAT</th><th>On time</th>'
+       +   '<th>Late moves</th><th>Open overdue</th><th>Score</th>'
+       + '</tr></thead><tbody>' + body + '</tbody></table></div></div>';
+}
+(function(){
+  var _orig = window.renderDashboard;
+  if(typeof _orig !== 'function') return;
+  window.renderDashboard = function(){
+    var r = _orig.apply(this, arguments);
+    try{
+      if(!$$('oc-perf-card')){
+        var d = document.createElement('div');
+        d.id = 'oc-perf-card';
+        d.style.marginTop = '16px';
+        d.innerHTML = perfCardHTML();
+        content.appendChild(d);
+      }
+    }catch(e){ console.warn('[oc v22] perf card', e); }
+    return r;
+  };
+})();
+
+/* ================================================================ *
+ * 8. ADMIN PANEL — SLA target editor                                *
+ * ================================================================ */
+function slaEditorHTML(){
+  var cfg = slaCfg();
+  var sec = [['enquiries','Enquiries / Leads'], ['orders','Orders'], ['dispatch','Dispatch'], ['metaLeads','Meta Leads']];
+  var blocks = sec.map(function(p){
+    var k = p[0], stages = Object.keys(cfg[k] || {});
+    return '<div style="margin-bottom:14px">'
+      + '<div style="font-weight:600;font-size:13px;margin-bottom:6px">' + E(p[1]) + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:10px">'
+      + stages.map(function(s){
+          return '<div style="flex:0 0 160px">'
+            + '<label class="lbl" style="font-size:11px;color:var(--muted,#7a869a)">' + E(s === '*' ? 'baaki sab (default)' : s) + '</label>'
+            + '<input type="number" min="1" step="1" class="field" style="width:100%" '
+            +   'data-sla-coll="' + A(k) + '" data-sla-stage="' + A(s) + '" value="' + A(cfg[k][s]) + '">'
+            + '</div>';
+        }).join('')
+      + '</div></div>';
+  }).join('');
+  return '<div class="card" id="oc-sla-card" style="margin-top:16px"><div class="card-head">'
+       +   '<h3>SLA / TAT Targets <span class="chip c-neutral">ghanton me</span></h3>'
+       +   '<div class="tools"><button class="btn" onclick="ocSlaReset()">Reset to default</button>'
+       +     '<button class="btn primary" onclick="ocSlaSave()">Save targets</button></div></div>'
+       + '<div style="padding:14px 20px">'
+       +   '<div style="font-size:12px;color:var(--muted,#7a869a);margin-bottom:12px">'
+       +     'Har number ka matlab: record us stage me <b>kitne ghante</b> tak reh sakta hai. Isse zyada hua to '
+       +     'wo record "overdue" ginne lagta hai aur us user ki delay list me aata hai. 24 = 1 din, 168 = 7 din.</div>'
+       +   blocks
+       + '</div></div>';
+}
+window.ocSlaSave = function(){
+  if(!isAdm()){ tell('Sirf Administrator SLA target badal sakta hai'); return; }
+  var out = {};
+  document.querySelectorAll('[data-sla-coll]').forEach(function(inp){
+    var c = inp.getAttribute('data-sla-coll'), s = inp.getAttribute('data-sla-stage'), v = +inp.value;
+    if(!(v > 0)) return;
+    (out[c] = out[c] || {})[s] = v;
+  });
+  try{
+    var payload = [{ id:'__config__', cfg:out, updatedBy:meMail(), updatedAt:nowISO() }];
+    localStorage.setItem(SLA_KEY, JSON.stringify(out));       /* padhne ke liye seedha config */
+    try{ CLOUD.push(SLA_KEY, payload); }catch(e){}
+    tell('SLA targets save ho gaye ✓');
+    if(state.view === 'admin') setView('admin');
+  }catch(e){ tell('Save nahi ho paya'); }
+};
+window.ocSlaReset = function(){
+  if(!isAdm()){ tell('Sirf Administrator SLA target badal sakta hai'); return; }
+  try{ localStorage.removeItem(SLA_KEY); }catch(e){}
+  try{ CLOUD.push(SLA_KEY, [{ id:'__config__', cfg:SLA_DEFAULT, updatedBy:meMail(), updatedAt:nowISO() }]); }catch(e){}
+  tell('Default targets wapas lag gaye ✓');
+  if(state.view === 'admin') setView('admin');
+};
+(function(){
+  var _orig = window.renderAdmin;
+  if(typeof _orig !== 'function') return;
+  window.renderAdmin = function(){
+    var r = _orig.apply(this, arguments);
+    try{
+      if(isAdm() && !$$('oc-sla-card')){
+        var d = document.createElement('div');
+        d.innerHTML = slaEditorHTML();
+        content.appendChild(d);
+      }
+    }catch(e){ console.warn('[oc v22] sla editor', e); }
+    return r;
+  };
+})();
+
+/* ================================================================ *
+ * 9. REGISTRATION — nav, routing, cloud sync                        *
+ * ================================================================ */
+/* cloud: activity aur slacfg bhi sync hon */
+try{
+  if(CLOUD && Array.isArray(CLOUD.keys)){
+    if(CLOUD.keys.indexOf('activity') < 0) CLOUD.keys.push('activity');
+    if(CLOUD.keys.indexOf(SLA_KEY) < 0) CLOUD.keys.push(SLA_KEY);
+  }
+}catch(e){}
+/* pull ke baad slacfg array -> seedha config object bana lo */
+(function(){
+  var _pull = CLOUD && CLOUD.pull;
+  if(typeof _pull !== 'function') return;
+  CLOUD.pull = function(){
+    return _pull.apply(this, arguments).then(function(v){
+      try{
+        var raw = JSON.parse(localStorage.getItem(SLA_KEY) || 'null');
+        if(Array.isArray(raw)){
+          var c = raw.filter(function(x){ return x && x.id === '__config__'; })[0];
+          if(c && c.cfg && typeof c.cfg === 'object') localStorage.setItem(SLA_KEY, JSON.stringify(c.cfg));
+          else localStorage.removeItem(SLA_KEY);
+        }
+      }catch(e){}
+      return v;
+    });
+  };
+})();
+
+/* routing */
+try{
+  PAGE_META.enqTrack = ['Enquiry Tracking', 'Stage timing, SLA aur pending delays'];
+  PAGE_META.ordTrack = ['Order Tracking', 'Order stage timing, SLA aur pending delays'];
+  PAGE_META.activity = ['Activity Log', 'Poori audit history — kab, kisne, kya aur kyun'];
+}catch(e){}
+/* SECTION_OF_VIEW ek IIFE ke andar hai, isliye usme entry nahi jodi ja sakti.
+   applyNavPerms() / applyViewPerms() dono can(section,'view') poochte hain, to
+   hum can() ko hi wrap kar dete hain: naye view apne asli section ki permission
+   use karte hain. Isse nav item chhupta nahi aur permission rules bhi wahi
+   rehte hain jo pehle se hain. */
+try{
+  var _canTrk = window.can;
+  if(typeof _canTrk === 'function'){
+    var TRK_SECTION = { enqTrack:'enquiries', ordTrack:'orders', activity:'enquiries' };
+    window.can = function(section, action){
+      var m = TRK_SECTION[section];
+      if(m) return _canTrk.call(this, m, action);
+      return _canTrk.apply(this, arguments);
+    };
+  }
+}catch(e){}
+try{ if(typeof SECTION_OF_VIEW !== 'undefined'){ SECTION_OF_VIEW.enqTrack = 'enquiries'; SECTION_OF_VIEW.ordTrack = 'orders'; SECTION_OF_VIEW.activity = 'enquiries'; } }catch(e){}
+(function(){
+  var _setView = window.setView;
+  if(typeof _setView !== 'function') return;
+  var MINE = { enqTrack:1, ordTrack:1, activity:1 };
+  window.setView = function(v){
+    if(!MINE[v]) return _setView.apply(this, arguments);
+    try{
+      state.view = v;
+      document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active', a.dataset.view === v); });
+      var m = PAGE_META[v] || [v, ''];
+      var pt = $$('pageTitle'); if(pt && pt.childNodes[0]) pt.childNodes[0].nodeValue = m[0];
+      var ps = $$('pageSub'); if(ps) ps.textContent = m[1];
+      var sb = $$('searchBox'); if(sb) sb.style.display = 'none';
+      var qa = $$('quickAdd'); if(qa) qa.style.display = 'none';
+      try{ Object.values(state.charts || {}).forEach(function(c){ try{ c.destroy(); }catch(e){} }); state.charts = {}; }catch(e){}
+      if(v === 'activity') renderActivity(); else renderTrack(v === 'enqTrack' ? 'enquiries' : 'orders');
+      content.scrollTop = 0;
+      try{ if(typeof applyViewPerms === 'function') applyViewPerms(); }catch(e){}
+    }catch(e){ console.warn('[oc v22] setView', e); }
+  };
+})();
+
+/* nav items */
+function addNav(){
+  try{
+    var nav = document.getElementById('nav'); if(!nav) return;
+    if(nav.querySelector('a[data-view="enqTrack"]')) return;
+    var anchor = nav.querySelector('a[data-view="dispatch"]'); if(!anchor) return;
+    var label = document.createElement('div');
+    label.className = 'nav-label'; label.textContent = 'Tracking';
+    var items = [
+      ['enqTrack', 'Enquiry Tracking'],
+      ['ordTrack', 'Order Tracking'],
+      ['activity', 'Activity Log']
+    ];
+    var after = anchor;
+    after.parentNode.insertBefore(label, after.nextSibling); after = label;
+    items.forEach(function(it){
+      var a = document.createElement('a');
+      a.setAttribute('data-view', it[0]);
+      a.innerHTML = ((typeof I !== 'undefined' && I.flow) ? I.flow : '') + '<span>' + E(it[1]) + '</span>';
+      a.addEventListener('click', function(){ setView(it[0]); });
+      after.parentNode.insertBefore(a, after.nextSibling); after = a;
+    });
+    try{ if(typeof applyNavPerms === 'function') applyNavPerms(); }catch(e){}
+  }catch(e){ console.warn('[oc v22] nav', e); }
+}
+addNav();
+[200, 800, 2000].forEach(function(t){ setTimeout(addNav, t); });
+try{
+  var _bind = window.bindAppEvents;
+  if(typeof _bind === 'function'){
+    window.bindAppEvents = function(){ var r = _bind.apply(this, arguments); try{ addNav(); }catch(e){} return r; };
+  }
+}catch(e){}
+
+try{ flushQueue(); }catch(e){}
+setInterval(function(){ try{ flushQueue(); }catch(e){} }, 60000);
+
+console.log('[oc v22] tracking + SLA + audit history active');
 })();
 </script>
 
