@@ -694,6 +694,7 @@ async function allocateNumber(){
     window.__ocFY(FY);
     numberFinal = true;
     syncInputs(); R();
+    try{ if(typeof paintMode === 'function') paintMode(); }catch(e){}
     return no;
   })();
   try{ return await _allocPromise; }
@@ -1970,6 +1971,27 @@ window.addEventListener('focus', ()=>{
 
     /* canRetry = number takraane par ek baar naya number lekar dobara koshish */
     function attempt(canRetry){
+      /* ---- GUARD 1 -------------------------------------------------------
+         #edit= khula hai par record load hi nahi hua (na local, na server).
+         Aise me save karna do tarah se khatarnak hai: ya to kisi aur ki
+         quotation adhoore data se overwrite ho jayegi, ya buildRecord()
+         provisional number par nayi bana dega. Isliye saaf mana kar dete hain. */
+      if(Q.id && !current){
+        hint('Quotation ' + Q.id + ' abhi load nahi hui \u2014 isliye save nahi kiya. '
+           + 'Page refresh karke dobara kholein.', false);
+        return false;
+      }
+      /* ---- GUARD 2 (numbering safety) ------------------------------------
+         NAYE quotation ka number SIRF server ke atomic allocator se aana
+         chahiye. numberFinal tabhi true hota hai jab nextQuoteNo ne number
+         diya ho. Iske bina hum kabhi kuch nahi likhte -- screen par dikh raha
+         provisional number kabhi Sheet par nahi jaata. Isi ek guard se do
+         users ko ek hi number milna asambhav ho jaata hai. */
+      if(isNew && !numberFinal){
+        hint('Quotation number abhi server se nahi mila \u2014 save roka gaya '
+           + '(taaki kisi aur ka number na lag jaye). Dobara Save dabayein.', false);
+        return false;
+      }
       var rec;
       try{ rec = buildRecord(); }
       catch(err){ hint('Quotation banane me dikkat: ' + err.message, false); return false; }
@@ -2054,8 +2076,14 @@ window.addEventListener('focus', ()=>{
       if(save) save.style.display = '';
     } else {
       /* NAYA quotation: Save button ab dikhta hai. Pehle ye chhupa hota tha,
-         isliye quotation sirf "Download PDF" dabane par hi save ho paati thi. */
-      if(badge){ badge.style.display = ''; badge.textContent = 'NEW'; }
+         isliye quotation sirf "Download PDF" dabane par hi save ho paati thi.
+         Badge saaf batata hai ki number abhi pakka hai ya sirf provisional --
+         taaki koi provisional number customer ko na bata de. Do users ko ek
+         hi PROVISIONAL number dikh sakta hai; pakka number alag hi milega. */
+      if(badge){
+        badge.style.display = '';
+        badge.textContent = numberFinal ? 'NUMBER LOCKED' : 'PROVISIONAL No.';
+      }
       if(save) save.style.display = '';
     }
   }
