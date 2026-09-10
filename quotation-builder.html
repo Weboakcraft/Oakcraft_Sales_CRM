@@ -439,6 +439,30 @@ body.exporting .page{transform:none !important}
   /* PDF-ready bar sits above the tabs on mobile */
   #pdfbar{top:auto; bottom:calc(52px + env(safe-area-inset-bottom)); border-top:1px solid #BFDCC0; border-bottom:none; flex-wrap:wrap}
 }
+
+/* ============ EXPORT SAFETY (blank-PDF fix) ============
+   PDF banane wala code har element ko getBoundingClientRect() se naapta hai.
+   Mobile par (aur isi wajah se APK ke WebView me) default tab "Edit" hota hai,
+   aur upar wala rule
+       body:not(.mPreview) #preview{display:none}
+   poore preview pane ko chhupa deta hai -- yani #printArea aur saare .page
+   elements hidden. Hidden subtree me har rect 0x0 aata hai, isliye collect()
+   kuch bhi nahi uthata aur PDF ke SAARE PAGE KHALI ban jaate the. Desktop par
+   ye kabhi nahi hua kyunki wahan preview hamesha dikhta hai.
+
+   Isliye export ke dauran (body.exporting) preview ko zabardasti visible
+   rakhte hain. !important isliye chahiye kyunki `body:not(.mPreview) #preview`
+   ki specificity barabar hai. Ye sirf export ke chand milliseconds ke liye
+   lagta hai; baad me finally{} class hata deta hai aur mobile scaling wapas
+   aa jaati hai. */
+body.exporting #layout{display:block !important}
+body.exporting #preview{
+  display:block !important; height:auto !important; overflow:visible !important;
+  padding:0 !important; position:static !important; visibility:visible !important;
+}
+body.exporting #printArea{display:block !important; visibility:visible !important}
+body.exporting .pwrap,
+body.exporting .page{visibility:visible !important; opacity:1 !important}
 </style>
 </head>
 <body>
@@ -474,7 +498,9 @@ body.exporting .page{transform:none !important}
   <div class="ed-sec">
     <h3>Quotation</h3>
     <div class="frow">
-      <div class="f"><label>Number (auto — editable)</label><input type="number" id="inQno" oninput="S.qno=parseInt(this.value)||S.qno; R()"></div>
+      <div class="f"><label>Number (auto)</label><input type="text" id="inQno" readonly tabindex="-1"
+        title="PI number system khud generate karta hai \u2014 ise badla nahi ja sakta"
+        style="background:var(--cream); cursor:not-allowed; color:var(--ink-soft)"></div>
       <div class="f"><label>Date</label><input type="date" id="inDate" oninput="S.date=this.value; dateManual=true; R()"></div>
     </div>
     <div class="frow">
