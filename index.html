@@ -7971,7 +7971,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.6';
+var OC_WEB_BUILD = '2026.09.10.7';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8100,6 +8100,35 @@ window.renderQuotations = function(){
   paintTable('quo-body');
 };
 
+/* ---- QUOTATIONS: SABSE NAYI SABSE UPAR --------------------------------
+   Pehle sirf `date` par sort hota tha. `date` din-level hai, isliye ek hi
+   din ki saari quotations "barabar" thin aur stable sort unhe purani-se-nayi
+   waali original order me hi chhod deta tha -- aaj banayi hui quotation aaj
+   ki list me sabse NEECHE dikhti thi.
+   Ab tie-break quotation NUMBER se hota hai. Number server se atomically
+   milta hai aur hamesha badhta hai, to "nayi pehle" pakka rehta hai.
+   OAK/26-27/1069 -> fy 26, seq 1069. Purane "QT-MF.." type ids parse nahi
+   hote (-1), wo apne date ke andar neeche chale jaate hain. */
+function ocQuoFY(q){
+  var m = /(\d{2})\s*-\s*\d{2}\s*\//.exec(S(q && q.id));
+  return m ? +m[1] : -1;
+}
+function ocQuoSeq(q){
+  var m = /\/\s*(\d+)\s*$/.exec(S(q && q.id));
+  return m ? +m[1] : -1;
+}
+function ocQuoStamp(q){
+  var t = Date.parse(S(q && q.createdAt));
+  return t > 0 ? t : 0;
+}
+window.ocQuoNewestFirst = function(a, b){
+  var d = S(b && b.date).localeCompare(S(a && a.date)); if(d) return d;
+  var f = ocQuoFY(b)  - ocQuoFY(a);  if(f) return f;
+  var n = ocQuoSeq(b) - ocQuoSeq(a); if(n) return n;
+  var t = ocQuoStamp(b) - ocQuoStamp(a); if(t) return t;
+  return S(b && b.id).localeCompare(S(a && a.id));
+};
+
 var _paintV10 = window.paintTable;
 window.paintTable = function(bodyId){
   if(bodyId !== 'quo-body') return _paintV10.apply(this, arguments);
@@ -8107,7 +8136,7 @@ window.paintTable = function(bodyId){
   var gs = $('globalSearch'); var q = LC(gs && gs.value);
   var rows = scope(DB.quotations(), 'quotations').filter(function(x){
     return x && (!q || [x.id, x.customer, x.product, x.salesperson].join(' ').toLowerCase().indexOf(q) >= 0);
-  }).sort(function(a, b){ return S(b.date).localeCompare(S(a.date)); });
+  }).sort(window.ocQuoNewestFirst);
   body.innerHTML = rows.map(function(x){
     var sp = S(x.salesperson);
     var enq = x.enqId ? '<div class="sub">from ' + esc(x.enqId) + '</div>' : '';
