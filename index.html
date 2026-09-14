@@ -7974,7 +7974,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.14.1';
+var OC_WEB_BUILD = '2026.09.14.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -11911,6 +11911,315 @@ if(typeof _rd === 'function'){
 }
 
 console.log('[oc v23] dashboard date filter active');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 26. OAKCRAFT v24 — "Sales" charts ko asli data                          *
+ *                                                                        *
+ *   DIKKAT                                                                *
+ *     Teen panel -- Sales by Person, State-wise Sales, Salesperson-wise   *
+ *     Sales -- khali dikh rahe the: sirf legend, koi chart nahi.          *
+ *                                                                        *
+ *   WAJAH                                                                 *
+ *     Teeno WON enquiry ki `value` jodte hain. Aur `value` saveEnq me     *
+ *     product ki price x qty se banti hai -- jabki product master me      *
+ *     saare 182 products ki price 0 hai. Meta se aayi leads me bhi        *
+ *     value 0 hi hoti hai. Natija: 13 Won enquiries, unme se 0 ki value   *
+ *     > 0 -> har slice 0 -> Chart.js kuch draw hi nahi karta, sirf        *
+ *     legend reh jaata hai.                                               *
+ *                                                                        *
+ *   FIX                                                                   *
+ *     1. Agar Won enquiries me sach me value hai to wahi use hoti hai     *
+ *        (purana behaviour bilkul waisa hi).                             *
+ *     2. Warna ORDER ka amount (Cancelled chhod kar) -- asli paisa wahi   *
+ *        hai. Panel ka subtitle bata deta hai ki kaunsa aadhaar hai.      *
+ *     3. State ab customer ke city/state text se theek se nikalti hai --  *
+ *        pincode/phone hata kar, "Uttrakhand" jaisi spelling sudhaar kar, *
+ *        aur "Sonipat, Haryana" / "Lucknow, Uttar Pradesh, 22602" jaise   *
+ *        pate se sahi state chunkar.                                      *
+ *     4. Data bilkul na ho to khali canvas ki jagah saaf message.         *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocSalesFix) return; window.__ocSalesFix = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function UP(v){ return TR(v).toUpperCase().replace(/\s+/g, ' '); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ---------------------------------------------------------------- state normaliser */
+var STATES = ['Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Goa','Gujarat',
+  'Haryana','Himachal Pradesh','Jharkhand','Karnataka','Kerala','Madhya Pradesh','Maharashtra',
+  'Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Punjab','Rajasthan','Sikkim','Tamil Nadu',
+  'Telangana','Tripura','Uttar Pradesh','Uttarakhand','West Bengal','Delhi','Jammu and Kashmir',
+  'Ladakh','Puducherry','Chandigarh','Goa','Andaman and Nicobar Islands','Lakshadweep'];
+var ALIAS = {
+  'uttrakhand':'Uttarakhand','uttaranchal':'Uttarakhand','uttarakhand':'Uttarakhand',
+  'orissa':'Odisha','pondicherry':'Puducherry','new delhi':'Delhi','nct of delhi':'Delhi',
+  'delhi ncr':'Delhi','ncr':'Delhi','up':'Uttar Pradesh','u p':'Uttar Pradesh',
+  'mp':'Madhya Pradesh','ap':'Andhra Pradesh','tn':'Tamil Nadu','tamilnadu':'Tamil Nadu',
+  'wb':'West Bengal','j k':'Jammu and Kashmir','jk':'Jammu and Kashmir','telengana':'Telangana',
+  'chattisgarh':'Chhattisgarh','chhatisgarh':'Chhattisgarh','maharastra':'Maharashtra',
+  'gujrat':'Gujarat','harayana':'Haryana','hariyana':'Haryana','karnatka':'Karnataka',
+  'pb':'Punjab','hp':'Himachal Pradesh','uk':'Uttarakhand'
+};
+var CITY = {
+  'delhi':'Delhi','new delhi':'Delhi','najafgarh':'Delhi','rohini':'Delhi','dwarka':'Delhi',
+  'okhla':'Delhi','rithala':'Delhi','pitampura':'Delhi','janakpuri':'Delhi',
+  'mumbai':'Maharashtra','navi mumbai':'Maharashtra','thane':'Maharashtra','pune':'Maharashtra',
+  'nagpur':'Maharashtra','nashik':'Maharashtra','aurangabad':'Maharashtra',
+  'bangalore':'Karnataka','bengaluru':'Karnataka','mysore':'Karnataka','mangalore':'Karnataka',
+  'chennai':'Tamil Nadu','coimbatore':'Tamil Nadu','madurai':'Tamil Nadu','salem':'Tamil Nadu',
+  'hyderabad':'Telangana','secunderabad':'Telangana','warangal':'Telangana',
+  'kolkata':'West Bengal','howrah':'West Bengal','siliguri':'West Bengal',
+  'ahmedabad':'Gujarat','surat':'Gujarat','vadodara':'Gujarat','rajkot':'Gujarat','gandhinagar':'Gujarat',
+  'jaipur':'Rajasthan','jodhpur':'Rajasthan','udaipur':'Rajasthan','kota':'Rajasthan','ajmer':'Rajasthan',
+  'lucknow':'Uttar Pradesh','kanpur':'Uttar Pradesh','noida':'Uttar Pradesh','greater noida':'Uttar Pradesh',
+  'ghaziabad':'Uttar Pradesh','agra':'Uttar Pradesh','varanasi':'Uttar Pradesh','meerut':'Uttar Pradesh',
+  'prayagraj':'Uttar Pradesh','allahabad':'Uttar Pradesh','hazratganj':'Uttar Pradesh','kaushambi':'Uttar Pradesh',
+  'tilhapur':'Uttar Pradesh','bareilly':'Uttar Pradesh',
+  'gurgaon':'Haryana','gurugram':'Haryana','faridabad':'Haryana','sonipat':'Haryana','panipat':'Haryana',
+  'karnal':'Haryana','hisar':'Haryana','ambala':'Haryana',
+  'chandigarh':'Chandigarh','mohali':'Punjab','ludhiana':'Punjab','amritsar':'Punjab','jalandhar':'Punjab',
+  'bhopal':'Madhya Pradesh','indore':'Madhya Pradesh','gwalior':'Madhya Pradesh','jabalpur':'Madhya Pradesh',
+  'patna':'Bihar','gaya':'Bihar','muzaffarpur':'Bihar',
+  'kochi':'Kerala','cochin':'Kerala','ernakulam':'Kerala','kannur':'Kerala','kozhikode':'Kerala',
+  'calicut':'Kerala','thiruvananthapuram':'Kerala','trivandrum':'Kerala','thrissur':'Kerala',
+  'bhubaneswar':'Odisha','cuttack':'Odisha','guwahati':'Assam','ranchi':'Jharkhand','jamshedpur':'Jharkhand',
+  'raipur':'Chhattisgarh','bhilai':'Chhattisgarh','dehradun':'Uttarakhand','haridwar':'Uttarakhand',
+  'rudrapur':'Uttarakhand','haldwani':'Uttarakhand','shimla':'Himachal Pradesh','baddi':'Himachal Pradesh',
+  'visakhapatnam':'Andhra Pradesh','vijayawada':'Andhra Pradesh','guntur':'Andhra Pradesh',
+  'srinagar':'Jammu and Kashmir','jammu':'Jammu and Kashmir','panaji':'Goa','goa':'Goa'
+};
+var STATE_LC = {}; STATES.forEach(function(s){ STATE_LC[s.toLowerCase()] = s; });
+
+/* "Lucknow, Uttar Pradesh, 22602" -> Uttar Pradesh ; "rithala" -> Delhi ; "Uttrakhand" -> Uttarakhand */
+window.ocNormState = function(raw){
+  var s = TR(raw);
+  if(!s) return 'Unknown';
+  s = s.replace(/\d/g, ' ')                       /* pincode / phone number */
+       .replace(/\bindia\b/ig, ' ')
+       .replace(/[^A-Za-z,&\s]/g, ' ')
+       .replace(/\s+/g, ' ');
+  var parts = s.split(',').map(function(p){ return TR(p).toLowerCase(); }).filter(Boolean);
+  var i, p;
+  /* pata aksar state par khatm hota hai -> peeche se dekho */
+  for(i = parts.length - 1; i >= 0; i--){
+    p = parts[i];
+    if(STATE_LC[p]) return STATE_LC[p];
+    if(ALIAS[p])    return ALIAS[p];
+  }
+  for(i = parts.length - 1; i >= 0; i--){
+    if(CITY[parts[i]]) return CITY[parts[i]];
+  }
+  /* kahin beech me state ka naam pada ho */
+  var low = ' ' + s.toLowerCase().replace(/,/g, ' ') + ' ';
+  for(i = 0; i < STATES.length; i++){
+    if(low.indexOf(' ' + STATES[i].toLowerCase() + ' ') >= 0) return STATES[i];
+  }
+  var keys = Object.keys(CITY);
+  for(i = 0; i < keys.length; i++){
+    if(low.indexOf(' ' + keys[i] + ' ') >= 0) return CITY[keys[i]];
+  }
+  return 'Unknown';
+};
+
+/* ---------------------------------------------------------------- data source */
+function custIndex(){
+  var by = { id:{}, name:{} };
+  try{
+    (DB.customers() || []).forEach(function(c){
+      if(!c) return;
+      if(c.id) by.id[T(c.id)] = c;
+      var n = TR(c.name).toLowerCase(); if(n) by.name[n] = c;
+    });
+  }catch(e){}
+  return by;
+}
+function liveOrders(){
+  try{ return (DB.orders() || []).filter(function(o){ return o && TR(o.status) !== 'Cancelled'; }); }
+  catch(e){ return []; }
+}
+function wonTotal(enq){
+  return (enq || []).filter(function(e){ return e && TR(e.stage) === 'Won'; })
+                    .reduce(function(a, e){ return a + (+e.value || 0); }, 0);
+}
+/* Won enquiry me sach me paisa hai to wahi, warna order ka amount */
+function basisOf(enq){
+  return wonTotal(enq) > 0
+    ? { mode:'won',   label:'Won value' }
+    : { mode:'order', label:'Order value (excl. cancelled)' };
+}
+function personTotals(enq, basis, names){
+  if(basis.mode === 'won'){
+    return names.map(function(s){
+      return (enq || []).filter(function(e){ return e && UP(e.salesperson) === UP(s) && TR(e.stage) === 'Won'; })
+                        .reduce(function(a, e){ return a + (+e.value || 0); }, 0);
+    });
+  }
+  var ord = liveOrders();
+  return names.map(function(s){
+    return ord.filter(function(o){ return UP(o.salesperson) === UP(s); })
+              .reduce(function(a, o){ return a + (+o.amount || 0); }, 0);
+  });
+}
+function stateTotals(enq, basis){
+  var by = {}, cx = custIndex();
+  function add(rec, amt){
+    if(!(amt > 0)) return;
+    var c = (rec.custId && cx.id[T(rec.custId)]) || cx.name[TR(rec.customer).toLowerCase()] || null;
+    var st = window.ocNormState(c && (c.city || c.state));
+    by[st] = (by[st] || 0) + amt;
+  }
+  if(basis.mode === 'won'){
+    (enq || []).forEach(function(e){ if(e && TR(e.stage) === 'Won') add(e, +e.value || 0); });
+  }else{
+    liveOrders().forEach(function(o){ add(o, +o.amount || 0); });
+  }
+  return by;
+}
+
+/* Debugging aur testing ke liye: chart ke peeche ka poora hisaab ek jagah.
+   Dashboard render ke bahar bhi chalta hai (tab poora data leta hai). */
+window.ocSalesBreakup = function(enq){
+  var list = enq;
+  if(!list){ try{ list = DB.enquiries() || []; }catch(e){ list = []; } }
+  var basis = basisOf(list);
+  var names = salesNames(list);
+  var per = personTotals(list, basis, names), byPerson = {};
+  names.forEach(function(n, i){ if(per[i] > 0) byPerson[n] = per[i]; });
+  return { basis: basis.mode, label: basis.label, byState: stateTotals(list, basis), byPerson: byPerson };
+};
+
+/* ---------------------------------------------------------------- chart helpers */
+var PAL = ['#1baf7a','#2a78d6','#eda100','#e87ba4','#8b5cf6','#eb6834','#4a3aa7','#e34948','#0ca30c','#00b8d4'];
+function panelOf(canvasId){
+  var c = document.getElementById(canvasId);
+  return c ? (c.closest ? c.closest('.panel') : null) : null;
+}
+function setSub(canvasId, text){
+  try{
+    var p = panelOf(canvasId); if(!p) return;
+    var s = p.querySelector('h3 small'); if(s) s.textContent = text;
+  }catch(e){}
+}
+function emptyMsg(canvasId, msg){
+  try{
+    var c = document.getElementById(canvasId); if(!c) return;
+    var wrap = c.parentNode; if(!wrap) return;
+    wrap.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;'
+      + 'text-align:center;padding:14px;font-size:12.5px;color:var(--muted,#7a869a);line-height:1.6">'
+      + E(msg) + '</div>';
+  }catch(e){}
+}
+function kill(key){ try{ if(state.charts[key]) state.charts[key].destroy(); }catch(e){} state.charts[key] = null; }
+function money(v){ try{ return short(v); }catch(e){ return String(Math.round(v || 0)); } }
+/* Salesperson list sirf form config se lena kaafi nahi -- agar kisi ka naam
+   options me nahi hai to uski saari sales chart se chupchaap gayab ho jaati
+   hai. Isliye config + data dono milate hain. */
+function salesNames(enq){
+  var out = [], seen = {};
+  function add(n){
+    var k = UP(n); if(!k || seen[k]) return; seen[k] = 1; out.push(TR(n));
+  }
+  try{
+    var f = getForm('enquiry').filter(function(x){ return x.label === 'Salesperson'; })[0];
+    if(f && f.options) f.options.forEach(add);
+  }catch(e){}
+  try{ (SALES || []).forEach(add); }catch(e){}
+  try{ liveOrders().forEach(function(o){ if(o && TR(o.salesperson)) add(o.salesperson); }); }catch(e){}
+  try{ (enq || []).forEach(function(e){ if(e && TR(e.stage) === 'Won' && TR(e.salesperson)) add(e.salesperson); }); }catch(e){}
+  return out;
+}
+
+/* ---------------------------------------------------------------- 1. Sales by Person (bar) */
+window.drawSalesBy = function(enq){
+  var id = 'ch-sales', ctx = document.getElementById(id); if(!ctx) return;
+  var basis = basisOf(enq), names = salesNames(enq);
+  var vals = personTotals(enq, basis, names);
+  setSub(id, basis.label);
+  kill('sales');
+  if(!vals.some(function(v){ return v > 0; })){
+    emptyMsg(id, 'Is period me kisi salesperson ka koi sale record nahi hai.');
+    return;
+  }
+  try{
+    state.charts.sales = new Chart(ctx, {
+      type:'bar',
+      data:{ labels: names.map(function(s){ return T(s).split(' ')[0]; }),
+             datasets:[{ data: vals, backgroundColor:'#1baf7a', borderRadius:6, barThickness:22 }] },
+      options: baseOpts({ yFmt: function(v){ return money(v); } })
+    });
+  }catch(e){ console.warn('[oc v24] salesBy', e); }
+};
+
+/* ---------------------------------------------------------------- 2. State-wise Sales (doughnut) */
+window.drawStateSales = function(enq){
+  var id = 'ch-state', ctx = document.getElementById(id); if(!ctx) return;
+  var basis = basisOf(enq), by = stateTotals(enq, basis);
+  var labels = Object.keys(by).sort(function(a, b){ return by[b] - by[a]; });
+  labels = labels.filter(function(l){ return by[l] > 0; });
+  setSub(id, basis.label + ' · %');
+  kill('state');
+  if(!labels.length){
+    emptyMsg(id, 'Is period me koi sale record nahi hai, isliye state-wise breakup nahi ban sakta.');
+    return;
+  }
+  /* bahut saare chhote states -> top 8 + Other */
+  if(labels.length > 9){
+    var top = labels.slice(0, 8), rest = labels.slice(8);
+    var other = rest.reduce(function(a, l){ return a + by[l]; }, 0);
+    by = (function(){ var o = {}; top.forEach(function(l){ o[l] = by[l]; }); o['Other'] = other; return o; })();
+    labels = top.concat(['Other']);
+  }
+  var data = labels.map(function(l){ return by[l]; });
+  try{
+    state.charts.state = new Chart(ctx, {
+      type:'doughnut',
+      data:{ labels: labels, datasets:[{ data: data,
+             backgroundColor: labels.map(function(l, i){ return PAL[i % PAL.length]; }), borderWidth:0 }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:'right', labels:{ boxWidth:12, padding:8 } },
+          tooltip:{ callbacks:{ label:function(c){
+            var t = c.dataset.data.reduce(function(a, b){ return a + b; }, 0) || 1;
+            return ' ' + c.label + ': ' + money(c.parsed) + ' (' + (c.parsed / t * 100).toFixed(1) + '%)';
+          } } } } }
+    });
+  }catch(e){ console.warn('[oc v24] stateSales', e); }
+};
+
+/* ---------------------------------------------------------------- 3. Salesperson-wise Sales (pie) */
+window.drawSalesPie = function(enq){
+  var id = 'ch-salespie', ctx = document.getElementById(id); if(!ctx) return;
+  var basis = basisOf(enq), names = salesNames(enq);
+  var vals = personTotals(enq, basis, names);
+  var labels = [], data = [];
+  names.forEach(function(n, i){ if(vals[i] > 0){ labels.push(n); data.push(vals[i]); } });
+  setSub(id, basis.label);
+  kill('salespie');
+  if(!labels.length){
+    emptyMsg(id, 'Is period me kisi salesperson ka koi sale record nahi hai.');
+    return;
+  }
+  try{
+    state.charts.salespie = new Chart(ctx, {
+      type:'pie',
+      data:{ labels: labels, datasets:[{ data: data,
+             backgroundColor: labels.map(function(l, i){ return PAL[i % PAL.length]; }), borderWidth:0 }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:'right', labels:{ boxWidth:12, padding:8 } },
+          tooltip:{ callbacks:{ label:function(c){
+            var t = c.dataset.data.reduce(function(a, b){ return a + b; }, 0) || 1;
+            return ' ' + c.label + ': ' + money(c.parsed) + ' (' + (c.parsed / t * 100).toFixed(1) + '%)';
+          } } } } }
+    });
+  }catch(e){ console.warn('[oc v24] salesPie', e); }
+};
+
+console.log('[oc v24] sales charts: real data + state normalisation');
 })();
 </script>
 
