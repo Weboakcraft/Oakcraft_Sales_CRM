@@ -7974,7 +7974,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.10.11';
+var OC_WEB_BUILD = '2026.09.14.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -11060,7 +11060,20 @@ window.ocTrackRows = trackRows;
 
 /* user-wise performance — ranking aur delay dono isi se */
 function perfRows(){
-  var acts = actMine().filter(function(a){ return a && (a.field === 'stage' || a.field === 'status'); });
+  /* Dashboard par koi period chuna ho to ranking bhi usi period ki ho.
+     window.__ocDashRange v23 (dashboard filter) set karta hai; baaki jagah
+     ye null rehta hai, to poora data ginta hai -- pehle jaisa. */
+  var _rg = window.__ocDashRange || null;
+  var acts = actMine().filter(function(a){
+    if(!a || (a.field !== 'stage' && a.field !== 'status')) return false;
+    if(_rg){
+      var d = T(a.ts).slice(0, 10);
+      if(!d) return false;
+      if(_rg.from && d < _rg.from) return false;
+      if(_rg.to   && d > _rg.to)   return false;
+    }
+    return true;
+  });
   var m = {};
   function slot(em){
     var k = LCx(em) || '(unknown)';
@@ -11337,6 +11350,9 @@ function perfCardHTML(){
        +     '<button class="btn sm" onclick="setView(\'enqTrack\')">Enquiry Tracking</button>'
        +     '<button class="btn sm" onclick="setView(\'ordTrack\')">Order Tracking</button></div></div>'
        + '<div style="padding:0 20px 8px;font-size:12px;color:var(--muted,#7a869a)">'
+       +   (window.__ocDashRange
+             ? '<b>' + E(window.__ocDashRange.from) + ' se ' + E(window.__ocDashRange.to) + '</b> tak ka hisaab. '
+             : '')
        +   'Score = on-time % − (abhi pending overdue × 3) − speed penalty. Sirf stage/status changes ginte hain.'
        +   (anyMoves ? '' : '<br><b>Abhi tak koi stage change record nahi hua</b>, isliye ranking filhaal sirf '
        +     'pending overdue records par hai. Jaise-jaise team stage badlegi, TAT aur on-time % bharte jaayenge.')
@@ -11614,6 +11630,287 @@ try{ flushQueue(); }catch(e){}
 setInterval(function(){ try{ flushQueue(); }catch(e){} }, 60000);
 
 console.log('[oc v22] tracking + SLA + audit history active');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 25. OAKCRAFT v23 — DASHBOARD DATE FILTER                                *
+ *                                                                        *
+ *   Dashboard ke bilkul upar ek filter bar: Day / Week / Month / Custom   *
+ *   range / All time. Filter badalte hi poora dashboard -- saare KPI,     *
+ *   delta, funnel, charts, tables aur performance ranking -- usi period   *
+ *   ka data dikhane lagta hai. Page reload ki zaroorat nahi.              *
+ *                                                                        *
+ *   TAREEKA (v20 wala hi, isliye dashboard ka ek bhi line chhua nahi):    *
+ *   render ke DAURAN store.get() ko date se filter kar dete hain. Poora   *
+ *   dashboard apna data wahi se padhta hai, to sab kuch apne aap filter   *
+ *   ho jaata hai. Render khatm hote hi sab waapas normal. Baaki app par   *
+ *   koi asar nahi -- sirf dashboard render ke andar hi lagta hai.         *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocDashFilter) return; window.__ocDashFilter = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function A(v){ return E(v).replace(/"/g,'&quot;'); }
+function $$(id){ return document.getElementById(id); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+
+var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
+var DAY = ['Ravivaar','Somvaar','Mangalvaar','Budhvaar','Guruvaar','Shukravaar','Shanivaar'];
+
+function d2s(d){ return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+function s2d(s){
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(s)); if(!m) return null;
+  return new Date(+m[1], +m[2] - 1, +m[3]);
+}
+function todayS(){ return d2s(new Date()); }
+function pretty(s){
+  var d = s2d(s); if(!d) return '—';
+  return p2(d.getDate()) + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear();
+}
+function daysBetween(a, b){
+  var x = s2d(a), y = s2d(b); if(!x || !y) return 0;
+  return Math.round((y - x) / 864e5) + 1;
+}
+
+/* ---- ISO week <-> date ------------------------------------------------ */
+function mondayOf(d){
+  var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  var wd = (x.getDay() + 6) % 7;                 /* Mon=0 ... Sun=6 */
+  x.setDate(x.getDate() - wd);
+  return x;
+}
+function isoWeekStr(d){
+  var mon = mondayOf(d);
+  var thu = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 3);
+  var jan1 = new Date(thu.getFullYear(), 0, 1);
+  var wk = Math.floor((thu - jan1) / 864e5 / 7) + 1;
+  return thu.getFullYear() + '-W' + p2(wk);
+}
+function weekStrToMonday(s){
+  var m = /^(\d{4})-W(\d{1,2})$/.exec(T(s)); if(!m) return mondayOf(new Date());
+  var jan4 = new Date(+m[1], 0, 4);
+  var mon1 = mondayOf(jan4);
+  return new Date(mon1.getFullYear(), mon1.getMonth(), mon1.getDate() + (+m[2] - 1) * 7);
+}
+
+/* ---- filter state ----------------------------------------------------- */
+var KEY = 'oc_dashFilter';
+function defFilter(){ return { mode:'all', day:todayS(), week:isoWeekStr(new Date()),
+                               month:todayS().slice(0, 7), from:todayS().slice(0, 8) + '01', to:todayS() }; }
+function getF(){
+  var f = null;
+  try{ f = JSON.parse(localStorage.getItem(KEY) || 'null'); }catch(e){ f = null; }
+  var d = defFilter();
+  if(!f || typeof f !== 'object') return d;
+  ['mode','day','week','month','from','to'].forEach(function(k){ if(!T(f[k])) f[k] = d[k]; });
+  if(['all','day','week','month','custom'].indexOf(f.mode) < 0) f.mode = 'all';
+  return f;
+}
+function setF(f){ try{ localStorage.setItem(KEY, JSON.stringify(f)); }catch(e){} }
+
+/* mode + value -> { from, to, label, sub } */
+function rangeOf(f){
+  if(f.mode === 'day'){
+    var d = s2d(f.day) || new Date();
+    return { from:d2s(d), to:d2s(d),
+             label: DAY[d.getDay()] + ', ' + pretty(d2s(d)), sub:'1 din' };
+  }
+  if(f.mode === 'week'){
+    var mon = weekStrToMonday(f.week);
+    var sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+    return { from:d2s(mon), to:d2s(sun),
+             label: pretty(d2s(mon)) + '  –  ' + pretty(d2s(sun)),
+             sub: 'Week ' + T(f.week).split('-W')[1] + ' · 7 din' };
+  }
+  if(f.mode === 'month'){
+    var m = /^(\d{4})-(\d{2})$/.exec(T(f.month));
+    var y = m ? +m[1] : new Date().getFullYear(), mo = m ? +m[2] - 1 : new Date().getMonth();
+    var a = new Date(y, mo, 1), b = new Date(y, mo + 1, 0);
+    return { from:d2s(a), to:d2s(b),
+             label: MON[mo] + ' ' + y, sub: b.getDate() + ' din' };
+  }
+  if(f.mode === 'custom'){
+    var fr = f.from, to = f.to;
+    if(s2d(fr) && s2d(to) && fr > to){ var t = fr; fr = to; to = t; }
+    return { from:fr, to:to,
+             label: pretty(fr) + '  –  ' + pretty(to),
+             sub: daysBetween(fr, to) + ' din' };
+  }
+  return { from:'', to:'', label:'Sab kuch', sub:'shuru se aaj tak' };
+}
+window.ocDashFilter = function(){ var f = getF(); var r = rangeOf(f); r.mode = f.mode; return r; };
+
+/* ---- date nikalna har collection se ----------------------------------- */
+function rowDate(key, r){
+  if(!r) return '';
+  var v = (key === 'dispatch') ? (r.dispatchedOn || r.createdAt || r.updatedAt)
+                               : (r.date || r.createdAt || r.updatedAt);
+  return T(v).slice(0, 10);
+}
+function inRange(key, r, rg){
+  if(!rg.from && !rg.to) return true;
+  var d = rowDate(key, r);
+  if(!d) return false;                     /* bina date ke record kisi period me nahi girta */
+  if(rg.from && d < rg.from) return false;
+  if(rg.to   && d > rg.to)   return false;
+  return true;
+}
+
+/* ---- render ke dauran data filter karo -------------------------------- */
+var FILTERED = ['enquiries','quotations','orders','dispatch'];
+function withFilter(rg, fn){
+  if(!rg.from && !rg.to) return fn();            /* All time -> bilkul purana behaviour */
+
+  var _get  = store.get;
+  var _meta = window.ocMetaAsEnq;
+  store.get = function(k, def){
+    var v = _get.apply(store, arguments);
+    if(FILTERED.indexOf(k) < 0 || !Array.isArray(v)) return v;
+    return v.filter(function(r){ return inRange(k, r, rg); });
+  };
+  if(typeof _meta === 'function'){
+    window.ocMetaAsEnq = function(){
+      var a = [];
+      try{ a = _meta.apply(this, arguments) || []; }catch(e){ a = []; }
+      return a.filter(function(r){ return inRange('enquiries', r, rg); });
+    };
+  }
+  try{ return fn(); }
+  finally{
+    store.get = _get;
+    if(typeof _meta === 'function') window.ocMetaAsEnq = _meta;
+  }
+}
+
+/* ---- filter bar UI ---------------------------------------------------- */
+var BTN = 'padding:6px 13px;border:1px solid var(--border,#dde3ee);background:transparent;'
+        + 'border-radius:8px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;color:inherit';
+var BTN_ON = 'padding:6px 13px;border:1px solid var(--brand,#2a78d6);border-radius:8px;font:inherit;'
+           + 'font-size:12.5px;font-weight:700;cursor:pointer;background:var(--brand,#2a78d6);color:#fff';
+
+function valueControl(f){
+  if(f.mode === 'day')   return '<input type="date"  class="field" id="ocdf-v" value="' + A(f.day) + '" style="min-width:160px">';
+  if(f.mode === 'week')  return '<input type="week"  class="field" id="ocdf-v" value="' + A(f.week) + '" style="min-width:160px">';
+  if(f.mode === 'month') return '<input type="month" class="field" id="ocdf-v" value="' + A(f.month) + '" style="min-width:160px">';
+  if(f.mode === 'custom')
+    return '<span style="font-size:12px;color:var(--muted,#7a869a)">From</span>'
+         + '<input type="date" class="field" id="ocdf-from" value="' + A(f.from) + '" style="min-width:150px">'
+         + '<span style="font-size:12px;color:var(--muted,#7a869a)">To</span>'
+         + '<input type="date" class="field" id="ocdf-to" value="' + A(f.to) + '" style="min-width:150px">';
+  return '';
+}
+
+function barHTML(f, rg){
+  var modes = [['all','Sab kuch'], ['day','Day'], ['week','Week'], ['month','Month'], ['custom','Custom range']];
+  var arrows = (f.mode === 'all') ? ''
+    : '<button type="button" style="' + BTN + ';padding:6px 10px" onclick="ocDashStep(-1)" title="Pichhla period">&#9664;</button>'
+    + '<button type="button" style="' + BTN + ';padding:6px 10px" onclick="ocDashStep(1)" title="Agla period">&#9654;</button>';
+  return '<div class="card" id="oc-dash-filter" style="margin-bottom:16px">'
+    + '<div style="padding:14px 20px 12px">'
+    +   '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
+    +     '<span style="font-size:12px;font-weight:700;letter-spacing:.3px;color:var(--muted,#7a869a);margin-right:2px">PERIOD</span>'
+    +     modes.map(function(m){
+            return '<button type="button" style="' + (f.mode === m[0] ? BTN_ON : BTN) + '" '
+                 + 'onclick="ocDashMode(\'' + m[0] + '\')">' + E(m[1]) + '</button>';
+          }).join('')
+    +     '<span style="flex:1 1 12px"></span>'
+    +     valueControl(f)
+    +     arrows
+    +   '</div>'
+    +   '<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--border,#e7ecf4);'
+    +     'display:flex;flex-wrap:wrap;gap:8px;align-items:baseline">'
+    +     '<span style="font-size:12px;color:var(--muted,#7a869a)">Dikhaya ja raha hai:</span>'
+    +     '<span style="font-size:15px;font-weight:700">' + E(rg.label) + '</span>'
+    +     '<span class="chip c-neutral">' + E(rg.sub) + '</span>'
+    +     (rg.from ? '<span style="font-size:11.5px;color:var(--muted,#7a869a)">('
+                   + E(rg.from) + ' &rarr; ' + E(rg.to) + ')</span>' : '')
+    +     '<span style="flex:1"></span>'
+    +     (f.mode === 'all' ? ''
+        : '<button type="button" style="' + BTN + ';font-weight:600" onclick="ocDashMode(\'all\')">Filter hatao</button>')
+    +   '</div>'
+    + '</div></div>';
+}
+
+/* ---- dobara render (charts ko theek se band karke) --------------------- */
+function reDash(){
+  try{
+    Object.keys(state.charts || {}).forEach(function(k){
+      try{ state.charts[k].destroy(); }catch(e){}
+    });
+    state.charts = {};
+  }catch(e){}
+  try{ renderDashboard(); }catch(e){ console.warn('[oc v23] reDash', e); }
+}
+
+window.ocDashMode = function(mode){
+  var f = getF(); f.mode = mode; setF(f); reDash();
+};
+window.ocDashStep = function(dir){
+  var f = getF();
+  if(f.mode === 'day'){
+    var d = s2d(f.day) || new Date();
+    d.setDate(d.getDate() + dir); f.day = d2s(d);
+  }else if(f.mode === 'week'){
+    var mon = weekStrToMonday(f.week);
+    mon.setDate(mon.getDate() + dir * 7); f.week = isoWeekStr(mon);
+  }else if(f.mode === 'month'){
+    var m = /^(\d{4})-(\d{2})$/.exec(T(f.month));
+    var y = m ? +m[1] : new Date().getFullYear(), mo = (m ? +m[2] - 1 : new Date().getMonth()) + dir;
+    var d2 = new Date(y, mo, 1);
+    f.month = d2.getFullYear() + '-' + p2(d2.getMonth() + 1);
+  }else if(f.mode === 'custom'){
+    var span = Math.max(1, daysBetween(f.from, f.to));
+    var a = s2d(f.from), b = s2d(f.to);
+    if(a && b){
+      a.setDate(a.getDate() + dir * span); b.setDate(b.getDate() + dir * span);
+      f.from = d2s(a); f.to = d2s(b);
+    }
+  }else return;
+  setF(f); reDash();
+};
+function bindInputs(){
+  var f = getF();
+  var v = $$('ocdf-v');
+  if(v) v.onchange = function(){
+    var f2 = getF();
+    if(f2.mode === 'day') f2.day = v.value;
+    else if(f2.mode === 'week') f2.week = v.value;
+    else if(f2.mode === 'month') f2.month = v.value;
+    setF(f2); reDash();
+  };
+  ['from','to'].forEach(function(k){
+    var el = $$('ocdf-' + k);
+    if(el) el.onchange = function(){ var f3 = getF(); f3[k] = el.value; setF(f3); reDash(); };
+  });
+}
+
+/* ---- dashboard wrapper (sabse bahar) ---------------------------------- */
+var _rd = window.renderDashboard;
+if(typeof _rd === 'function'){
+  window.renderDashboard = function(){
+    var f = getF(), rg = rangeOf(f);
+    /* v22 ka performance card bhi isi period ka ho */
+    window.__ocDashRange = (rg.from || rg.to) ? { from:rg.from, to:rg.to } : null;
+    var r;
+    try{ r = withFilter(rg, function(){ return _rd.apply(this, arguments); }.bind(this)); }
+    finally{ window.__ocDashRange = null; }
+    try{
+      if(content && !$$('oc-dash-filter')){
+        var d = document.createElement('div');
+        d.innerHTML = barHTML(f, rg);
+        content.insertBefore(d.firstChild, content.firstChild);
+        bindInputs();
+      }
+    }catch(e){ console.warn('[oc v23] filter bar', e); }
+    return r;
+  };
+}
+
+console.log('[oc v23] dashboard date filter active');
 })();
 </script>
 
