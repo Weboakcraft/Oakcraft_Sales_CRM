@@ -7974,7 +7974,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.14.2';
+var OC_WEB_BUILD = '2026.09.14.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -11992,7 +11992,24 @@ var CITY = {
   'raipur':'Chhattisgarh','bhilai':'Chhattisgarh','dehradun':'Uttarakhand','haridwar':'Uttarakhand',
   'rudrapur':'Uttarakhand','haldwani':'Uttarakhand','shimla':'Himachal Pradesh','baddi':'Himachal Pradesh',
   'visakhapatnam':'Andhra Pradesh','vijayawada':'Andhra Pradesh','guntur':'Andhra Pradesh',
-  'srinagar':'Jammu and Kashmir','jammu':'Jammu and Kashmir','panaji':'Goa','goa':'Goa'
+  'srinagar':'Jammu and Kashmir','jammu':'Jammu and Kashmir','panaji':'Goa','goa':'Goa',
+  /* asli customer data me mile the -- inke bina "Unknown" me gir rahe the */
+  'malappuram':'Kerala','kavanoor':'Kerala','kottayam':'Kerala','palakkad':'Kerala','alappuzha':'Kerala',
+  'bahadurgarh':'Haryana','bahadurghar':'Haryana','yamunanagar':'Haryana','rewari':'Haryana',
+  'rohtak':'Haryana','hansi':'Haryana','bhiwani':'Haryana',
+  'azamgarh':'Uttar Pradesh','jhansi':'Uttar Pradesh','gorakhpur':'Uttar Pradesh','aligarh':'Uttar Pradesh',
+  'moradabad':'Uttar Pradesh','saharanpur':'Uttar Pradesh','mathura':'Uttar Pradesh','jhunjhunu':'Rajasthan',
+  'gurdaspur':'Punjab','pathankot':'Punjab','patiala':'Punjab','bathinda':'Punjab','moga':'Punjab',
+  'gangtok':'Sikkim','imphal':'Manipur','shillong':'Meghalaya','aizawl':'Mizoram','agartala':'Tripura',
+  'itanagar':'Arunachal Pradesh','kohima':'Nagaland','dimapur':'Nagaland','silchar':'Assam','dibrugarh':'Assam',
+  'kolhapur':'Maharashtra','solapur':'Maharashtra','amravati':'Maharashtra','sangli':'Maharashtra',
+  'durgapur':'West Bengal','asansol':'West Bengal','darjeeling':'West Bengal','kharagpur':'West Bengal',
+  'tiruvarur':'Tamil Nadu','trichy':'Tamil Nadu','tiruchirappalli':'Tamil Nadu','erode':'Tamil Nadu',
+  'tirupur':'Tamil Nadu','vellore':'Tamil Nadu','hubli':'Karnataka','belgaum':'Karnataka','udupi':'Karnataka',
+  'tirupati':'Andhra Pradesh','nellore':'Andhra Pradesh','rourkela':'Odisha','sambalpur':'Odisha',
+  'bhagalpur':'Bihar','darbhanga':'Bihar','dhanbad':'Jharkhand','bokaro':'Jharkhand',
+  'ujjain':'Madhya Pradesh','sagar':'Madhya Pradesh','rishikesh':'Uttarakhand','roorkee':'Uttarakhand',
+  'kashipur':'Uttarakhand','bhiwadi':'Rajasthan','alwar':'Rajasthan','bikaner':'Rajasthan','sikar':'Rajasthan'
 };
 var STATE_LC = {}; STATES.forEach(function(s){ STATE_LC[s.toLowerCase()] = s; });
 
@@ -12137,6 +12154,7 @@ function salesNames(enq){
 
 /* ---------------------------------------------------------------- 1. Sales by Person (bar) */
 window.drawSalesBy = function(enq){
+  ensureSliceLabels();
   var id = 'ch-sales', ctx = document.getElementById(id); if(!ctx) return;
   var basis = basisOf(enq), names = salesNames(enq);
   var vals = personTotals(enq, basis, names);
@@ -12158,6 +12176,7 @@ window.drawSalesBy = function(enq){
 
 /* ---------------------------------------------------------------- 2. State-wise Sales (doughnut) */
 window.drawStateSales = function(enq){
+  ensureSliceLabels();
   var id = 'ch-state', ctx = document.getElementById(id); if(!ctx) return;
   var basis = basisOf(enq), by = stateTotals(enq, basis);
   var labels = Object.keys(by).sort(function(a, b){ return by[b] - by[a]; });
@@ -12193,6 +12212,7 @@ window.drawStateSales = function(enq){
 
 /* ---------------------------------------------------------------- 3. Salesperson-wise Sales (pie) */
 window.drawSalesPie = function(enq){
+  ensureSliceLabels();
   var id = 'ch-salespie', ctx = document.getElementById(id); if(!ctx) return;
   var basis = basisOf(enq), names = salesNames(enq);
   var vals = personTotals(enq, basis, names);
@@ -12219,7 +12239,79 @@ window.drawSalesPie = function(enq){
   }catch(e){ console.warn('[oc v24] salesPie', e); }
 };
 
-console.log('[oc v24] sales charts: real data + state normalisation');
+/* ================================================================ *
+ * PIE / DOUGHNUT ke ANDAR value + %                                 *
+ *   Koi extra library nahi -- Chart.js ka apna plugin hook use kiya  *
+ *   hai. Har slice ke beech me do line: upar value, neeche %.        *
+ *   Bahut patli slice (4% se kam) par text nahi likhte, warna        *
+ *   aapas me ghus jaata hai -- wo legend aur tooltip me dikhta hai.  *
+ *   Sirf pie aur doughnut par lagta hai; line/bar chart waise ke     *
+ *   waise rehte hain.                                               *
+ * ================================================================ */
+var MONEY_CHARTS = { 'ch-state':1, 'ch-salespie':1 };
+var sliceLabels = {
+  id: 'ocSliceLabels',
+  afterDatasetsDraw: function(chart){
+    try{
+      var type = chart.config && (chart.config.type || (chart.config._config && chart.config._config.type));
+      if(type !== 'pie' && type !== 'doughnut') return;
+      var ds = chart.data && chart.data.datasets && chart.data.datasets[0];
+      if(!ds || !ds.data || !ds.data.length) return;
+      var meta = chart.getDatasetMeta(0); if(!meta || !meta.data) return;
+      var vals = ds.data.map(function(v){ return +v || 0; });
+      var total = vals.reduce(function(a, b){ return a + b; }, 0);
+      if(!(total > 0)) return;
+      var id = (chart.canvas && chart.canvas.id) || '';
+      var asMoney = !!MONEY_CHARTS[id];
+      var ctx = chart.ctx;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      meta.data.forEach(function(arc, i){
+        var v = vals[i]; if(!(v > 0)) return;
+        var pct = v / total * 100;
+        if(pct < 4) return;                       /* patli slice -> rehne do */
+        var pt;
+        try{ pt = arc.tooltipPosition(); }catch(e){ try{ pt = arc.getCenterPoint(); }catch(e2){ return; } }
+        if(!pt) return;
+        var top = asMoney ? money(v) : String(Math.round(v));
+        var bot = (pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
+        /* halka gehra outline taaki har rang par padha ja sake */
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0,0,0,.38)';
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 11.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+        ctx.strokeText(top, pt.x, pt.y - 7);
+        ctx.fillText(top, pt.x, pt.y - 7);
+        ctx.font = '600 10.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+        ctx.strokeText(bot, pt.x, pt.y + 7);
+        ctx.fillText(bot, pt.x, pt.y + 7);
+      });
+      ctx.restore();
+    }catch(e){}
+  }
+};
+/* Chart.js `defer` se load hota hai, isliye is inline block ke chalte waqt
+   `Chart` abhi undefined hota hai -- seedha register karne par kuch hota hi
+   nahi tha. Ab jaise hi Chart aata hai, register kar lete hain. */
+window.ocSliceLabelsOn = false;
+function ensureSliceLabels(){
+  if(window.ocSliceLabelsOn) return true;
+  try{
+    if(typeof Chart !== 'undefined' && Chart.register){
+      Chart.register(sliceLabels);
+      window.ocSliceLabelsOn = true;
+    }
+  }catch(e){}
+  return window.ocSliceLabelsOn;
+}
+(function arm(n){
+  if(ensureSliceLabels() || n > 60) return;
+  setTimeout(function(){ arm(n + 1); }, 50);
+})(0);
+try{ window.addEventListener('load', ensureSliceLabels); }catch(e){}
+
+console.log('[oc v24] sales charts: real data + state normalisation + slice labels');
 })();
 </script>
 
