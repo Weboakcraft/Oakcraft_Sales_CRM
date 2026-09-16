@@ -7974,7 +7974,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.14.3';
+var OC_WEB_BUILD = '2026.09.16.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -12312,6 +12312,322 @@ function ensureSliceLabels(){
 try{ window.addEventListener('load', ensureSliceLabels); }catch(e){}
 
 console.log('[oc v24] sales charts: real data + state normalisation + slice labels');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 27. OAKCRAFT v25 — DAILY REPORT (WhatsApp)                              *
+ *                                                                        *
+ *   Har user apne ek din ke kaam ki report dekh kar seedha WhatsApp par   *
+ *   bhej sakta hai. Report HAMESHA sirf LOGIN WALE USER ke apne records   *
+ *   ki hoti hai -- admin ho ya na ho, scope() yahan use nahi hota, owner  *
+ *   se seedha filter lagta hai. Isliye koi doosre ki report nahi bhej     *
+ *   sakta.                                                               *
+ *                                                                        *
+ *   Report me kya hai                                                    *
+ *     AAJ      : nayi enquiries (stage-wise), meta leads, naye orders     *
+ *                aur unki value                                          *
+ *     AAJ KA   : aaj kitne stage change kiye, kya se kya, kitne Won /     *
+ *     KAAM       Lost hue, SLA late kitne (naye activity log se)          *
+ *     IS MAHINE: enquiries, Won, conversion %, orders, order value aur    *
+ *                abhi khula pipeline -- kyunki ek din ka conversion %     *
+ *                apne aap me bemani hota hai                             *
+ *                                                                        *
+ *   NOTE: "enquiry se order" ka koi link CRM me maujood nahi hai (order   *
+ *   par enqId/quoId jaisa field hai hi nahi). Isliye conversion = jitni   *
+ *   enquiries "Won" hui -- yahi CRM khud record karta hai.                *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocDaily) return; window.__ocDaily = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LCx(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function A(v){ return E(v).replace(/"/g,'&quot;'); }
+function $$(id){ return document.getElementById(id); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+function G(k){ try{ var a = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+
+var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
+function todayS(){ var d = new Date(); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+function dmy(s){
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(s)); if(!m) return T(s);
+  return m[3] + '/' + m[2] + '/' + m[1];
+}
+function dMon(s){
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(s)); if(!m) return T(s);
+  return m[3] + ' ' + MON[+m[2] - 1];
+}
+/* Meta ka 'dd-MM-yyyy HH:mm:ss' -> 'YYYY-MM-DD' */
+function isoDay(v){
+  var s = TR(v); if(!s) return '';
+  var m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(s);
+  if(m) return m[3] + '-' + p2(+m[2]) + '-' + p2(+m[1]);
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? m[0] : '';
+}
+function meMail(){ try{ return LCx((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function meName(){
+  try{ var u = AUTH.current() || {}; return TR(u.name) || TR(u.email); }catch(e){ return ''; }
+}
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function rupee(v){
+  v = +v || 0;
+  try{ if(typeof short === 'function') return short(v); }catch(e){}
+  return '₹' + Math.round(v).toLocaleString('en-IN');
+}
+function pct(a, b){ return b > 0 ? (Math.round(a / b * 1000) / 10) : 0; }
+
+/* ---------------------------------------------------------------- SIRF APNE records */
+function mineOf(key){
+  var me = meMail(); if(!me) return [];
+  return G(key).filter(function(r){ return r && LCx(r.owner || r.ownerEmail) === me; });
+}
+
+/* ---------------------------------------------------------------- report ka poora hisaab */
+function buildReport(day){
+  var me = meMail();
+  day = day || todayS();
+  var mFrom = day.slice(0, 7) + '-01', mTo = day;
+
+  var enq = mineOf('enquiries'), ord = mineOf('orders'), ml = mineOf('metaLeads');
+  var onDay = function(r){ return T(r.date).slice(0, 10) === day; };
+  var inMon = function(r){ var d = T(r.date).slice(0, 10); return d >= mFrom && d <= mTo; };
+
+  /* ---- AAJ ---- */
+  var eToday = enq.filter(onDay);
+  var stage = {};
+  eToday.forEach(function(r){ var s = TR(r.stage) || 'New'; stage[s] = (stage[s] || 0) + 1; });
+  var mlToday = ml.filter(function(r){ return isoDay(r && (r.created_time_ist || r.created_time)) === day; });
+  var oToday = ord.filter(function(r){ return onDay(r) && TR(r.status) !== 'Cancelled'; });
+  var oTodayVal = oToday.reduce(function(a, r){ return a + (+r.amount || 0); }, 0);
+
+  /* ---- AAJ KA KAAM (activity log se) ---- */
+  var acts = G('activity').filter(function(a){
+    return a && LCx(a.by) === me && T(a.ts).slice(0, 10) === day
+        && (a.field === 'stage' || a.field === 'status');
+  });
+  var moves = {}, wonToday = 0, lostToday = 0, lateToday = 0;
+  acts.forEach(function(a){
+    var k = (a.coll === 'orders' ? 'order' : (a.coll === 'metaLeads' ? 'meta' : (a.coll === 'dispatch' ? 'dispatch' : 'enquiry')));
+    var t = TR(a.from) + '→' + TR(a.to);
+    moves[k] = moves[k] || {};
+    moves[k][t] = (moves[k][t] || 0) + 1;
+    if(a.coll === 'enquiries' && TR(a.to) === 'Won')  wonToday++;
+    if(a.coll === 'enquiries' && TR(a.to) === 'Lost') lostToday++;
+    if(+a.late === 1) lateToday++;
+  });
+
+  /* ---- IS MAHINE ---- */
+  var eMon = enq.filter(inMon);
+  var wonMon = eMon.filter(function(r){ return TR(r.stage) === 'Won'; }).length;
+  var oMon = ord.filter(function(r){ return inMon(r) && TR(r.status) !== 'Cancelled'; });
+  var oMonVal = oMon.reduce(function(a, r){ return a + (+r.amount || 0); }, 0);
+  var openPipe = enq.filter(function(r){ var s = TR(r.stage); return s !== 'Won' && s !== 'Lost'; }).length;
+
+  return {
+    day: day, me: me, name: meName(), admin: isAdm(),
+    monFrom: mFrom, monTo: mTo,
+    today: {
+      enq: eToday.length, stage: stage, meta: mlToday.length,
+      orders: oToday.length, orderValue: oTodayVal,
+      moves: acts.length, moveMix: moves, won: wonToday, lost: lostToday, late: lateToday
+    },
+    month: {
+      enq: eMon.length, won: wonMon, conv: pct(wonMon, eMon.length),
+      orders: oMon.length, orderValue: oMonVal, openPipe: openPipe
+    }
+  };
+}
+window.ocDailyData = buildReport;
+
+/* ---------------------------------------------------------------- WhatsApp template */
+function mixLine(m){
+  if(!m) return '';
+  var ks = Object.keys(m).sort(function(a, b){ return m[b] - m[a]; });
+  return ks.map(function(k){ return k + ' ' + m[k]; }).join(', ');
+}
+function waText(r){
+  var L = [];
+  L.push('*OAKCRAFT — DAILY REPORT*');
+  L.push('*' + r.name + '*  ·  ' + dmy(r.day));
+  L.push('');
+  L.push('*ENQUIRIES (AAJ)*');
+  L.push('• Nayi enquiries : ' + r.today.enq);
+  L.push('• Meta leads : ' + r.today.meta);
+  var sm = mixLine(r.today.stage);
+  L.push('• Stage : ' + (sm || '—'));
+  L.push('');
+  L.push('*ORDERS (AAJ)*');
+  L.push('• Naye orders : ' + r.today.orders);
+  L.push('• Order value : ' + rupee(r.today.orderValue));
+  L.push('');
+  L.push('*AAJ KA KAAM*');
+  L.push('• Stage changes : ' + r.today.moves);
+  ['enquiry','order','meta','dispatch'].forEach(function(k){
+    var s = mixLine(r.today.moveMix[k]);
+    if(s) L.push('• ' + k.charAt(0).toUpperCase() + k.slice(1) + ' : ' + s);
+  });
+  L.push('• Won aaj : ' + r.today.won + '   |   Lost aaj : ' + r.today.lost);
+  if(r.today.late) L.push('• SLA late : ' + r.today.late);
+  L.push('');
+  L.push('*IS MAHINE (' + dMon(r.monFrom) + ' – ' + dMon(r.monTo) + ')*');
+  L.push('• Enquiries : ' + r.month.enq);
+  L.push('• Won : ' + r.month.won + '  (' + r.month.conv + '% conversion)');
+  L.push('• Orders : ' + r.month.orders);
+  L.push('• Order value : ' + rupee(r.month.orderValue));
+  L.push('• Abhi open pipeline : ' + r.month.openPipe + ' enquiries');
+  L.push('');
+  L.push('_OakCraft CRM se auto-generated_');
+  return L.join('\n');
+}
+window.ocDailyText = function(day){ return waText(buildReport(day)); };
+
+/* ---------------------------------------------------------------- modal */
+var NUM_KEY = 'oc_dailyWaNum';
+function savedNum(){ try{ return TR(localStorage.getItem(NUM_KEY) || ''); }catch(e){ return ''; } }
+function waNum(raw){
+  var d = T(raw).replace(/\D/g, '');
+  if(d.length === 10) return '91' + d;
+  if(d.length === 12 && d.indexOf('91') === 0) return d;
+  if(d.length === 11 && d.charAt(0) === '0') return '91' + d.slice(1);
+  return d.length >= 10 ? d : '';
+}
+
+window.ocDailyOpen = function(day){
+  var r = buildReport(day || (function(){
+    try{ var f = window.ocDashFilter && window.ocDashFilter(); if(f && f.mode === 'day' && f.from) return f.from; }catch(e){}
+    return todayS();
+  })());
+  var txt = waText(r);
+  var rows = function(t, arr){
+    return '<div style="margin-bottom:12px"><div style="font-weight:700;font-size:12px;letter-spacing:.3px;'
+      + 'color:var(--muted,#7a869a);margin-bottom:6px">' + E(t) + '</div>'
+      + arr.map(function(p){
+          return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;font-size:13px">'
+            + '<span>' + E(p[0]) + '</span><span class="strong tabular">' + E(p[1]) + '</span></div>';
+        }).join('')
+      + '</div>';
+  };
+  var sm = mixLine(r.today.stage) || '—';
+  var mv = ['enquiry','order','meta','dispatch'].map(function(k){
+    var s = mixLine(r.today.moveMix[k]); return s ? [k.charAt(0).toUpperCase() + k.slice(1), s] : null;
+  }).filter(Boolean);
+
+  var html = '<div class="modal-head"><h3>Daily Report — ' + E(dmy(r.day)) + '</h3>'
+    + '<button class="icon-btn" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body">'
+    +   '<div style="padding:10px 12px;border:1px solid var(--border,#e7ecf4);border-left:3px solid var(--brand,#2a78d6);'
+    +     'border-radius:9px;margin-bottom:14px;font-size:12.5px">'
+    +     '<b>' + E(r.name) + '</b> — sirf aapke apne records ki report hai.'
+    +     (r.admin ? ' Aap Administrator hain, isliye isme sirf wahi records hain jo aapke naam par hain.' : '')
+    +   '</div>'
+    +   rows('ENQUIRIES (AAJ)', [
+          ['Nayi enquiries', String(r.today.enq)],
+          ['Meta leads', String(r.today.meta)],
+          ['Stage', sm]
+        ])
+    +   rows('ORDERS (AAJ)', [
+          ['Naye orders', String(r.today.orders)],
+          ['Order value', rupee(r.today.orderValue)]
+        ])
+    +   rows('AAJ KA KAAM', [['Stage changes', String(r.today.moves)]]
+          .concat(mv)
+          .concat([['Won aaj', String(r.today.won)], ['Lost aaj', String(r.today.lost)]])
+          .concat(r.today.late ? [['SLA late', String(r.today.late)]] : []))
+    +   rows('IS MAHINE (' + dMon(r.monFrom) + ' – ' + dMon(r.monTo) + ')', [
+          ['Enquiries', String(r.month.enq)],
+          ['Won', r.month.won + '  (' + r.month.conv + '%)'],
+          ['Orders', String(r.month.orders)],
+          ['Order value', rupee(r.month.orderValue)],
+          ['Abhi open pipeline', r.month.openPipe + ' enquiries']
+        ])
+    +   '<div style="font-weight:700;font-size:12px;letter-spacing:.3px;color:var(--muted,#7a869a);margin:14px 0 6px">'
+    +     'WHATSAPP PAR JO JAYEGA</div>'
+    +   '<pre id="oc-dr-text" style="white-space:pre-wrap;word-break:break-word;background:var(--surface-2,#f7f9fc);'
+    +     'border:1px solid var(--border,#e7ecf4);border-radius:9px;padding:12px;font-size:12px;line-height:1.55;'
+    +     'font-family:inherit;margin:0;max-height:240px;overflow:auto">' + E(txt) + '</pre>'
+    +   '<div class="form-row" style="margin-top:12px">'
+    +     '<label class="lbl" style="font-size:11.5px">Kis number par bhejna hai? <span style="color:var(--muted,#7a869a)">'
+    +       '(khali chhodenge to WhatsApp khud contact poochhega — number yaad rakh liya jayega)</span></label>'
+    +     '<input id="oc-dr-num" class="field" style="width:100%;margin-top:5px" placeholder="10 digit ya +91..." value="'
+    +       A(savedNum()) + '">'
+    +   '</div>'
+    + '</div>'
+    + '<div class="modal-foot">'
+    +   '<button class="btn" onclick="closeModal()">Close</button>'
+    +   '<button class="btn" onclick="ocDailyCopy()">Copy text</button>'
+    +   '<button class="btn primary" onclick="ocDailySend()" style="background:#0f8f4c;border-color:#0f8f4c">'
+    +     ((typeof I !== 'undefined' && I.whatsapp) ? I.whatsapp : '') + 'WhatsApp par bhejein</button>'
+    + '</div>';
+  try{ openModal(html); }catch(e){ alert(txt); }
+};
+
+window.ocDailyCopy = function(){
+  var el = $$('oc-dr-text'); if(!el) return;
+  var t = el.textContent;
+  try{
+    navigator.clipboard.writeText(t).then(function(){ try{ toast('Report copy ho gayi ✓'); }catch(e){} });
+  }catch(e){
+    try{
+      var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); ta.remove();
+      toast('Report copy ho gayi ✓');
+    }catch(e2){}
+  }
+};
+
+window.ocDailySend = function(){
+  var el = $$('oc-dr-text'); if(!el) return;
+  var t = el.textContent;
+  var inp = $$('oc-dr-num'), num = waNum(inp && inp.value);
+  try{ if(inp) localStorage.setItem(NUM_KEY, TR(inp.value)); }catch(e){}
+  var url = 'https://wa.me/' + (num || '') + '?text=' + encodeURIComponent(t);
+  try{ window.open(url, '_blank', 'noopener'); }catch(e){ location.href = url; }
+  try{ closeModal(); }catch(e){}
+};
+
+/* ---------------------------------------------------------------- dashboard par button */
+function addBtn(){
+  try{
+    if($$('oc-dr-btn')) return;
+    var b = document.createElement('button');
+    b.id = 'oc-dr-btn';
+    b.type = 'button';
+    b.title = 'Aaj ke apne kaam ki report WhatsApp par bhejein';
+    b.style.cssText = 'padding:6px 13px;border:1px solid #0f8f4c;border-radius:8px;font:inherit;font-size:12.5px;'
+      + 'font-weight:700;cursor:pointer;background:#0f8f4c;color:#fff;display:inline-flex;align-items:center;gap:6px';
+    b.innerHTML = ((typeof I !== 'undefined' && I.whatsapp) ? I.whatsapp : '') + 'Daily Report';
+    b.onclick = function(){ window.ocDailyOpen(); };
+
+    var bar = $$('oc-dash-filter');
+    if(bar){
+      var row = bar.querySelector('div > div');            /* filter bar ki pehli row */
+      if(row){ row.appendChild(b); return; }
+    }
+    /* filter bar na ho to dashboard ke sabse upar apna chhota strip */
+    if(typeof content !== 'undefined' && content){
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:12px';
+      wrap.appendChild(b);
+      content.insertBefore(wrap, content.firstChild);
+    }
+  }catch(e){ console.warn('[oc v25] daily btn', e); }
+}
+
+var _rd = window.renderDashboard;
+if(typeof _rd === 'function'){
+  window.renderDashboard = function(){
+    var r = _rd.apply(this, arguments);
+    addBtn();
+    return r;
+  };
+}
+
+console.log('[oc v25] daily report + whatsapp active');
 })();
 </script>
 
