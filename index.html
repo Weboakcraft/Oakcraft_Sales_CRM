@@ -3221,7 +3221,7 @@ function bindAppEvents(){
         card.innerHTML =
             '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'
           + '<div><h3 style="margin:0 0 4px">Meta Leads Pipeline</h3>'
-          + '<div style="font-size:12.5px;color:var(--muted,#898781)">Facebook / Instagram lead ads ka alag pipeline \u2014 import, assign aur track.</div></div>'
+          + '<div style="font-size:12.5px;color:var(--muted,#898781)">A separate pipeline for Facebook / Instagram lead ads \u2014 import, assign and track.</div></div>'
           + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
           + '<button class="btn" onclick="setView(\'metaLeads\')">Open pipeline</button>'
           + '<button class="btn" onclick="ML.importBox()">Import leads</button>'
@@ -4123,8 +4123,8 @@ if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoad
       + '</div>'
 
       + '<div style="padding:0 20px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px">'
-      + totTile('This Month Total Incentive', inr(m.monthly), '#0ca30c', 'Week 1 - Week ' + m.weeks.length + ' ka total')
-      + totTile('Last Month Incentive', inr(m.lastMonth), '#4a3aa7', 'Pichhle cycle ka total')
+      + totTile('This Month Total Incentive', inr(m.monthly), '#0ca30c', 'Week 1 - Week ' + m.weeks.length + ' total')
+      + totTile('Last Month Incentive', inr(m.lastMonth), '#4a3aa7', 'Previous cycle total')
       + '</div>'
       + '</div>';
   }
@@ -5462,8 +5462,8 @@ function panelHTML(){
     + ' &middot; month sales <b class="tabular">' + inr(Math.round(ts * 100) / 100) + '</b>'
     + ' &middot; month incentive <b class="tabular">' + inr(Math.round(tm * 100) / 100) + '</b>'
     + ' &middot; this week <b class="tabular">' + inr(Math.round(tw * 100) / 100) + '</b></span></div></div>'
-    + '<div style="padding:4px 20px 16px;font-size:11.5px;color:var(--muted)">Neeche har Sales Executive / User ka apna alag incentive dashboard hai. Rule wahi hai: '
-    + inr(130000) + ' weekly target, week total par 1.5%, Cancelled orders count nahi hote.</div>'
+    + '<div style="padding:4px 20px 16px;font-size:11.5px;color:var(--muted)">Below is a separate incentive dashboard for each Sales Executive / User. Same rule throughout: '
+    + inr(130000) + ' weekly target, 1.5% on the week total, cancelled orders not counted.</div>'
     + '</div>';
   return head + rows.map(function(r){
     return '<div style="margin-bottom:14px">' + window.ocIncDashHTML(r, userTitle(r), userTools(r)) + '</div>';
@@ -7974,7 +7974,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.16.1';
+var OC_WEB_BUILD = '2026.09.16.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10660,12 +10660,12 @@ function ensureRemarkModal(){
     +     '<div class="sub" style="font-size:12px;color:var(--muted,#7a869a);margin-top:2px" id="oc-rem-sub"></div>'
     +   '</div>'
     +   '<div style="padding:16px 18px">'
-    +     '<label class="lbl" style="font-size:11.5px;font-weight:600">Wajah / Remark <span style="color:var(--crit,#d03b3b)">*</span></label>'
-    +     '<textarea id="oc-rem-text" rows="3" placeholder="Is change ki wajah likhiye (kam se kam 3 akshar)" '
+    +     '<label class="lbl" style="font-size:11.5px;font-weight:600">Reason / Remark <span style="color:var(--crit,#d03b3b)">*</span></label>'
+    +     '<textarea id="oc-rem-text" rows="3" placeholder="Why is this being changed? (at least 3 characters)" '
     +       'style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border,#dde3ee);border-radius:9px;font:inherit;background:var(--surface-2,#f7f9fc);color:inherit"></textarea>'
     +     '<div id="oc-rem-err" style="display:none;color:var(--crit,#d03b3b);font-size:12px;margin-top:6px"></div>'
     +     '<div class="sub" style="font-size:11px;color:var(--muted,#7a869a);margin-top:8px">'
-    +       'Ye wajah history me hamesha ke liye save hoti hai — aapke naam aur time ke saath.</div>'
+    +       'This reason is saved in the history permanently, with your name and the time.</div>'
     +   '</div>'
     +   '<div style="padding:12px 18px;border-top:1px solid var(--border,#dde3ee);display:flex;gap:8px;justify-content:flex-end">'
     +     '<button type="button" class="btn" id="oc-rem-cancel">Cancel</button>'
@@ -10694,7 +10694,7 @@ document.addEventListener('click', function(ev){
   if(t.id === 'oc-rem-ok'){
     var box = $$('oc-rem-text'), v = TR(box && box.value);
     if(v.length < 3){
-      var er = $$('oc-rem-err'); er.textContent = 'Kam se kam 3 akshar ki wajah likhiye.'; er.style.display = '';
+      var er = $$('oc-rem-err'); er.textContent = 'Please enter a reason of at least 3 characters.'; er.style.display = '';
       try{ box.focus(); }catch(e){}
       return;
     }
@@ -10968,7 +10968,7 @@ function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.i
         if(after && TR(after.owner) !== fromOwner){
           logChange({ coll:'metaLeads', recId:id, recName:(after.full_name || after.phone_number),
                       field:'assigned', from:nameOfEmail(fromOwner), to:nameOfEmail(after.owner),
-                      remark:'Lead assign kiya gaya', owner:after.owner, sp:after.assigned_to,
+                      remark:'Lead reassigned', owner:after.owner, sp:after.assigned_to,
                       createdAt:(l && (l.createdAt || l.created_time)) || '' });
         }
       }catch(e){}
@@ -10993,7 +10993,7 @@ function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.i
           setTimeout(function(){
             logChange({ coll:coll, recId:r.id, recName:(r.customer || ''), field:'created',
                         from:'', to:TR(r.stage || r.status) || 'New',
-                        remark:'Record banaya gaya', owner:r.owner, sp:r.salesperson,
+                        remark:'Record created', owner:r.owner, sp:r.salesperson,
                         createdAt:nowISO() });
           }, 0);
         }
@@ -11148,7 +11148,7 @@ function trackTable(coll){
       + '<td class="sub">' + E(t.lastBy || '—') + '<div class="sub" style="font-size:11px">' + E(t.lastTs ? fmtTS(t.lastTs) : '') + '</div></td>'
       + '<td><button class="btn sm" onclick="ocTrackHistory(\'' + A(coll) + '\',\'' + A(t.id) + '\')">History</button></td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="11" class="empty">Koi record nahi mila.</td></tr>';
+  }).join('') || '<tr><td colspan="11" class="empty">No records found.</td></tr>';
   var s = $$('oc-tr-sum');
   if(s){
     var open = rows.filter(function(t){ return !t.closed; });
@@ -11161,7 +11161,7 @@ window.ocTrackPaint = trackTable;
 
 function renderTrack(coll){
   var title = coll === 'enquiries' ? 'Enquiry Tracking' : 'Order Tracking';
-  var note  = seesTeam() ? 'Poori team ka data.' : 'Sirf aapke apne records.';
+  var note  = seesTeam() ? 'Showing the whole team.' : 'Showing only your own records.';
   content.innerHTML =
       '<div class="card"><div class="card-head"><h3>' + E(title) + ' <span id="oc-tr-sum"></span></h3>'
     +   '<div class="tools">'
@@ -11172,7 +11172,7 @@ function renderTrack(coll){
     +     '<button class="btn sm" onclick="ocTrackExport(\'' + A(coll) + '\')">Export CSV</button>'
     +   '</div></div>'
     +   '<div style="padding:0 20px 10px;font-size:12px;color:var(--muted,#7a869a)">' + E(note)
-    +     ' SLA target Admin Panel se badla ja sakta hai. "In stage" = is stage me abhi tak kitna time laga.</div>'
+    +     ' SLA targets can be changed in the Admin Panel. "In stage" is how long the record has been sitting in its current stage.</div>'
     +   '<div style="overflow-x:auto"><table><thead><tr>'
     +     '<th>ID</th><th>Customer</th><th>Stage</th><th>In stage</th><th>Target</th><th>SLA</th>'
     +     '<th>Total age</th><th>Owner</th><th>Last remark</th><th>Changed by</th><th></th>'
@@ -11203,7 +11203,7 @@ window.ocTrackHistory = function(coll, id){
       +   '<div class="sub" style="font-size:11.5px;color:var(--muted,#7a869a);margin-top:4px">'
       +     E(fmtTS(a.ts)) + '  ·  ' + E(a.byName || a.by || '—')
       +     (a.by ? ' <span style="opacity:.7">(' + E(a.by) + ')</span>' : '')
-      +     (a.hrs !== '' && a.hrs != null ? '  ·  is stage me ' + E(fmtHrs(a.hrs)) : '')
+      +     (a.hrs !== '' && a.hrs != null ? '  ·  ' + E(fmtHrs(a.hrs)) + ' in that stage' : '')
       +     (a.sla !== '' && a.sla != null ? '  ·  target ' + E(a.sla) + 'h' : '')
       +   '</div>'
       + '</div></div>';
@@ -11219,18 +11219,18 @@ window.ocTrackHistory = function(coll, id){
   var base = '<div style="display:flex;gap:10px;padding:10px 0' + (rows ? ';border-bottom:1px solid var(--border,#e7ecf4)' : '') + '">'
     + '<div style="flex:0 0 8px;padding-top:5px"><div style="width:8px;height:8px;border-radius:50%;background:var(--muted,#9aa5b8)"></div></div>'
     + '<div style="flex:1;min-width:0">'
-    +   '<div style="font-weight:600;font-size:13px">Abhi: ' + E(curStage || '—') + '</div>'
+    +   '<div style="font-weight:600;font-size:13px">Now: ' + E(curStage || '—') + '</div>'
     +   '<div class="sub" style="font-size:11.5px;color:var(--muted,#7a869a);margin-top:4px">'
-    +     (sinceTs ? E(fmtTS(sinceTs)) + ' se' : 'time record nahi hai')
+    +     (sinceTs ? 'Since ' + E(fmtTS(sinceTs)) : 'no timestamp recorded')
     +     (rec && rec.owner ? '  ·  ' + E(nameOfEmail(rec.owner)) : '')
     +   '</div>'
     + '</div></div>';
   var note = rows ? ''
     : '<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--border,#e7ecf4);border-left:3px solid var(--brand,#2a78d6);'
       + 'border-radius:9px;font-size:12px;color:var(--muted,#7a869a)">'
-      + 'Is record ka <b>pehle ka</b> koi stage-change record nahi hai — history recording 10 Sept 2026 se shuru hui hai. '
-      + 'Usse pehle CRM kahin likhta hi nahi tha ki kisne kab status badla, isliye purana data kahin se nahi aa sakta. '
-      + 'Ab se har badlav yahan time, naam aur wajah ke saath aata rahega.'
+      + 'There is no <b>earlier</b> stage-change record for this item — history recording began on 10 Sept 2026. '
+      + 'Before that the CRM never stored who changed a status or when, so older data simply does not exist. '
+      + 'From now on every change appears here with its time, the person and the reason.'
       + '</div>';
   var html = '<div class="modal-head"><h3>History — ' + E(id) + '</h3>'
            + '<button class="icon-btn" onclick="closeModal()">✕</button></div>'
@@ -11256,7 +11256,7 @@ window.ocTrackExport = function(coll){
     a.download = coll + '-tracking-' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a); a.click();
     setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-  }catch(e){ tell('Export nahi ho paya'); }
+  }catch(e){ tell('Export failed'); }
 };
 
 /* ---- Activity log (poori audit history) ---- */
@@ -11284,7 +11284,7 @@ window.ocActPaint = function(){
       + '<td class="sub tabular">' + E(fmtHrs(a.hrs)) + '</td>'
       + '<td>' + (+a.late === 1 ? '<span class="chip c-lost">late ' + E(fmtHrs(a.delayHrs)) + '</span>' : '<span class="chip c-won">ok</span>') + '</td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="9" class="empty">Koi activity nahi mili.</td></tr>';
+  }).join('') || '<tr><td colspan="9" class="empty">No activity found.</td></tr>';
   var s = $$('oc-ac-sum'); if(s) s.innerHTML = chip(rows.length + (rows.length >= 500 ? '+ shown' : ' events'));
 };
 function renderActivity(){
@@ -11301,8 +11301,8 @@ function renderActivity(){
     +     '</select>'
     +   '</div></div>'
     +   '<div style="padding:0 20px 10px;font-size:12px;color:var(--muted,#7a869a)">'
-    +     'Har stage/status badlav ki permanent history — kab, kisne (asli login email), kya se kya, aur kyun. '
-    +     (seesTeam() ? 'Poori team ka.' : 'Sirf aapse juda hua.') + ' Latest 500 dikhte hain.</div>'
+    +     'A permanent record of every stage and status change — when, who (their actual login email), what changed, and why. '
+    +     (seesTeam() ? 'Across the whole team.' : 'Only what relates to you.') + ' Showing the latest 500.</div>'
     +   '<div style="overflow-x:auto"><table><thead><tr>'
     +     '<th>When</th><th>Section</th><th>Record</th><th>Customer</th><th>Change</th>'
     +     '<th>Remark</th><th>By</th><th>Took</th><th>SLA</th>'
@@ -11322,8 +11322,8 @@ function perfCardHTML(){
   if(!rows.length){
     return '<div class="card"><div class="card-head"><h3>Performance &amp; Delay Tracking</h3></div>'
          + '<div style="padding:16px 20px;font-size:13px;color:var(--muted,#7a869a)">'
-         + 'Abhi tak koi stage change record nahi hua. Jaise hi team enquiry ya order ka stage badlegi, '
-         + 'yahan ranking, average TAT aur delay dikhne lagega.</div></div>';
+         + 'No stage changes have been recorded yet. As soon as the team starts moving enquiries and orders '
+         + 'through their stages, the ranking, average TAT and delays will appear here.</div></div>';
   }
   var medal = ['🥇', '🥈', '🥉'];
   /* Medal tabhi jab kisi ne sach me kaam kiya ho. Jab tak ek bhi stage change
@@ -11351,11 +11351,11 @@ function perfCardHTML(){
        +     '<button class="btn sm" onclick="setView(\'ordTrack\')">Order Tracking</button></div></div>'
        + '<div style="padding:0 20px 8px;font-size:12px;color:var(--muted,#7a869a)">'
        +   (window.__ocDashRange
-             ? '<b>' + E(window.__ocDashRange.from) + ' se ' + E(window.__ocDashRange.to) + '</b> tak ka hisaab. '
+             ? 'Covering <b>' + E(window.__ocDashRange.from) + ' to ' + E(window.__ocDashRange.to) + '</b>. '
              : '')
-       +   'Score = on-time % − (abhi pending overdue × 3) − speed penalty. Sirf stage/status changes ginte hain.'
-       +   (anyMoves ? '' : '<br><b>Abhi tak koi stage change record nahi hua</b>, isliye ranking filhaal sirf '
-       +     'pending overdue records par hai. Jaise-jaise team stage badlegi, TAT aur on-time % bharte jaayenge.')
+       +   'Score = on-time % − (open overdue × 3) − speed penalty. Only stage and status changes are counted.'
+       +   (anyMoves ? '' : '<br><b>No stage changes have been recorded yet</b>, so the ranking is currently based only on '
+       +     'open overdue records. As the team starts moving stages, TAT and on-time % will fill in.')
        + '</div>'
        + '<div style="overflow-x:auto"><table><thead><tr>'
        +   '<th>#</th><th>User</th><th>Changes</th><th>Avg TAT</th><th>On time</th>'
@@ -11393,7 +11393,7 @@ function slaEditorHTML(){
       + '<div style="display:flex;flex-wrap:wrap;gap:10px">'
       + stages.map(function(s){
           return '<div style="flex:0 0 160px">'
-            + '<label class="lbl" style="font-size:11px;color:var(--muted,#7a869a)">' + E(s === '*' ? 'baaki sab (default)' : s) + '</label>'
+            + '<label class="lbl" style="font-size:11px;color:var(--muted,#7a869a)">' + E(s === '*' ? 'everything else (default)' : s) + '</label>'
             + '<input type="number" min="1" step="1" class="field" style="width:100%" '
             +   'data-sla-coll="' + A(k) + '" data-sla-stage="' + A(s) + '" value="' + A(cfg[k][s]) + '">'
             + '</div>';
@@ -11401,18 +11401,18 @@ function slaEditorHTML(){
       + '</div></div>';
   }).join('');
   return '<div class="card" id="oc-sla-card" style="margin-top:16px"><div class="card-head">'
-       +   '<h3>SLA / TAT Targets <span class="chip c-neutral">ghanton me</span></h3>'
+       +   '<h3>SLA / TAT Targets <span class="chip c-neutral">in hours</span></h3>'
        +   '<div class="tools"><button class="btn" onclick="ocSlaReset()">Reset to default</button>'
        +     '<button class="btn primary" onclick="ocSlaSave()">Save targets</button></div></div>'
        + '<div style="padding:14px 20px">'
        +   '<div style="font-size:12px;color:var(--muted,#7a869a);margin-bottom:12px">'
-       +     'Har number ka matlab: record us stage me <b>kitne ghante</b> tak reh sakta hai. Isse zyada hua to '
-       +     'wo record "overdue" ginne lagta hai aur us user ki delay list me aata hai. 24 = 1 din, 168 = 7 din.</div>'
+       +     'Each number is <b>how many hours</b> a record may stay in that stage. Beyond it the record counts as '
+       +     '"overdue" and shows up in that user\'s delay list. 24 = 1 day, 168 = 7 days.</div>'
        +   blocks
        + '</div></div>';
 }
 window.ocSlaSave = function(){
-  if(!isAdm()){ tell('Sirf Administrator SLA target badal sakta hai'); return; }
+  if(!isAdm()){ tell('Only an Administrator can change SLA targets'); return; }
   var out = {};
   document.querySelectorAll('[data-sla-coll]').forEach(function(inp){
     var c = inp.getAttribute('data-sla-coll'), s = inp.getAttribute('data-sla-stage'), v = +inp.value;
@@ -11423,15 +11423,15 @@ window.ocSlaSave = function(){
     var payload = [{ id:'__config__', cfg:out, updatedBy:meMail(), updatedAt:nowISO() }];
     localStorage.setItem(SLA_KEY, JSON.stringify(out));       /* padhne ke liye seedha config */
     try{ CLOUD.push(SLA_KEY, payload); }catch(e){}
-    tell('SLA targets save ho gaye ✓');
+    tell('SLA targets saved ✓');
     if(state.view === 'admin') setView('admin');
-  }catch(e){ tell('Save nahi ho paya'); }
+  }catch(e){ tell('Could not save'); }
 };
 window.ocSlaReset = function(){
-  if(!isAdm()){ tell('Sirf Administrator SLA target badal sakta hai'); return; }
+  if(!isAdm()){ tell('Only an Administrator can change SLA targets'); return; }
   try{ localStorage.removeItem(SLA_KEY); }catch(e){}
   try{ CLOUD.push(SLA_KEY, [{ id:'__config__', cfg:SLA_DEFAULT, updatedBy:meMail(), updatedAt:nowISO() }]); }catch(e){}
-  tell('Default targets wapas lag gaye ✓');
+  tell('Default targets restored ✓');
   if(state.view === 'admin') setView('admin');
 };
 (function(){
@@ -11481,9 +11481,9 @@ try{
 
 /* routing */
 try{
-  PAGE_META.enqTrack = ['Enquiry Tracking', 'Stage timing, SLA aur pending delays'];
-  PAGE_META.ordTrack = ['Order Tracking', 'Order stage timing, SLA aur pending delays'];
-  PAGE_META.activity = ['Activity Log', 'Poori audit history — kab, kisne, kya aur kyun'];
+  PAGE_META.enqTrack = ['Enquiry Tracking', 'Stage timing, SLA and pending delays'];
+  PAGE_META.ordTrack = ['Order Tracking', 'Order stage timing, SLA and pending delays'];
+  PAGE_META.activity = ['Activity Log', 'Full audit history — when, who, what and why'];
 }catch(e){}
 /* SECTION_OF_VIEW ek IIFE ke andar hai, isliye usme entry nahi jodi ja sakti.
    applyNavPerms() / applyViewPerms() dono can(section,'view') poochte hain, to
@@ -11576,7 +11576,7 @@ function addOrderHistoryBtn(id){
     b.className = 'btn';
     b.setAttribute('data-oc-histbtn', '1');
     b.setAttribute('type', 'button');
-    b.title = 'Is order ka poora status history \u2014 kab, kisne, kyun badla';
+    b.title = 'Full status history for this order \u2014 when, who and why';
     b.innerHTML = '\u23F1 History';
     b.onclick = function(){ window.ocTrackHistory('orders', id); };
     var st = foot.querySelector('[data-oc-statusbtn]');
@@ -11616,7 +11616,7 @@ function addOrderHistoryBtn(id){
         var b = document.createElement('button');
         b.setAttribute('data-oc-histbtn', '1');
         b.setAttribute('type', 'button');
-        b.title = 'Stage history \u2014 kab, kisne, kyun badla';
+        b.title = 'Stage history \u2014 when, who and why';
         b.innerHTML = '\u23F1';
         b.setAttribute('onclick', "ocTrackHistory('enquiries','" + m[1] + "')");
         edit.parentNode.insertBefore(b, edit);
@@ -11659,7 +11659,7 @@ function $$(id){ return document.getElementById(id); }
 function p2(n){ return (n < 10 ? '0' : '') + n; }
 
 var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
-var DAY = ['Ravivaar','Somvaar','Mangalvaar','Budhvaar','Guruvaar','Shukravaar','Shanivaar'];
+var DAY = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
 function d2s(d){ return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
 function s2d(s){
@@ -11717,30 +11717,30 @@ function rangeOf(f){
   if(f.mode === 'day'){
     var d = s2d(f.day) || new Date();
     return { from:d2s(d), to:d2s(d),
-             label: DAY[d.getDay()] + ', ' + pretty(d2s(d)), sub:'1 din' };
+             label: DAY[d.getDay()] + ', ' + pretty(d2s(d)), sub:'1 day' };
   }
   if(f.mode === 'week'){
     var mon = weekStrToMonday(f.week);
     var sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
     return { from:d2s(mon), to:d2s(sun),
              label: pretty(d2s(mon)) + '  –  ' + pretty(d2s(sun)),
-             sub: 'Week ' + T(f.week).split('-W')[1] + ' · 7 din' };
+             sub: 'Week ' + T(f.week).split('-W')[1] + ' · 7 days' };
   }
   if(f.mode === 'month'){
     var m = /^(\d{4})-(\d{2})$/.exec(T(f.month));
     var y = m ? +m[1] : new Date().getFullYear(), mo = m ? +m[2] - 1 : new Date().getMonth();
     var a = new Date(y, mo, 1), b = new Date(y, mo + 1, 0);
     return { from:d2s(a), to:d2s(b),
-             label: MON[mo] + ' ' + y, sub: b.getDate() + ' din' };
+             label: MON[mo] + ' ' + y, sub: b.getDate() + ' days' };
   }
   if(f.mode === 'custom'){
     var fr = f.from, to = f.to;
     if(s2d(fr) && s2d(to) && fr > to){ var t = fr; fr = to; to = t; }
     return { from:fr, to:to,
              label: pretty(fr) + '  –  ' + pretty(to),
-             sub: daysBetween(fr, to) + ' din' };
+             sub: daysBetween(fr, to) + ' days' };
   }
-  return { from:'', to:'', label:'Sab kuch', sub:'shuru se aaj tak' };
+  return { from:'', to:'', label:'All time', sub:'everything up to today' };
 }
 window.ocDashFilter = function(){ var f = getF(); var r = rangeOf(f); r.mode = f.mode; return r; };
 
@@ -11805,10 +11805,10 @@ function valueControl(f){
 }
 
 function barHTML(f, rg){
-  var modes = [['all','Sab kuch'], ['day','Day'], ['week','Week'], ['month','Month'], ['custom','Custom range']];
+  var modes = [['all','All time'], ['day','Day'], ['week','Week'], ['month','Month'], ['custom','Custom range']];
   var arrows = (f.mode === 'all') ? ''
-    : '<button type="button" style="' + BTN + ';padding:6px 10px" onclick="ocDashStep(-1)" title="Pichhla period">&#9664;</button>'
-    + '<button type="button" style="' + BTN + ';padding:6px 10px" onclick="ocDashStep(1)" title="Agla period">&#9654;</button>';
+    : '<button type="button" style="' + BTN + ';padding:6px 10px" onclick="ocDashStep(-1)" title="Previous period">&#9664;</button>'
+    + '<button type="button" style="' + BTN + ';padding:6px 10px" onclick="ocDashStep(1)" title="Next period">&#9654;</button>';
   return '<div class="card" id="oc-dash-filter" style="margin-bottom:16px">'
     + '<div style="padding:14px 20px 12px">'
     +   '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
@@ -11823,14 +11823,14 @@ function barHTML(f, rg){
     +   '</div>'
     +   '<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--border,#e7ecf4);'
     +     'display:flex;flex-wrap:wrap;gap:8px;align-items:baseline">'
-    +     '<span style="font-size:12px;color:var(--muted,#7a869a)">Dikhaya ja raha hai:</span>'
+    +     '<span style="font-size:12px;color:var(--muted,#7a869a)">Showing:</span>'
     +     '<span style="font-size:15px;font-weight:700">' + E(rg.label) + '</span>'
     +     '<span class="chip c-neutral">' + E(rg.sub) + '</span>'
     +     (rg.from ? '<span style="font-size:11.5px;color:var(--muted,#7a869a)">('
                    + E(rg.from) + ' &rarr; ' + E(rg.to) + ')</span>' : '')
     +     '<span style="flex:1"></span>'
     +     (f.mode === 'all' ? ''
-        : '<button type="button" style="' + BTN + ';font-weight:600" onclick="ocDashMode(\'all\')">Filter hatao</button>')
+        : '<button type="button" style="' + BTN + ';font-weight:600" onclick="ocDashMode(\'all\')">Clear filter</button>')
     +   '</div>'
     + '</div></div>';
 }
@@ -12161,7 +12161,7 @@ window.drawSalesBy = function(enq){
   setSub(id, basis.label);
   kill('sales');
   if(!vals.some(function(v){ return v > 0; })){
-    emptyMsg(id, 'Is period me kisi salesperson ka koi sale record nahi hai.');
+    emptyMsg(id, 'No sales were recorded for any salesperson in this period.');
     return;
   }
   try{
@@ -12184,7 +12184,7 @@ window.drawStateSales = function(enq){
   setSub(id, basis.label + ' · %');
   kill('state');
   if(!labels.length){
-    emptyMsg(id, 'Is period me koi sale record nahi hai, isliye state-wise breakup nahi ban sakta.');
+    emptyMsg(id, 'No sales were recorded in this period, so there is no state-wise breakdown to show.');
     return;
   }
   /* bahut saare chhote states -> top 8 + Other */
@@ -12221,7 +12221,7 @@ window.drawSalesPie = function(enq){
   setSub(id, basis.label);
   kill('salespie');
   if(!labels.length){
-    emptyMsg(id, 'Is period me kisi salesperson ka koi sale record nahi hai.');
+    emptyMsg(id, 'No sales were recorded for any salesperson in this period.');
     return;
   }
   try{
@@ -12455,33 +12455,33 @@ function waText(r){
   L.push('*OAKCRAFT — DAILY REPORT*');
   L.push('*' + r.name + '*  ·  ' + dmy(r.day));
   L.push('');
-  L.push('*ENQUIRIES (AAJ)*');
-  L.push('• Nayi enquiries : ' + r.today.enq);
+  L.push('*ENQUIRIES (TODAY)*');
+  L.push('• New enquiries : ' + r.today.enq);
   L.push('• Meta leads : ' + r.today.meta);
   var sm = mixLine(r.today.stage);
   L.push('• Stage : ' + (sm || '—'));
   L.push('');
-  L.push('*ORDERS (AAJ)*');
-  L.push('• Naye orders : ' + r.today.orders);
+  L.push('*ORDERS (TODAY)*');
+  L.push('• New orders : ' + r.today.orders);
   L.push('• Order value : ' + rupee(r.today.orderValue));
   L.push('');
-  L.push('*AAJ KA KAAM*');
+  L.push('*WORK DONE TODAY*');
   L.push('• Stage changes : ' + r.today.moves);
   ['enquiry','order','meta','dispatch'].forEach(function(k){
     var s = mixLine(r.today.moveMix[k]);
     if(s) L.push('• ' + k.charAt(0).toUpperCase() + k.slice(1) + ' : ' + s);
   });
-  L.push('• Won aaj : ' + r.today.won + '   |   Lost aaj : ' + r.today.lost);
+  L.push('• Won today : ' + r.today.won + '   |   Lost today : ' + r.today.lost);
   if(r.today.late) L.push('• SLA late : ' + r.today.late);
   L.push('');
-  L.push('*IS MAHINE (' + dMon(r.monFrom) + ' – ' + dMon(r.monTo) + ')*');
+  L.push('*THIS MONTH (' + dMon(r.monFrom) + ' – ' + dMon(r.monTo) + ')*');
   L.push('• Enquiries : ' + r.month.enq);
   L.push('• Won : ' + r.month.won + '  (' + r.month.conv + '% conversion)');
   L.push('• Orders : ' + r.month.orders);
   L.push('• Order value : ' + rupee(r.month.orderValue));
-  L.push('• Abhi open pipeline : ' + r.month.openPipe + ' enquiries');
+  L.push('• Open pipeline now : ' + r.month.openPipe + ' enquiries');
   L.push('');
-  L.push('_OakCraft CRM se auto-generated_');
+  L.push('_Auto-generated from OakCraft CRM_');
   return L.join('\n');
 }
 window.ocDailyText = function(day){ return waText(buildReport(day)); };
@@ -12522,38 +12522,38 @@ window.ocDailyOpen = function(day){
     + '<div class="modal-body">'
     +   '<div style="padding:10px 12px;border:1px solid var(--border,#e7ecf4);border-left:3px solid var(--brand,#2a78d6);'
     +     'border-radius:9px;margin-bottom:14px;font-size:12.5px">'
-    +     '<b>' + E(r.name) + '</b> — sirf aapke apne records ki report hai.'
-    +     (r.admin ? ' Aap Administrator hain, isliye isme sirf wahi records hain jo aapke naam par hain.' : '')
+    +     '<b>' + E(r.name) + '</b> — this report covers only your own records.'
+    +     (r.admin ? ' You are an Administrator, so it still shows only the records owned by you.' : '')
     +   '</div>'
-    +   rows('ENQUIRIES (AAJ)', [
-          ['Nayi enquiries', String(r.today.enq)],
+    +   rows('ENQUIRIES (TODAY)', [
+          ['New enquiries', String(r.today.enq)],
           ['Meta leads', String(r.today.meta)],
           ['Stage', sm]
         ])
-    +   rows('ORDERS (AAJ)', [
-          ['Naye orders', String(r.today.orders)],
+    +   rows('ORDERS (TODAY)', [
+          ['New orders', String(r.today.orders)],
           ['Order value', rupee(r.today.orderValue)]
         ])
-    +   rows('AAJ KA KAAM', [['Stage changes', String(r.today.moves)]]
+    +   rows('WORK DONE TODAY', [['Stage changes', String(r.today.moves)]]
           .concat(mv)
-          .concat([['Won aaj', String(r.today.won)], ['Lost aaj', String(r.today.lost)]])
+          .concat([['Won today', String(r.today.won)], ['Lost today', String(r.today.lost)]])
           .concat(r.today.late ? [['SLA late', String(r.today.late)]] : []))
-    +   rows('IS MAHINE (' + dMon(r.monFrom) + ' – ' + dMon(r.monTo) + ')', [
+    +   rows('THIS MONTH (' + dMon(r.monFrom) + ' – ' + dMon(r.monTo) + ')', [
           ['Enquiries', String(r.month.enq)],
           ['Won', r.month.won + '  (' + r.month.conv + '%)'],
           ['Orders', String(r.month.orders)],
           ['Order value', rupee(r.month.orderValue)],
-          ['Abhi open pipeline', r.month.openPipe + ' enquiries']
+          ['Open pipeline now', r.month.openPipe + ' enquiries']
         ])
     +   '<div style="font-weight:700;font-size:12px;letter-spacing:.3px;color:var(--muted,#7a869a);margin:14px 0 6px">'
-    +     'WHATSAPP PAR JO JAYEGA</div>'
+    +     'WHAT WILL BE SENT ON WHATSAPP</div>'
     +   '<pre id="oc-dr-text" style="white-space:pre-wrap;word-break:break-word;background:var(--surface-2,#f7f9fc);'
     +     'border:1px solid var(--border,#e7ecf4);border-radius:9px;padding:12px;font-size:12px;line-height:1.55;'
     +     'font-family:inherit;margin:0;max-height:240px;overflow:auto">' + E(txt) + '</pre>'
     +   '<div class="form-row" style="margin-top:12px">'
-    +     '<label class="lbl" style="font-size:11.5px">Kis number par bhejna hai? <span style="color:var(--muted,#7a869a)">'
-    +       '(khali chhodenge to WhatsApp khud contact poochhega — number yaad rakh liya jayega)</span></label>'
-    +     '<input id="oc-dr-num" class="field" style="width:100%;margin-top:5px" placeholder="10 digit ya +91..." value="'
+    +     '<label class="lbl" style="font-size:11.5px">Which number should this go to? <span style="color:var(--muted,#7a869a)">'
+    +       '(leave it empty and WhatsApp will ask you to pick a contact — the number is remembered)</span></label>'
+    +     '<input id="oc-dr-num" class="field" style="width:100%;margin-top:5px" placeholder="10 digits or +91..." value="'
     +       A(savedNum()) + '">'
     +   '</div>'
     + '</div>'
@@ -12561,7 +12561,7 @@ window.ocDailyOpen = function(day){
     +   '<button class="btn" onclick="closeModal()">Close</button>'
     +   '<button class="btn" onclick="ocDailyCopy()">Copy text</button>'
     +   '<button class="btn primary" onclick="ocDailySend()" style="background:#0f8f4c;border-color:#0f8f4c">'
-    +     ((typeof I !== 'undefined' && I.whatsapp) ? I.whatsapp : '') + 'WhatsApp par bhejein</button>'
+    +     ((typeof I !== 'undefined' && I.whatsapp) ? I.whatsapp : '') + 'Send on WhatsApp</button>'
     + '</div>';
   try{ openModal(html); }catch(e){ alert(txt); }
 };
@@ -12570,12 +12570,12 @@ window.ocDailyCopy = function(){
   var el = $$('oc-dr-text'); if(!el) return;
   var t = el.textContent;
   try{
-    navigator.clipboard.writeText(t).then(function(){ try{ toast('Report copy ho gayi ✓'); }catch(e){} });
+    navigator.clipboard.writeText(t).then(function(){ try{ toast('Report copied ✓'); }catch(e){} });
   }catch(e){
     try{
       var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta);
       ta.select(); document.execCommand('copy'); ta.remove();
-      toast('Report copy ho gayi ✓');
+      toast('Report copied ✓');
     }catch(e2){}
   }
 };
@@ -12597,7 +12597,7 @@ function addBtn(){
     var b = document.createElement('button');
     b.id = 'oc-dr-btn';
     b.type = 'button';
-    b.title = 'Aaj ke apne kaam ki report WhatsApp par bhejein';
+    b.title = 'Send your own daily report on WhatsApp';
     b.style.cssText = 'padding:6px 13px;border:1px solid #0f8f4c;border-radius:8px;font:inherit;font-size:12.5px;'
       + 'font-weight:700;cursor:pointer;background:#0f8f4c;color:#fff;display:inline-flex;align-items:center;gap:6px';
     b.innerHTML = ((typeof I !== 'undefined' && I.whatsapp) ? I.whatsapp : '') + 'Daily Report';
