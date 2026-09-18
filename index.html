@@ -366,7 +366,10 @@ const CLOUD = {
         }
       });
       // object-shaped configs
-      ['formfields','permissions'].forEach(k=>{
+      /* apiconfig bhi object-shaped hai. Pehle sirf push hota tha aur kabhi
+         wapas nahi aata tha, isliye doosre device par API settings (aur GP
+         calculator ka URL) khali dikhte the. */
+      ['formfields','permissions','apiconfig'].forEach(k=>{
         const arr = d[k];
         if(Array.isArray(arr)){
           const cfg = arr.find(x=>x && x.id==='__config__');
@@ -1038,7 +1041,8 @@ function openOrderModal(id){
       <div class='section-title'>3. Products</div>
       <div class='form-row'><div id='o-items'></div>
       <button type='button' class='btn ghost sm' style='margin-top:8px' onclick='addOrderItem()'>+ Add Product</button>
-      <div class='sub tabular' id='o-total' style='margin-top:6px'></div></div>
+      <div class='sub tabular' id='o-total' style='margin-top:6px'></div>
+      <div id='o-gp' style='margin-top:10px'></div></div>
       <div class='section-title'>4. Payment and Amounts</div>
       <div class='form-row'><label>${_lbl('o_pay','Payment')}</label><select id='o-pay'${_req('o_pay')}>${_opt('o_pay',['Pending','Partial','Paid']).map(s=>`<option ${o.payment===s?'selected':''}>${s}</option>`).join('')}</select></div>
       ${customFieldsHTML('order', o, 'payment')}
@@ -1124,7 +1128,10 @@ function readOrderItems(){
     const qty=+((row.querySelector('.oi-qty')||{}).value)||1;
     const rate=+((row.querySelector('.oi-rate')||{}).value)||0;
     const spec=((row.querySelector('.oi-spec')||{}).value)||'';
-    window.__orderItems[i]={ type, prodId, product, manual, spec, image:cur.image||'', imageName:cur.imageName||'', qty, rate };
+    /* gpModel / gpManual / gpCost sirf GP panel ke liye hain — yahan re-read
+       hone par gum ho jaate the, isliye purani row se waapas rakhe jaate hain. */
+    window.__orderItems[i]={ type, prodId, product, manual, spec, image:cur.image||'', imageName:cur.imageName||'', qty, rate,
+      gpModel:cur.gpModel||'', gpManual:!!cur.gpManual, gpCost:cur.gpCost||null };
   });
 }
 function toggleProdName(i, checked){ readOrderItems(); const it=window.__orderItems[i]; if(it){ it.manual=!!checked; if(!checked){ it.prodId=''; } } renderOrderItems(); }
@@ -1210,6 +1217,7 @@ function updateOrderTotal(){
   const total=window.__orderItems.reduce((s,it)=>s+((+it.rate||0)*(+it.qty||0)),0);
   const n=window.__orderItems.filter(it=>it.product).length;
   el.textContent = n+' item'+(n===1?'':'s')+' - Total (excl. GST) '+money(total);
+  try{ if(typeof ocOrderGPRender==='function') ocOrderGPRender(); }catch(e){}
 }
 function readOrderCustom(){
   const c = readCustomFields('order');
@@ -1255,6 +1263,13 @@ function saveOrder(id){
     note:document.getElementById('o-note').value,
     custom:readOrderCustom()
   };
+  /* GP snapshot — cost GP Calculator ke sheet se (gp-bridge.js). Sheet
+     connected na ho to purana GP waisa hi rehta hai, 0 nahi likhta. */
+  try{
+    const _gp=(typeof window.ocOrderGPSnapshot==='function')?window.ocOrderGPSnapshot():null;
+    if(_gp){ rec.gp=_gp; rec.gpPct=_gp.gpPct; rec.gpAmount=_gp.gp; }
+    else if(existing && existing.gp){ rec.gp=existing.gp; rec.gpPct=existing.gpPct; rec.gpAmount=existing.gpAmount; }
+  }catch(e){}
   const list=DB.orders();
   if(id){ const ex=list.find(x=>x.id===id); if(!ex){ toast('Order not found'); return; } Object.assign(ex,rec);} else {rec.id=uid('ORD-');rec.date=todayLocal();stampOwner(rec);list.unshift(rec);}
   DB.save('orders',list); closeModal(); toast(id?'Order updated':'Order added'); refreshBadges(); setView('orders');
@@ -1461,7 +1476,11 @@ const API_PLATFORMS = [
   {k:'tradeindia', name:'TradeIndia',  fields:['User ID','Profile Key','API Key']},
   {k:'meta',       name:'Meta (Facebook / Instagram Leads)', fields:['Page ID','App ID','Access Token']},
   {k:'custom',     name:'Custom / Other', fields:['Platform Name','Endpoint URL','API Key']},
-  {k:'gst',        name:'GST Verification (customer lookup)', fields:['API Key / Auth header','Endpoint URL (use {gstin} placeholder)']}
+  {k:'gst',        name:'GST Verification (customer lookup)', fields:['API Key / Auth header','Endpoint URL (use {gstin} placeholder)']},
+  /* Sales GP Calculator ka sheet — quotation / order banate waqt cost yahin se
+     aata hai (M_Products + M_Components). URL wahi jo GP calculator ke
+     assets/config.js me hai, aur token bhi wahi. */
+  {k:'gpcalc',     name:'GP Calculator (cost master — quotation & order ka GP)', fields:['Apps Script /exec URL','Shared token']}
 ];
 function apiConfig(){ return store.get('apiconfig') || {}; }
 function apiCardsHTML(){
@@ -2010,6 +2029,7 @@ function openOrderDetail(id){
       ${line('Company',o.customer)}${line('Contact',cust.contact||o._cContact||'—')}${line('Phone',cust.phone||o._cPhone||'—')}${line('City',cust.city||'—')}
       <div class="section-title">Order</div>
       ${line('Product',o.product)}${line('Quantity',o.qty+' '+(DB.products().find(p=>p.id===o.prodId)?.unit||'pc'))}${line('Order Value',money(o.amount))}${line('Order Date',o.date)}${line('Product Type',o.productType||orderProductTypeValue(o)||'—')}${line('Expected Delivery Date',o.expDispatch||'—')}${line('Salesperson',o.salesperson)}${quote?line('From Quotation',quote.id):''}
+      ${(typeof ocOrderGPDetailHTML==='function')?ocOrderGPDetailHTML(o):''}
       <div class="section-title">Dispatch</div>
       ${disp?`${line('Courier',disp.courier)}${line('Tracking No',disp.tracking)}${line('Dispatched On',disp.dispatchedOn)}${line('ETA',disp.eta)}${line('Delivery Status',disp.status)}`:'<div style="color:var(--muted);font-size:13px;padding:6px 0">Not dispatched yet.</div>'}
       <div class="section-title">Progress</div>
@@ -7974,7 +7994,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.16.2';
+var OC_WEB_BUILD = '2026.09.18.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -12631,5 +12651,14 @@ console.log('[oc v25] daily report + whatsapp active');
 })();
 </script>
 
+
+<!-- ================= GP (fayda ya ghata) =================
+     lib/gp-engine.js = Sales GP Calculator ka wahi maths (verbatim copy).
+     gp-bridge.js     = cost master sheet (M_Products / M_Components) se laata hai.
+     gp-order.js      = Orders module ka glue: order form ka GP panel + detail line.
+     Inme kuch badlo to ?v= number badhao aur OC_WEB_BUILD bhi. -->
+<script src="lib/gp-engine.js?v=1"></script>
+<script src="gp-bridge.js?v=1"></script>
+<script src="gp-order.js?v=1"></script>
 </body>
 </html>
