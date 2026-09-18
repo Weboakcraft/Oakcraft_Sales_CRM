@@ -2,7 +2,7 @@
 # ==============================================================================
 #  OakCraft CRM — Android APK build (no Gradle / Android Studio needed)
 #
-#  Packs ../index.html, ../quotation-builder.html, ../lib, ../icons, logos into the
+#  Packs ../index.html, ../quotation-builder.html, ../gp-*.js, ../lib, ../icons, logos into the
 #  APK (assets/www) and compiles the tiny WebView shell in src/.
 #
 #  Needs:  JDK 11+ (javac), Android build-tools (aapt, zipalign, apksigner, d8 or dx)
@@ -42,6 +42,8 @@ rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/obj" "$OUT/assets/www"
 
 # 1) web app -> assets/www
 cp ../index.html ../quotation-builder.html ../manifest.webmanifest ../logo.png ../logo-sm.png "$OUT/assets/www/"
+# GP (fayda ya ghata) — bina inke app me GP panel khali rahega
+cp ../gp-bridge.js ../gp-quotation.js ../gp-order.js "$OUT/assets/www/"
 cp -r ../icons ../lib "$OUT/assets/www/"
 echo "   assets: $(du -sh "$OUT/assets/www" | cut -f1)"
 
