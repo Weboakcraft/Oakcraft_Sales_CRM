@@ -217,3 +217,70 @@ Pro Forma Invoice page(s)**. The two presentation pages are built by `clientsHTM
 `achievementsHTML()` (data in `CLIENTS`, `SECTORS`, `CERTS`, `MILESTONES`, `ORDER_MEANS`;
 client logos in `CLIENT_LOGOS`). The "Your organisation" card and the quotation number on
 those pages are filled from the form.
+
+## GP — every quotation, PI and order says whether it makes money
+
+A quotation or order now shows its own gross profit while it is being written, from
+the cost the [Sales GP Calculator](https://github.com/Weboakcraft/sales_gp_calcularot)
+already holds. Nothing is typed twice and nothing is written back to that sheet.
+
+**Where it shows.** `quotation-builder.html` gets a **GP · Fayda ya Ghata** panel under
+the form (and a colour chip in the top bar, so the verdict is visible without
+scrolling); the Orders form gets the same panel under Products, and the order detail
+view gets a GP block. None of it is printed, none of it reaches the PDF, and the
+client never sees it.
+
+**What it computes.** `lib/gp-engine.js` is a verbatim copy of the calculator's own
+engine, so the two never disagree:
+
+```
+net sales value = (list price − discount) × qty  + freight billed to the customer
+BOM cost        = armrest + seat mechanism + base + wheels          (per piece × qty)
+gross profit    = net sales value − BOM cost                        GST stays out of it
+```
+
+Per line it shows cost/pc, net rate/pc, GP/pc and GP%; per order the sale value, BOM
+cost, gross profit, GP per piece, GST and invoice value, plus the approval level from
+`M_ApprovalMatrix` and the price rise needed to reach the target GP. A line priced
+below its own cost turns red.
+
+**Where cost comes from.** The GP calculator's Google Sheet — `M_Products` for each
+model's standard four parts, `M_Components` for their rates. The model is matched from
+the product name typed on the line (exact, then a contains match, then whatever the
+user picked last time for that name). A line that matches nothing can be pointed at a
+model by hand, or given the four costs directly; both choices are saved on the record
+(`qb.items[].gpModel` / `gpCost`, `items[].gpModel` / `gpCost` on orders) and remembered
+for the next quotation with that name. Masters are cached in the browser for 6 hours,
+so GP still works offline.
+
+**Connecting it (once).** Admin Panel → API Integrations → **GP Calculator (cost
+master)**: paste the calculator's Apps Script `/exec` URL and its `SHARED_TOKEN`, then
+Save API settings — the setting syncs to the Sheet, so every device gets it. A browser
+where someone already used the calculator's own **Connect Sheets** dialog needs nothing:
+both sites sit on the same origin and the bridge reads those settings too. Until it is
+connected, an admin sees a two-field connect box inside the GP panel; nothing else in
+the CRM changes.
+
+**Who sees what.** Owner, Administrator and Sales Manager see the full breakdown.
+Everyone else sees only the verdict — Fayda / Ghata — with no rupee and no percentage,
+because component cost is not a sales-floor number. The two lists are at the top of
+`gp-bridge.js` (`GP_FULL_ROLES`, `GP_FULL_USERS`). This is a UI rule, not a secret: the
+GP snapshot is stored on the record like any other field, so treat it as "not shown"
+rather than "cannot be reached".
+
+**Saved with the record.** Each quotation and order keeps a `gp` snapshot (sale value,
+BOM cost, GP, GP%, verdict, per-line cost, and when it was taken) plus `gpPct` and
+`gpAmount` at the top level, so a deal can be read back later as it was priced. If the
+cost sheet is unreachable at save time the previous snapshot is kept — it is never
+overwritten with zero.
+
+**Customer auto-fill.** Typing a client name in the quotation builder now completes from
+the CRM's customer master and fills contact person, billing and shipping address, GSTIN
+and phone; place of supply follows the GSTIN's state code (or the city). Only empty
+fields — and fields the auto-fill itself put there — are touched, so nothing typed by
+hand is overwritten.
+
+**Files.** `lib/gp-engine.js` (maths, copied verbatim — re-copy it if the calculator's
+engine changes), `gp-bridge.js` (cost master + panel), `gp-quotation.js` and
+`gp-order.js` (the glue for each page). After editing any of them bump the `?v=` on the
+script tag, and `OC_WEB_BUILD`, as usual.
