@@ -471,6 +471,8 @@ body.exporting .page{visibility:visible !important; opacity:1 !important}
   <a class="btn" href="index.html" title="Back to CRM" style="text-decoration:none">← CRM</a>
   <div class="brand"><b>Oak</b>Craft <span style="opacity:.55">· Quotation Builder</span></div>
   <div class="qbadge" id="tbQno">—</div>
+  <!-- GP chip: scroll kiye bina hi pata chal jaye ki fayda hai ya ghata -->
+  <div class="qbadge" id="tbGp" style="display:none;cursor:pointer" title="GP panel par jao"></div>
   <div class="spacer"></div>
   <span class="qbadge" id="tbMode" style="display:none"></span>
   <button class="btn" id="newBtn" onclick="newQuotation()">＋ New Quotation</button>
@@ -554,6 +556,12 @@ body.exporting .page{visibility:visible !important; opacity:1 !important}
     <div class="f" id="frAmtWrap" style="display:none"><label>Freight amount (₹, ex-GST — added to taxable value)</label><input type="number" id="inFreight" value="0" oninput="S.freight=parseFloat(this.value)||0; R()"></div>
     <div class="f"><label>Payment terms</label><input id="inPay" oninput="S.payTerms=this.value; R()"></div>
     <div class="f"><label>Terms & conditions (one per line)</label><textarea id="inTerms" rows="6" oninput="S.terms=this.value; R()"></textarea></div>
+  </div>
+
+  <div class="ed-sec" id="gpSec">
+    <h3>GP · Fayda ya Ghata</h3>
+    <div id="gpBody"></div>
+    <div class="hint">Cost Sales GP Calculator ke Google Sheet (M_Products + M_Components) se aata hai — yahan sirf padha jaata hai. Ye panel na PDF me jaata hai na client ko dikhta hai.</div>
   </div>
 
 </aside>
@@ -764,7 +772,10 @@ function validUntil(){
 
 /* ================= ITEMS ================= */
 function addItem(){
-  S.items.push({photo:null, thumb:null, name:"", desc:"", hsn:"9403", qty:1, price:0, disc:0, del:"10–12 working days"});
+  S.items.push({photo:null, thumb:null, name:"", desc:"", hsn:"9403", qty:1, price:0, disc:0, del:"10–12 working days",
+    /* GP panel: model cost sheet se auto match hota hai; gpModel/gpManual/gpCost
+       sirf tab bharte hain jab user khud model chune ya cost haath se daale */
+    gpModel:"", gpManual:false, gpCost:null});
   renderItemsEditor(); R();
 }
 function rmItem(i){ S.items.splice(i,1); renderItemsEditor(); R(); }
@@ -1811,7 +1822,8 @@ window.addEventListener('focus', ()=>{
       warranty: S.warranty, payTerms: S.payTerms, terms: S.terms,
       items: (S.items || []).map(function(it){
         return { photo: it.photo || '', thumb: it.thumb || '', name: it.name || '', desc: it.desc || '', hsn: it.hsn || '',
-                 qty: +it.qty || 0, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '' };
+                 qty: +it.qty || 0, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
+                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null };
       })
     };
   }
@@ -1827,7 +1839,8 @@ window.addEventListener('focus', ()=>{
     if(qb.items && qb.items.length){
       S.items = qb.items.map(function(it){
         return { photo: it.photo || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
-                 qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '' };
+                 qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
+                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null };
       });
     }
     return true;
@@ -1851,7 +1864,8 @@ window.addEventListener('focus', ()=>{
     if(rec.items && rec.items.length){
       S.items = rec.items.map(function(it){
         return { photo: it.photo || it.image || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
-                 qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '10–12 working days' };
+                 qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '10–12 working days',
+                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null };
       });
     } else if(rec.product){
       S.items = [{ photo: null, name: String(rec.product).replace(/\s*\+\d+\s*more$/i, ''), desc: '', hsn: '9403',
@@ -1900,6 +1914,16 @@ window.addEventListener('focus', ()=>{
       qb: qbState(),
       updatedAt: now
     };
+    /* ---- GP snapshot ----------------------------------------------------
+       Cost GP Calculator ke Google Sheet se aata hai (gp-bridge.js). Record
+       ke saath save hota hai taaki baad me bhi pata rahe ki ye quotation
+       fayde ki thi ya ghate ki. Sheet connected na ho to purana snapshot
+       waisa hi rehta hai — kabhi galti se 0 nahi likhta. */
+    try{
+      var _gp = (typeof window.ocGPSnapshot === 'function') ? window.ocGPSnapshot() : null;
+      if(_gp){ rec.gp = _gp; rec.gpPct = _gp.gpPct; rec.gpAmount = _gp.gp; }
+      else if(current && current.gp){ rec.gp = current.gp; rec.gpPct = current.gpPct; rec.gpAmount = current.gpAmount; }
+    }catch(e){}
     /* edit: purane record ki wo cheezein jo builder me nahi hain, waise ki waisi rehti hain */
     if(current){
       ['createdAt','owner','ownerEmail','createdBy','enqId','custId','prodId','note','status','rate']
@@ -2233,5 +2257,14 @@ window.addEventListener('focus', ()=>{
   else boot();
 })();
 </script>
+
+<!-- ================= GP (fayda ya ghata) =================
+     lib/gp-engine.js  = Sales GP Calculator ka wahi maths, bilkul waisa hi.
+     gp-bridge.js      = cost master (M_Products / M_Components) sheet se laata hai.
+     gp-quotation.js   = is page ka glue: customer auto-fill + GP panel.
+     Inme kuch badlo to ?v= number bhi badhao, warna purana cached file chalta rahega. -->
+<script src="lib/gp-engine.js?v=1"></script>
+<script src="gp-bridge.js?v=1"></script>
+<script src="gp-quotation.js?v=1"></script>
 </body>
 </html>
