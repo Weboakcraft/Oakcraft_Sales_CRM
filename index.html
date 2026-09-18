@@ -1480,7 +1480,7 @@ const API_PLATFORMS = [
   /* Sales GP Calculator ka sheet — quotation / order banate waqt cost yahin se
      aata hai (M_Products + M_Components). URL wahi jo GP calculator ke
      assets/config.js me hai, aur token bhi wahi. */
-  {k:'gpcalc',     name:'GP Calculator (cost master — quotation & order ka GP)', fields:['Apps Script /exec URL','Shared token']}
+  {k:'gpcalc',     name:'GP Calculator (cost master — GP for quotations & orders)', fields:['Apps Script /exec URL','Shared token']}
 ];
 function apiConfig(){ return store.get('apiconfig') || {}; }
 function apiCardsHTML(){
@@ -8000,7 +8000,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.18.2';
+var OC_WEB_BUILD = '2026.09.18.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8447,8 +8447,8 @@ window.renderOrders = function(){
     var tip = content.querySelector('div[style*="Tip: click any order row"]');
     if(tip && moved){
       tip.innerHTML = tip.innerHTML
-        + ' &nbsp;·&nbsp; <b>' + moved + '</b> dispatch ho chuke order ' + (moved === 1 ? 'is' : 'are') + ' ab '
-        + '<a href="#" onclick="event.preventDefault();setView(\'dispatch\')" style="color:var(--brand);text-decoration:underline">Dispatch section</a> me.';
+        + ' &nbsp;·&nbsp; <b>' + moved + '</b> dispatched order' + (moved === 1 ? ' is' : 's are') + ' now in the '
+        + '<a href="#" onclick="event.preventDefault();setView(\'dispatch\')" style="color:var(--brand);text-decoration:underline">Dispatch section</a>.';
     }
   }catch(e){}
   return r;
@@ -8468,7 +8468,7 @@ window.paintTable = function(bodyId){
       if(id && ids[id]){ tr.remove(); gone++; }
     });
     if(gone && !body.querySelector('tr')){
-      body.innerHTML = '<tr><td colspan="12" class="empty">Is filter ke saare orders dispatch ho chuke hain — wo Dispatch section me hain.</td></tr>';
+      body.innerHTML = '<tr><td colspan="12" class="empty">All orders matching this filter have been dispatched — they are in the Dispatch section.</td></tr>';
     }
   }catch(e){}
   return r;
@@ -12666,5 +12666,364 @@ console.log('[oc v25] daily report + whatsapp active');
 <script src="lib/gp-engine.js?v=1"></script>
 <script src="gp-bridge.js?v=1"></script>
 <script src="gp-order.js?v=1"></script>
+
+<script>
+/* ====================================================================== *
+ * 28. OAKCRAFT v26 — DATE-RANGE FILTER for ORDERS & ENQUIRIES             *
+ *                                                                        *
+ *   A date-range control is added to the toolbar of the Orders section    *
+ *   and the Enquiries section: All time / Day / Week / Month / Custom.    *
+ *   The selected range filters BOTH the on-screen table AND the Excel     *
+ *   export, so "Export" always downloads exactly what is being shown.     *
+ *                                                                        *
+ *   Date used: Orders  -> date (fallback createdAt / updatedAt)           *
+ *              Enquiry -> date (fallback createdAt / updatedAt)           *
+ *                                                                        *
+ *   Nothing else changes. Existing filters (status, employee, stage,      *
+ *   salesperson, global search), permissions, owner scoping and every     *
+ *   other section behave exactly as before. The choice is remembered per  *
+ *   section in localStorage.                                              *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocRange) return; window.__ocRange = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function $$(id){ return document.getElementById(id); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+function A(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
+var DAYN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+function d2s(d){ return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+function s2d(s){
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(s)); if(!m) return null;
+  return new Date(+m[1], +m[2] - 1, +m[3]);
+}
+function todayS(){ return d2s(new Date()); }
+function pretty(s){
+  var d = s2d(s); if(!d) return '—';
+  return p2(d.getDate()) + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear();
+}
+function mondayOf(d){
+  var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  var wd = (x.getDay() + 6) % 7;
+  x.setDate(x.getDate() - wd);
+  return x;
+}
+function isoWeekStr(d){
+  var mon = mondayOf(d);
+  var thu = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 3);
+  var jan1 = new Date(thu.getFullYear(), 0, 1);
+  var wk = Math.floor((thu - jan1) / 864e5 / 7) + 1;
+  return thu.getFullYear() + '-W' + p2(wk);
+}
+function weekStrToMonday(s){
+  var m = /^(\d{4})-W(\d{1,2})$/.exec(T(s)); if(!m) return mondayOf(new Date());
+  var jan4 = new Date(+m[1], 0, 4);
+  var mon1 = mondayOf(jan4);
+  return new Date(mon1.getFullYear(), mon1.getMonth(), mon1.getDate() + (+m[2] - 1) * 7);
+}
+
+/* ---- per-section filter state ---------------------------------------- */
+var SECS = ['orders','enquiries'];
+var KEY  = { orders:'oc_rangeOrders', enquiries:'oc_rangeEnq' };
+var BODY = { orders:'ord-body',       enquiries:'enq-body' };
+var TITLE= { orders:'Orders',         enquiries:'Enquiries' };
+
+function defF(){
+  return { mode:'all', day:todayS(), week:isoWeekStr(new Date()),
+           month:todayS().slice(0, 7), from:todayS().slice(0, 8) + '01', to:todayS() };
+}
+var CACHE = {};
+function getF(sec){
+  if(CACHE[sec]) return CACHE[sec];
+  var f = null;
+  try{ f = JSON.parse(localStorage.getItem(KEY[sec]) || 'null'); }catch(e){ f = null; }
+  var d = defF();
+  if(f && typeof f === 'object'){
+    ['mode','day','week','month','from','to'].forEach(function(k){ if(f[k]) d[k] = T(f[k]); });
+  }
+  if(['all','day','week','month','custom'].indexOf(d.mode) < 0) d.mode = 'all';
+  CACHE[sec] = d;
+  return d;
+}
+function setF(sec, f){
+  CACHE[sec] = f;
+  try{ localStorage.setItem(KEY[sec], JSON.stringify(f)); }catch(e){}
+}
+
+/* ---- mode -> concrete range ------------------------------------------ */
+function rangeOf(f){
+  if(f.mode === 'day'){
+    var d = s2d(f.day) || new Date();
+    return { from:d2s(d), to:d2s(d), label: DAYN[d.getDay()] + ', ' + pretty(d2s(d)) };
+  }
+  if(f.mode === 'week'){
+    var mon = weekStrToMonday(f.week);
+    var sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+    return { from:d2s(mon), to:d2s(sun), label: pretty(d2s(mon)) + ' – ' + pretty(d2s(sun)) };
+  }
+  if(f.mode === 'month'){
+    var m = /^(\d{4})-(\d{2})$/.exec(T(f.month));
+    var y  = m ? +m[1] : new Date().getFullYear();
+    var mo = m ? (+m[2] - 1) : new Date().getMonth();
+    var a = new Date(y, mo, 1), b = new Date(y, mo + 1, 0);
+    return { from:d2s(a), to:d2s(b), label: MON[mo] + ' ' + y };
+  }
+  if(f.mode === 'custom'){
+    var fr = /^\d{4}-\d{2}-\d{2}$/.test(T(f.from)) ? T(f.from) : '';
+    var to = /^\d{4}-\d{2}-\d{2}$/.test(T(f.to))   ? T(f.to)   : '';
+    if(fr && to && fr > to){ var t = fr; fr = to; to = t; }
+    var lab = (!fr && !to) ? 'All time'
+            : (fr && to)   ? (pretty(fr) + ' – ' + pretty(to))
+            : (fr ? ('From ' + pretty(fr)) : ('Up to ' + pretty(to)));
+    return { from:fr, to:to, label:lab };
+  }
+  return { from:'', to:'', label:'All time' };
+}
+function activeRange(sec){ return rangeOf(getF(sec)); }
+window.ocRangeOf = activeRange;
+
+function rowDate(r){
+  if(!r) return '';
+  return T(r.date || r.createdAt || r.updatedAt).slice(0, 10);
+}
+function inRange(r, rg){
+  if(!rg.from && !rg.to) return true;
+  var d = rowDate(r);
+  if(!d) return false;
+  if(rg.from && d < rg.from) return false;
+  if(rg.to   && d > rg.to)   return false;
+  return true;
+}
+
+/* ---- run fn() while DB.<sec>() returns only in-range rows -------------- */
+function patchDB(sec, rg){
+  var orig = DB[sec];
+  if(typeof orig !== 'function') return null;
+  DB[sec] = function(){
+    var a = orig.apply(DB, arguments);
+    if(!Array.isArray(a)) return a;
+    return a.filter(function(r){ return inRange(r, rg); });
+  };
+  return function(){ DB[sec] = orig; };
+}
+function withFilter(sec, fn){
+  var rg = activeRange(sec);
+  if(!rg.from && !rg.to) return fn();
+  var undo = patchDB(sec, rg);
+  if(!undo) return fn();
+  try{ return fn(); } finally { undo(); }
+}
+function withFilterAsync(sec, fn){
+  var rg = activeRange(sec);
+  if(!rg.from && !rg.to) return fn();
+  var undo = patchDB(sec, rg);
+  if(!undo) return fn();
+  var p;
+  try{ p = fn(); }
+  catch(e){ undo(); throw e; }
+  return Promise.resolve(p).then(function(v){ undo(); return v; },
+                                function(e){ undo(); throw e; });
+}
+
+/* ---- toolbar control -------------------------------------------------- */
+var MODES = [['all','All time'],['day','Day'],['week','Week'],['month','Month'],['custom','Custom range']];
+
+function ctrlHTML(sec){
+  var f = getF(sec);
+  var opts = MODES.map(function(m){
+    return '<option value="' + m[0] + '"' + (f.mode === m[0] ? ' selected' : '') + '>' + m[1] + '</option>';
+  }).join('');
+  return ''
+    + '<span id="oc-rng-' + sec + '" data-oc-range="' + sec + '" '
+    +       'style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">'
+    +   '<select class="field" id="oc-rngmode-' + sec + '" title="Filter by date range" '
+    +           'onchange="ocRangeSet(\'' + sec + '\',\'mode\',this.value)" '
+    +           'style="min-width:120px">' + opts + '</select>'
+    +   '<input class="field" type="date"  id="oc-rngday-'   + sec + '" value="' + A(f.day)   + '" '
+    +          'onchange="ocRangeSet(\'' + sec + '\',\'day\',this.value)">'
+    +   '<input class="field" type="week"  id="oc-rngweek-'  + sec + '" value="' + A(f.week)  + '" '
+    +          'onchange="ocRangeSet(\'' + sec + '\',\'week\',this.value)">'
+    +   '<input class="field" type="month" id="oc-rngmonth-' + sec + '" value="' + A(f.month) + '" '
+    +          'onchange="ocRangeSet(\'' + sec + '\',\'month\',this.value)">'
+    +   '<input class="field" type="date"  id="oc-rngfrom-'  + sec + '" value="' + A(f.from)  + '" '
+    +          'title="From date" onchange="ocRangeSet(\'' + sec + '\',\'from\',this.value)">'
+    +   '<span id="oc-rngsep-' + sec + '" class="sub">to</span>'
+    +   '<input class="field" type="date"  id="oc-rngto-'    + sec + '" value="' + A(f.to)    + '" '
+    +          'title="To date" onchange="ocRangeSet(\'' + sec + '\',\'to\',this.value)">'
+    + '</span>';
+}
+function lblHTML(sec){
+  return '<span id="oc-rnglbl-' + sec + '" class="sub" '
+       +       'style="font-size:12px;color:var(--muted);white-space:nowrap"></span>';
+}
+
+function showParts(sec){
+  var f = getF(sec);
+  function vis(id, on){ var el = $$(id); if(el) el.style.display = on ? '' : 'none'; }
+  vis('oc-rngday-'   + sec, f.mode === 'day');
+  vis('oc-rngweek-'  + sec, f.mode === 'week');
+  vis('oc-rngmonth-' + sec, f.mode === 'month');
+  vis('oc-rngfrom-'  + sec, f.mode === 'custom');
+  vis('oc-rngsep-'   + sec, f.mode === 'custom');
+  vis('oc-rngto-'    + sec, f.mode === 'custom');
+}
+
+function shownCount(sec){
+  var body = $$(BODY[sec]); if(!body) return null;
+  var n = 0;
+  body.querySelectorAll('tr').forEach(function(tr){
+    if(tr.querySelector('td[colspan]')) return;
+    n++;
+  });
+  return n;
+}
+
+function updLabel(sec){
+  var el = $$('oc-rnglbl-' + sec); if(!el) return;
+  var rg = activeRange(sec);
+  var n  = shownCount(sec);
+  var txt = 'Showing: ' + rg.label;
+  if(n != null) txt += ' · ' + n + ' record' + (n === 1 ? '' : 's');
+  el.textContent = txt;
+  el.title = (!rg.from && !rg.to)
+    ? 'No date filter — the table and the Excel export include every record.'
+    : 'The table and the Excel export both cover ' + rg.label + ' only.';
+  var chip = null;
+  try{
+    var b = $$(BODY[sec]);
+    var card = b && b.closest ? b.closest('.card') : null;
+    chip = card ? card.querySelector('.card-head .chip') : null;
+  }catch(e){}
+  if(chip && n != null) chip.textContent = String(n);
+}
+
+function repaint(sec){
+  try{
+    if(sec === 'orders' && typeof paintTable === 'function') paintTable('ord-body');
+    else if(sec === 'enquiries' && typeof paintEnq === 'function') paintEnq();
+  }catch(e){}
+}
+
+function syncCtrl(sec){
+  var f = getF(sec);
+  function put(id, v){ var el = $$(id); if(el && el.value !== v) el.value = v; }
+  put('oc-rngmode-'  + sec, f.mode);
+  put('oc-rngday-'   + sec, f.day);
+  put('oc-rngweek-'  + sec, f.week);
+  put('oc-rngmonth-' + sec, f.month);
+  put('oc-rngfrom-'  + sec, f.from);
+  put('oc-rngto-'    + sec, f.to);
+}
+
+window.ocRangeSet = function(sec, part, value){
+  if(SECS.indexOf(sec) < 0) return;
+  var f = getF(sec);
+  f[part] = T(value);
+  if(part !== 'mode' && f.mode === 'all') f.mode = (part === 'from' || part === 'to') ? 'custom' : part;
+  setF(sec, f);
+  syncCtrl(sec);
+  showParts(sec);
+  repaint(sec);
+  updLabel(sec);
+};
+window.ocRangeReset = function(sec){ window.ocRangeSet(sec, 'mode', 'all'); };
+
+function inject(sec){
+  var box = $$(BODY[sec]); if(!box) return;
+  if($$('oc-rng-' + sec)) { syncCtrl(sec); showParts(sec); updLabel(sec); return; }
+  var card = box.closest ? box.closest('.card') : null;
+  var tools = card ? card.querySelector('.card-head .tools') : null;
+  if(!tools) return;
+  var anchor = tools.querySelector('button[onclick^="exportExcel("]');
+  if(anchor) anchor.insertAdjacentHTML('beforebegin', ctrlHTML(sec));
+  else tools.insertAdjacentHTML('afterbegin', ctrlHTML(sec));
+  tools.insertAdjacentHTML('beforeend', lblHTML(sec));
+  syncCtrl(sec);
+  showParts(sec);
+  updLabel(sec);
+}
+
+/* ---- wrap the renderers ----------------------------------------------- */
+function wrapRender(fnName, sec){
+  var orig = window[fnName];
+  if(typeof orig !== 'function') return;
+  window[fnName] = function(){
+    var r = orig.apply(this, arguments);
+    try{ inject(sec); }catch(e){}
+    return r;
+  };
+}
+wrapRender('renderOrders', 'orders');
+wrapRender('renderEnquiries', 'enquiries');
+
+/* ---- wrap the painters ------------------------------------------------ */
+(function(){
+  var orig = window.paintTable;
+  if(typeof orig !== 'function') return;
+  window.paintTable = function(bodyId){
+    if(bodyId !== 'ord-body') return orig.apply(this, arguments);
+    var self = this, args = arguments;
+    var r = withFilter('orders', function(){ return orig.apply(self, args); });
+    try{ updLabel('orders'); }catch(e){}
+    return r;
+  };
+})();
+(function(){
+  var orig = window.paintEnq;
+  if(typeof orig !== 'function') return;
+  window.paintEnq = function(){
+    var self = this, args = arguments;
+    var r = withFilter('enquiries', function(){ return orig.apply(self, args); });
+    try{ updLabel('enquiries'); }catch(e){}
+    return r;
+  };
+})();
+
+/* ---- wrap the Excel export -------------------------------------------- */
+(function(){
+  var orig = window.exportExcel;
+  if(typeof orig !== 'function') return;
+  window.exportExcel = function(section){
+    if(SECS.indexOf(section) < 0) return orig.apply(this, arguments);
+    var rg = activeRange(section);
+    if(!rg.from && !rg.to) return orig.apply(this, arguments);
+    var self = this, args = arguments;
+    var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+    return Promise.resolve(pre).then(function(ok){
+      if(ok === false) return false;
+      var undoName = stampName(section, rg);
+      return withFilterAsync(section, function(){ return orig.apply(self, args); })
+        .then(function(v){ undoName(); return v; }, function(e){ undoName(); throw e; });
+    });
+  };
+
+  /* put the range into the downloaded file name */
+  function stampName(section, rg){
+    try{
+      if(typeof XLSX === 'undefined' || !XLSX.writeFile) return function(){};
+    }catch(e){ return function(){}; }
+    var _w = XLSX.writeFile;
+    XLSX.writeFile = function(wb, name){
+      var tag = (rg.from || 'start') + '_to_' + (rg.to || 'today');
+      var nm  = T(name).replace(/\.xlsx$/i, '') + '-' + tag + '.xlsx';
+      return _w.call(XLSX, wb, nm);
+    };
+    return function(){ try{ XLSX.writeFile = _w; }catch(e){} };
+  }
+})();
+
+/* ---- if a section is already on screen, decorate it now ---------------- */
+try{
+  SECS.forEach(function(sec){ if($$(BODY[sec])) inject(sec); });
+}catch(e){}
+
+console.log('[oc v26] date-range filter for orders + enquiries active');
+})();
+</script>
+
 </body>
 </html>
