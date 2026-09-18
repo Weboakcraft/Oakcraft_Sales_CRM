@@ -16,6 +16,7 @@ on:
     paths:
       - index.html
       - quotation-builder.html
+      - "gp-*.js"
       - manifest.webmanifest
       - "logo*.png"
       - "lib/**"
