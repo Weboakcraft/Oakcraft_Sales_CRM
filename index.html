@@ -2999,7 +2999,6 @@ function bindAppEvents(){
 
     var bar = '<div class="ml-bar">'
       + '<input class="ml-s" id="mlSearch" placeholder="Search naam / phone / city / campaign\u2026" value="' + esc(window.__mlQ || '') + '">'
-      + '<button class="btn" onclick="ML.form()">+ Add Lead</button>'
       + '<button class="btn" onclick="ML.importBox()">Import from Meta</button>'
       + (admin ? '<button class="btn" onclick="ML.stageBox()">Stages</button>' : '')
       + '</div>';
@@ -3035,7 +3034,7 @@ function bindAppEvents(){
 
     var note = visible.length ? '' :
       '<div style="background:var(--surface,#1a1a19);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:10px;padding:16px;margin-bottom:14px;font-size:13px;color:var(--muted,#898781)">'
-      + 'Abhi koi Meta lead nahi hai. <b>Import from Meta</b> se apna Lead Ads CSV paste kijiye, ya <b>+ Add Lead</b> se manually add kijiye.'
+      + 'Abhi koi Meta lead nahi hai. Leads apne aap aati hain; turant chahiye to <b>Import from Meta</b> se apna Lead Ads CSV paste kar dijiye.'
       + '</div>';
 
     content.innerHTML = bar + kpi + note + board;
@@ -6470,7 +6469,9 @@ console.log('[oc v7] row-safe save active');
               return '<option value="' + esc(u.email) + '"' + (_lc(window.__mlFilt.owner) === _lc(u.email) ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>';
             }).join('') + '</select>' : '')
       + '<button class="btn primary" onclick="ML.bulkBox()">⬆ Bulk Upload</button>'
-      + '<button class="btn" onclick="ML.form()">+ Add Lead</button>'
+      /* "+ Add Lead" hata diya gaya: Meta leads apne aap aati hain (MetaAutoSync + Bulk
+         Upload). Manually lead banane ki zarurat nahi thi aur usse duplicate bante the.
+         Edit ab bhi chalta hai -- ML.form(id) waise ka waisa hai. */
       + '<button class="btn" onclick="ML.importBox()">Import from Meta</button>'
       + '<button class="btn" onclick="ML.exportSheet()">Export</button>'
       + (admin ? '<button class="btn" onclick="ML.stageBox()">Stages</button>' : '')
@@ -6553,7 +6554,7 @@ console.log('[oc v7] row-safe save active');
       : '<div class="mls-wrap"><table class="mls">' + head + '</table>'
         + '<div class="mls-empty">' + (all.length
             ? 'Is filter par koi lead nahi mili.'
-            : 'Abhi koi Meta lead nahi hai. <b>Bulk Upload</b> se apni sheet ka Excel / CSV / Google Sheet link daaliye, ya <b>+ Add Lead</b> se ek lead banaiye.')
+            : 'Abhi koi Meta lead nahi hai. Leads apne aap aati hain; turant chahiye to <b>Bulk Upload</b> se apni sheet ka Excel / CSV / Google Sheet link daal dijiye.')
         + '</div></div>';
 
     var foot = '<div class="mls-foot"><div>Showing <b>' + rows.length + '</b> of <b>' + list.length + '</b> leads'
@@ -6695,6 +6696,10 @@ console.log('[oc v7] row-safe save active');
    * 6. Add / Edit form  — purane saare fields + naye sheet fields      *
    * ---------------------------------------------------------------- */
   ML.form = function(id){
+    /* Naya lead manually banane ka raasta band hai -- Meta se leads apne aap aati hain.
+       Purani lead ka EDIT waise ka waisa chalta hai (id ke saath call hota hai).
+       Ye guard isliye hai ki koi purana button ya shortcut reh gaya ho to bhi form na khule. */
+    if(!id){ try{ toast('Meta leads apne aap aati hain \u2014 manually add band hai. Turant chahiye to Bulk Upload use kijiye.'); }catch(e){} return; }
     sheetStyle();
     memoReset();
     var arr = mlAll();
@@ -7845,7 +7850,8 @@ window.applyUserToSidebar = function(){
  * ====================================================================== */
 var QUICK = { enquiries:['enquiry','New Enquiry'], orders:['order','New Order'], quotations:['quotation','New Quotation'],
               dispatch:['dispatch','New Dispatch'], customers:['customer','Add Customer'], products:['product','Add Product'],
-              metaLeads:['metalead','Add Lead'] };
+              /* metaLeads yahan se nikal diya gaya: Meta me leads apne aap aati hain,
+                 isliye niche wala quick-add (+) button us section me dikhta hi nahi. */ };
 var _setView = window.setView;
 window.setView = function(v){
   var sec = SECTION_OF_VIEW[v] || v;
@@ -7994,7 +8000,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.18.1';
+var OC_WEB_BUILD = '2026.09.18.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
