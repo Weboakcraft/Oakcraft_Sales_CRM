@@ -191,6 +191,16 @@
     });
     return best;
   }
+  /* ek type ke saare variants, rate ke saath -- product card ke dropdown banate hain */
+  var PART_TYPE = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels' };
+  function componentsByType(type) {
+    var m = masters(); if (!m) return [];
+    var k = norm(type);
+    return (m.components || []).filter(function (c) { return norm(c.type) === k; })
+      .map(function (c) { return { name: c.name, rate: num(c.rate) }; });
+  }
+  function partsFor(key) { return componentsByType(PART_TYPE[key] || key); }
+
   function compRate(type, name) {
     if (!name) return 0;
     var k = norm(type) + '|' + norm(name);
@@ -228,12 +238,25 @@
       if (l.model) { mo = bySku(l.model); if (mo) how = 'chosen'; }
       if (!mo && !l.manual) { mo = findModel(l.name); if (mo) how = 'auto'; }
       var c;
-      if (l.manual) {
-        var mc = l.cost || {};
+      if (l.manual && l.cost && (num(l.cost.arm) || num(l.cost.seat) || num(l.cost.base) || num(l.cost.wheels))) {
+        var mc = l.cost;
         c = { arm: num(mc.arm), seat: num(mc.seat), base: num(mc.base), wheels: num(mc.wheels), names: ZERO.names };
         how = 'manual';
       } else {
-        c = costOf(mo) || ZERO;
+        c = costOf(mo) || { arm: 0, seat: 0, base: 0, wheels: 0, names: { arm: '', seat: '', base: '', wheels: '' } };
+        c = { arm: c.arm, seat: c.seat, base: c.base, wheels: c.wheels,
+              names: { arm: c.names.arm, seat: c.names.seat, base: c.names.base, wheels: c.names.wheels } };
+      }
+      /* Product card par jo part chuna gaya hai wo model ke standard part se upar hai.
+         Khali part chhod diya to model ka apna standard part hi chalta hai. */
+      if (l.parts) {
+        ['arm', 'seat', 'base', 'wheels'].forEach(function (k) {
+          var nm = l.parts[k];
+          if (!nm) return;
+          c.names[k] = nm;
+          c[k] = compRate(PART_TYPE[k], nm);
+          if (how === 'none') how = 'parts';
+        });
       }
       lines.push({
         description: l.name || '', qty: num(l.qty), listPrice: num(l.price), discPct: num(l.disc),
@@ -282,6 +305,10 @@
         return {
           name: x.name, model: x.model ? (x.model.sku || x.model.name) : '',
           how: x.how, costUnit: Math.round(num(lr.unitCogs)),
+          parts: {
+            arm: x.cost.names ? x.cost.names.arm : '', seat: x.cost.names ? x.cost.names.seat : '',
+            base: x.cost.names ? x.cost.names.base : '', wheels: x.cost.names ? x.cost.names.wheels : ''
+          },
           gp: Math.round(num(lr.gp)), gpPct: Math.round(num(lr.gpPct) * 10) / 10
         };
       })
@@ -545,6 +572,7 @@
   root.OCGP = {
     cfg: cfg, setCfg: setCfg, load: load, ensure: ensure, masters: masters, lastError: lastError,
     modelList: modelList, bySku: bySku, findModel: findModel, costOf: costOf, compRate: compRate,
+    componentsByType: componentsByType, partsFor: partsFor, PART_TYPE: PART_TYPE,
     compute: compute, snapshot: snapshot, renderPanel: renderPanel, panelHTML: panelHTML,
     visibility: visibility, sessionEmail: sessionEmail, myRole: myRole,
     remember: remember, norm: norm, fmt: { inr: inr, pct: pct }
