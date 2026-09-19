@@ -775,7 +775,7 @@ function addItem(){
   S.items.push({photo:null, thumb:null, name:"", desc:"", hsn:"9403", qty:1, price:0, disc:0, del:"10–12 working days",
     /* GP panel: model cost sheet se auto match hota hai; gpModel/gpManual/gpCost
        sirf tab bharte hain jab user khud model chune ya cost haath se daale */
-    gpModel:"", gpManual:false, gpCost:null});
+    gpModel:"", gpManual:false, gpCost:null, gpParts:{}, otype:"EXISTING PRODUCT"});
   renderItemsEditor(); R();
 }
 function rmItem(i){ S.items.splice(i,1); renderItemsEditor(); R(); }
@@ -825,7 +825,9 @@ function renderItemsEditor(){
   w.innerHTML = S.items.map((it,i)=>`
     <div class="item-card">
       <div class="ic-head"><span>PRODUCT ${String(i+1).padStart(2,'0')}</span><button class="rm" onclick="rmItem(${i})">Remove</button></div>
-      <div class="f"><label>Model name <b>*</b></label><input id="qb-name-${i}" placeholder="Model name — e.g. Hurricane HB Mesh" value="${esc(it.name)}" oninput="this.classList.remove('err'); updItem(${i},'name',this.value)"></div>
+      ${(typeof ocGPModelHTML === 'function')
+          ? ocGPModelHTML(i)
+          : `<div class="f"><label>Model name <b>*</b></label><input id="qb-name-${i}" placeholder="Model name — e.g. Hurricane HB Mesh" value="${esc(it.name)}" oninput="this.classList.remove('err'); updItem(${i},'name',this.value)"></div>`}
       <div class="f"><input placeholder="Short description / specs (optional)" value="${esc(it.desc)}" oninput="updItem(${i},'desc',this.value)"></div>
       <div class="frow">
         <div class="f"><label>HSN</label><input value="${esc(it.hsn)}" oninput="updItem(${i},'hsn',this.value)"></div>
@@ -835,6 +837,7 @@ function renderItemsEditor(){
         <div class="f"><label>List price (₹, ex-GST) <b>*</b></label><input id="qb-price-${i}" type="number" value="${it.price||''}" oninput="this.classList.remove('err'); updItem(${i},'price',this.value)"></div>
         <div class="f"><label>Discount %</label><input type="number" min="0" max="100" value="${it.disc||''}" oninput="updItem(${i},'disc',this.value)"></div>
       </div>
+      ${(typeof ocGPPartsHTML === 'function') ? ocGPPartsHTML(i) : ''}
       <div class="f"><label>Delivery timeline</label><input value="${esc(it.del)}" oninput="updItem(${i},'del',this.value)"></div>
       <div class="photo-drop">
         ${(it.photo || it.thumb) ? `<img src="${it.photo || it.thumb}" alt="">` : `<div class="ph-empty">＋</div>`}
@@ -1823,7 +1826,8 @@ window.addEventListener('focus', ()=>{
       items: (S.items || []).map(function(it){
         return { photo: it.photo || '', thumb: it.thumb || '', name: it.name || '', desc: it.desc || '', hsn: it.hsn || '',
                  qty: +it.qty || 0, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
-                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null };
+                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null,
+                 gpParts: it.gpParts || {}, otype: it.otype || '' };
       })
     };
   }
@@ -1840,7 +1844,8 @@ window.addEventListener('focus', ()=>{
       S.items = qb.items.map(function(it){
         return { photo: it.photo || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
                  qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
-                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null };
+                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null,
+                 gpParts: it.gpParts || {}, otype: it.otype || '' };
       });
     }
     return true;
@@ -1865,7 +1870,8 @@ window.addEventListener('focus', ()=>{
       S.items = rec.items.map(function(it){
         return { photo: it.photo || it.image || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
                  qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '10–12 working days',
-                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null };
+                 gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null,
+                 gpParts: it.gpParts || {}, otype: it.otype || '' };
       });
     } else if(rec.product){
       S.items = [{ photo: null, name: String(rec.product).replace(/\s*\+\d+\s*more$/i, ''), desc: '', hsn: '9403',
@@ -1988,6 +1994,10 @@ window.addEventListener('focus', ()=>{
     if(Q.mode === 'view') return Promise.resolve(false);
     if(_saveInFlight) return _saveInFlight;                 /* double-click / PDF+Save race guard */
     if(typeof repMissing === 'function' && repMissing()) return Promise.resolve(false);
+    /* GP minus me ho to quotation banti hi nahi. Download PDF bhi pehle save karta
+       hai, isliye yahi ek jagah dono ko rok deti hai. Owner/Administrator dobara
+       dabaa kar chhoot le sakte hain -- ocGPGate() khud sambhalta hai. */
+    if(typeof window.ocGPGate === 'function' && !window.ocGPGate()) return Promise.resolve(false);
     _saveInFlight = Promise.resolve(fitThumbs())
       .then(function(){ return doSave(opts); })
       .then(function(v){ _saveInFlight = null; return v; },
@@ -2263,8 +2273,8 @@ window.addEventListener('focus', ()=>{
      gp-bridge.js      = cost master (M_Products / M_Components) sheet se laata hai.
      gp-quotation.js   = is page ka glue: customer auto-fill + GP panel.
      Inme kuch badlo to ?v= number bhi badhao, warna purana cached file chalta rahega. -->
-<script src="lib/gp-engine.js?v=1"></script>
-<script src="gp-bridge.js?v=1"></script>
-<script src="gp-quotation.js?v=1"></script>
+<script src="lib/gp-engine.js?v=2"></script>
+<script src="gp-bridge.js?v=2"></script>
+<script src="gp-quotation.js?v=2"></script>
 </body>
 </html>
