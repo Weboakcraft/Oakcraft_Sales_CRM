@@ -8000,7 +8000,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.21.1';
+var OC_WEB_BUILD = '2026.09.21.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13336,6 +13336,179 @@ window.ocMetaRangeReset = function(){ window.ocMetaRangeSet('mode', 'all'); };
 try{ if(document.querySelector('.mls-tools')) inject(); }catch(e){}
 
 console.log('[oc v27] date-range filter for meta leads active');
+})();
+</script>
+
+
+<script>
+/* ====================================================================== *
+ * 30. OAKCRAFT v28 — REVENUE TREND: BARS + FILTER-AWARE BUCKETS           *
+ *                                                                        *
+ *   Two changes to the Revenue Trend panel, nothing else:                 *
+ *                                                                        *
+ *   1. Line  ->  bar. Both series stay exactly as they were               *
+ *      (Order value excl. GST, and Billing incl. 18% GST), now drawn as   *
+ *      grouped bars instead of lines.                                     *
+ *                                                                        *
+ *   2. The bars follow the dashboard date filter:                         *
+ *        All time      -> one bar per month, from the first order month   *
+ *                         right up to the latest (true all-time)          *
+ *        Month         -> one bar per DAY of that month only              *
+ *        Week          -> one bar per day of that week (7)                *
+ *        Day           -> that single day                                 *
+ *        Custom range  -> day-wise up to 45 days, month-wise beyond       *
+ *                                                                        *
+ *   The panel subtitle says which period and which grouping is on screen. *
+ *   Amounts stay in Rs Lakh, and the order rows themselves are already    *
+ *   filtered upstream by the dashboard filter, so nothing double-counts.  *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocRevBars) return; window.__ocRevBars = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
+
+function d2s(d){ return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+function s2d(s){
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(s)); if(!m) return null;
+  return new Date(+m[1], +m[2] - 1, +m[3]);
+}
+function daysBetween(a, b){
+  var x = s2d(a), y = s2d(b); if(!x || !y) return 0;
+  return Math.round((y - x) / 864e5) + 1;
+}
+/* same date a row is filtered on, so chart and filter always agree */
+function ordDate(o){ return o ? T(o.date || o.createdAt || o.updatedAt).slice(0, 10) : ''; }
+
+/* ---- which buckets to draw ------------------------------------------- */
+var DAY_CAP = 45;                      /* custom ranges longer than this go month-wise */
+
+function bucketPlan(ord){
+  var f = null;
+  try{ f = window.ocDashFilter && window.ocDashFilter(); }catch(e){ f = null; }
+  var mode = (f && f.mode) || 'all';
+  var from = (f && f.from) || '';
+  var to   = (f && f.to)   || '';
+
+  if(mode !== 'all' && from && to){
+    var span = daysBetween(from, to);
+    if(span >= 1 && span <= DAY_CAP) return { grain:'day',   from:from, to:to, label:(f.label || '') };
+    return { grain:'month', from:from, to:to, label:(f.label || '') };
+  }
+
+  /* All time -> every month that actually has an order */
+  var lo = '', hi = '';
+  (ord || []).forEach(function(o){
+    var d = ordDate(o); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    if(!lo || d < lo) lo = d;
+    if(!hi || d > hi) hi = d;
+  });
+  if(!lo){                                    /* koi order hi nahi -> purana 6-month look */
+    var now = new Date();
+    var a = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    return { grain:'month', from:d2s(a), to:d2s(new Date(now.getFullYear(), now.getMonth() + 1, 0)), label:'All time' };
+  }
+  return { grain:'month', from:lo, to:hi, label:'All time' };
+}
+
+function buildBuckets(plan){
+  var keys = [], labels = [], a = s2d(plan.from), b = s2d(plan.to);
+  if(!a || !b) return { keys:keys, labels:labels };
+
+  if(plan.grain === 'day'){
+    var sameMonth = (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth());
+    var d = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    while(d <= b && keys.length < 400){
+      keys.push(d2s(d));
+      labels.push(sameMonth ? String(d.getDate()) : (p2(d.getDate()) + ' ' + MON[d.getMonth()]));
+      d.setDate(d.getDate() + 1);
+    }
+    return { keys:keys, labels:labels };
+  }
+
+  var multiYear = (a.getFullYear() !== b.getFullYear());
+  var m = new Date(a.getFullYear(), a.getMonth(), 1);
+  var last = new Date(b.getFullYear(), b.getMonth(), 1);
+  while(m <= last && keys.length < 400){
+    keys.push(m.getFullYear() + '-' + p2(m.getMonth() + 1));
+    labels.push(MON[m.getMonth()] + (multiYear ? (' ' + String(m.getFullYear()).slice(2)) : ''));
+    m.setMonth(m.getMonth() + 1);
+  }
+  return { keys:keys, labels:labels };
+}
+
+function keyOf(dateStr, grain){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return '';
+  return grain === 'day' ? dateStr : dateStr.slice(0, 7);
+}
+
+function subtitle(plan){
+  var period = plan.label || 'All time';
+  var grain  = plan.grain === 'day' ? 'day-wise' : 'month-wise';
+  return period + ' · ' + grain + ' (₹ Lakh)';
+}
+function setSubtitle(cv, txt){
+  try{
+    var panel = cv.closest ? cv.closest('.panel') : null;
+    var small = panel ? panel.querySelector('h3 small') : null;
+    if(small) small.textContent = txt;
+  }catch(e){}
+}
+
+/* ---- the replacement renderer ---------------------------------------- */
+window.drawRevenue = function(ord){
+  var cv = document.getElementById('ch-rev'); if(!cv) return;
+  if(typeof Chart === 'undefined') return;
+  ord = ord || [];
+
+  var plan = bucketPlan(ord);
+  var b    = buildBuckets(plan);
+  if(!b.keys.length){ setSubtitle(cv, subtitle(plan)); return; }
+
+  var sums = {};
+  ord.forEach(function(o){
+    var k = keyOf(ordDate(o), plan.grain); if(!k) return;
+    sums[k] = (sums[k] || 0) + (Number(o && o.amount) || 0);
+  });
+
+  var data    = b.keys.map(function(k){ return +(((sums[k] || 0) / 100000).toFixed(2)); });
+  var dataGst = data.map(function(v){ return +((v * 1.18).toFixed(2)); });
+
+  try{ if(typeof Chart.getChart === 'function'){ var old = Chart.getChart(cv); if(old) old.destroy(); } }catch(e){}
+
+  var opts = baseOpts({ legend:true, yFmt:function(v){ return '₹' + v + 'L'; } });
+  try{ opts.scales.y.beginAtZero = true; }catch(e){}
+  /* many day bars -> labels ko thoda skip karne do, warna overlap hota hai */
+  try{ if(b.keys.length > 16) opts.scales.x.ticks.autoSkip = true; }catch(e){}
+
+  var chart = new Chart(cv, {
+    type: 'bar',
+    data: { labels: b.labels, datasets: [
+      { label:'Order value (excl. GST)', data:data,
+        backgroundColor:'#2a78d6', hoverBackgroundColor:'#1e5fae',
+        borderRadius:4, borderSkipped:false, maxBarThickness:46 },
+      { label:'Billing (incl. 18% GST)', data:dataGst,
+        backgroundColor:'rgba(27,175,122,.55)', hoverBackgroundColor:'rgba(27,175,122,.8)',
+        borderColor:'#1baf7a', borderWidth:1,
+        borderRadius:4, borderSkipped:false, maxBarThickness:46 }
+    ]},
+    options: opts
+  });
+  try{ state.charts.rev = chart; }catch(e){}
+  setSubtitle(cv, subtitle(plan));
+};
+
+/* the dashboard may already be on screen when this script runs */
+try{
+  if(document.getElementById('ch-rev') && typeof state !== 'undefined' && state.view === 'dashboard'
+     && typeof renderDashboard === 'function'){
+    setTimeout(function(){ try{ renderDashboard(); }catch(e){} }, 0);
+  }
+}catch(e){}
+
+console.log('[oc v28] revenue trend = bars + filter-aware buckets');
 })();
 </script>
 
