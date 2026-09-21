@@ -8000,7 +8000,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.19.1';
+var OC_WEB_BUILD = '2026.09.21.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13022,6 +13022,320 @@ try{
 }catch(e){}
 
 console.log('[oc v26] date-range filter for orders + enquiries active');
+})();
+</script>
+
+
+<script>
+/* ====================================================================== *
+ * 29. OAKCRAFT v27 — DATE-RANGE FILTER for META LEADS                     *
+ *                                                                        *
+ *   Same control as Orders and Enquiries, now in the Meta Leads sheet:    *
+ *   All time / Day / Week / Month / Custom range.                         *
+ *                                                                        *
+ *   The selected range filters the lead sheet, the KPI counts AND the     *
+ *   Export file, so "Export" always downloads exactly what is on screen.  *
+ *                                                                        *
+ *   Date used: created_time_ist, which this module always normalises to   *
+ *   DD-MM-YYYY HH:MM:SS (falls back to createdAt / updatedAt).            *
+ *                                                                        *
+ *   Nothing else changes. Platform / status / owner filters, search,      *
+ *   sorting, paging, selection, bulk actions, permissions and owner       *
+ *   scoping all behave exactly as before. The choice is remembered in     *
+ *   localStorage, separately from the Orders and Enquiries ranges.        *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocRangeMeta) return; window.__ocRangeMeta = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function $$(id){ return document.getElementById(id); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+function A(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+var MON  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
+var DAYN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+function d2s(d){ return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+function s2d(s){
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(s)); if(!m) return null;
+  return new Date(+m[1], +m[2] - 1, +m[3]);
+}
+function todayS(){ return d2s(new Date()); }
+function pretty(s){
+  var d = s2d(s); if(!d) return '—';
+  return p2(d.getDate()) + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear();
+}
+function mondayOf(d){
+  var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+function isoWeekStr(d){
+  var mon = mondayOf(d);
+  var thu = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 3);
+  var jan1 = new Date(thu.getFullYear(), 0, 1);
+  return thu.getFullYear() + '-W' + p2(Math.floor((thu - jan1) / 864e5 / 7) + 1);
+}
+function weekStrToMonday(s){
+  var m = /^(\d{4})-W(\d{1,2})$/.exec(T(s)); if(!m) return mondayOf(new Date());
+  var mon1 = mondayOf(new Date(+m[1], 0, 4));
+  return new Date(mon1.getFullYear(), mon1.getMonth(), mon1.getDate() + (+m[2] - 1) * 7);
+}
+
+/* ---- filter state ----------------------------------------------------- */
+var KEY = 'oc_rangeMeta';
+function defF(){
+  return { mode:'all', day:todayS(), week:isoWeekStr(new Date()),
+           month:todayS().slice(0, 7), from:todayS().slice(0, 8) + '01', to:todayS() };
+}
+var CACHE = null;
+function getF(){
+  if(CACHE) return CACHE;
+  var f = null;
+  try{ f = JSON.parse(localStorage.getItem(KEY) || 'null'); }catch(e){ f = null; }
+  var d = defF();
+  if(f && typeof f === 'object'){
+    ['mode','day','week','month','from','to'].forEach(function(k){ if(f[k]) d[k] = T(f[k]); });
+  }
+  if(['all','day','week','month','custom'].indexOf(d.mode) < 0) d.mode = 'all';
+  CACHE = d;
+  return d;
+}
+function setF(f){
+  CACHE = f;
+  try{ localStorage.setItem(KEY, JSON.stringify(f)); }catch(e){}
+}
+
+function rangeOf(f){
+  if(f.mode === 'day'){
+    var d = s2d(f.day) || new Date();
+    return { from:d2s(d), to:d2s(d), label: DAYN[d.getDay()] + ', ' + pretty(d2s(d)) };
+  }
+  if(f.mode === 'week'){
+    var mon = weekStrToMonday(f.week);
+    var sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+    return { from:d2s(mon), to:d2s(sun), label: pretty(d2s(mon)) + ' – ' + pretty(d2s(sun)) };
+  }
+  if(f.mode === 'month'){
+    var m = /^(\d{4})-(\d{2})$/.exec(T(f.month));
+    var y  = m ? +m[1] : new Date().getFullYear();
+    var mo = m ? (+m[2] - 1) : new Date().getMonth();
+    return { from:d2s(new Date(y, mo, 1)), to:d2s(new Date(y, mo + 1, 0)), label: MON[mo] + ' ' + y };
+  }
+  if(f.mode === 'custom'){
+    var fr = /^\d{4}-\d{2}-\d{2}$/.test(T(f.from)) ? T(f.from) : '';
+    var to = /^\d{4}-\d{2}-\d{2}$/.test(T(f.to))   ? T(f.to)   : '';
+    if(fr && to && fr > to){ var t = fr; fr = to; to = t; }
+    var lab = (!fr && !to) ? 'All time'
+            : (fr && to)   ? (pretty(fr) + ' – ' + pretty(to))
+            : (fr ? ('From ' + pretty(fr)) : ('Up to ' + pretty(to)));
+    return { from:fr, to:to, label:lab };
+  }
+  return { from:'', to:'', label:'All time' };
+}
+function activeRange(){ return rangeOf(getF()); }
+window.ocMetaRangeOf = activeRange;
+
+/* ---- a lead's date ---------------------------------------------------- */
+function mlDate(l){
+  if(!l) return '';
+  var cand = [l.created_time_ist, l.createdAt, l.updatedAt];
+  for(var i = 0; i < cand.length; i++){
+    var v = T(cand[i]); if(!v) continue;
+    var dmy = /^(\d{2})-(\d{2})-(\d{4})/.exec(v);          /* DD-MM-YYYY (this module's format) */
+    if(dmy) return dmy[3] + '-' + dmy[2] + '-' + dmy[1];
+    var ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);          /* ISO */
+    if(ymd) return ymd[1] + '-' + ymd[2] + '-' + ymd[3];
+  }
+  return '';
+}
+window.ocMetaLeadDate = mlDate;
+
+function inRange(l, rg){
+  if(!rg.from && !rg.to) return true;
+  var d = mlDate(l);
+  if(!d) return false;
+  if(rg.from && d < rg.from) return false;
+  if(rg.to   && d > rg.to)   return false;
+  return true;
+}
+
+/* ---- run fn() while scope(rows,'metaLeads') is date-filtered ---------- */
+function withFilter(fn){
+  var rg = activeRange();
+  if(!rg.from && !rg.to) return fn();
+  var _scope = window.scope;
+  if(typeof _scope !== 'function') return fn();
+  window.scope = function(list, coll){
+    var out = _scope.apply(this, arguments);
+    if(coll !== 'metaLeads' || !Array.isArray(out)) return out;
+    return out.filter(function(l){ return inRange(l, rg); });
+  };
+  try{ return fn(); } finally { window.scope = _scope; }
+}
+
+/* ---- toolbar control -------------------------------------------------- */
+var MODES = [['all','All time'],['day','Day'],['week','Week'],['month','Month'],['custom','Custom range']];
+
+function ctrlHTML(){
+  var f = getF();
+  var opts = MODES.map(function(m){
+    return '<option value="' + m[0] + '"' + (f.mode === m[0] ? ' selected' : '') + '>' + m[1] + '</option>';
+  }).join('');
+  return ''
+    + '<span id="oc-mlrng" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">'
+    +   '<select class="mls-f" id="oc-mlrngmode" title="Filter leads by date" '
+    +           'onchange="ocMetaRangeSet(\'mode\',this.value)" style="min-width:118px">' + opts + '</select>'
+    +   '<input class="mls-f" type="date"  id="oc-mlrngday"   value="' + A(f.day)   + '" '
+    +          'onchange="ocMetaRangeSet(\'day\',this.value)">'
+    +   '<input class="mls-f" type="week"  id="oc-mlrngweek"  value="' + A(f.week)  + '" '
+    +          'onchange="ocMetaRangeSet(\'week\',this.value)">'
+    +   '<input class="mls-f" type="month" id="oc-mlrngmonth" value="' + A(f.month) + '" '
+    +          'onchange="ocMetaRangeSet(\'month\',this.value)">'
+    +   '<input class="mls-f" type="date"  id="oc-mlrngfrom"  value="' + A(f.from)  + '" '
+    +          'title="From date" onchange="ocMetaRangeSet(\'from\',this.value)">'
+    +   '<span id="oc-mlrngsep" style="font-size:12px;color:var(--muted)">to</span>'
+    +   '<input class="mls-f" type="date"  id="oc-mlrngto"    value="' + A(f.to)    + '" '
+    +          'title="To date" onchange="ocMetaRangeSet(\'to\',this.value)">'
+    + '</span>';
+}
+function lblHTML(){
+  return '<span id="oc-mlrnglbl" style="font-size:12px;color:var(--muted);white-space:nowrap"></span>';
+}
+
+function syncCtrl(){
+  var f = getF();
+  function put(id, v){ var el = $$(id); if(el && el.value !== v) el.value = v; }
+  put('oc-mlrngmode',  f.mode);
+  put('oc-mlrngday',   f.day);
+  put('oc-mlrngweek',  f.week);
+  put('oc-mlrngmonth', f.month);
+  put('oc-mlrngfrom',  f.from);
+  put('oc-mlrngto',    f.to);
+}
+function showParts(){
+  var f = getF();
+  function vis(id, on){ var el = $$(id); if(el) el.style.display = on ? '' : 'none'; }
+  vis('oc-mlrngday',   f.mode === 'day');
+  vis('oc-mlrngweek',  f.mode === 'week');
+  vis('oc-mlrngmonth', f.mode === 'month');
+  vis('oc-mlrngfrom',  f.mode === 'custom');
+  vis('oc-mlrngsep',   f.mode === 'custom');
+  vis('oc-mlrngto',    f.mode === 'custom');
+}
+
+/* how many leads the current range covers (whole list, not just the page) */
+function shownCount(){
+  var rg = activeRange();
+  var arr = [];
+  try{ arr = JSON.parse(localStorage.getItem('metaLeads') || '[]') || []; }catch(e){ arr = []; }
+  if(!Array.isArray(arr)) return null;
+  try{ if(typeof window.scope === 'function') arr = window.scope(arr, 'metaLeads') || []; }catch(e){}
+  var f = window.__mlFilt || {};
+  return arr.filter(function(l){
+    if(!inRange(l, rg)) return false;
+    if(f.owner === '__none__' && (l.assigned_to || l.owner)) return false;
+    return true;
+  }).length;
+}
+
+function updLabel(){
+  var el = $$('oc-mlrnglbl'); if(!el) return;
+  var rg = activeRange();
+  var n  = shownCount();
+  el.textContent = 'Showing: ' + rg.label + (n == null ? '' : (' · ' + n + ' lead' + (n === 1 ? '' : 's')));
+  el.title = (!rg.from && !rg.to)
+    ? 'No date filter — the sheet and the Export include every lead.'
+    : 'The sheet and the Export both cover ' + rg.label + ' only.';
+}
+
+/* a platform chosen earlier may have no leads inside the range; keep the
+   option so the dropdown never silently reads "All platforms" */
+function keepPlatformOption(){
+  try{
+    var sel = $$('mlFPlat'); if(!sel) return;
+    var want = T((window.__mlFilt || {}).platform); if(!want) return;
+    var has = Array.prototype.some.call(sel.options, function(o){ return o.value === want; });
+    if(!has){
+      var o = document.createElement('option');
+      o.value = want; o.textContent = want + ' · none in range';
+      sel.appendChild(o);
+    }
+    sel.value = want;
+  }catch(e){}
+}
+
+function inject(){
+  var tools = document.querySelector('.mls-tools'); if(!tools) return;
+  if(!$$('oc-mlrng')){
+    var anchor = tools.querySelector('button[onclick^="ML.bulkBox"]');
+    if(anchor) anchor.insertAdjacentHTML('beforebegin', ctrlHTML());
+    else tools.insertAdjacentHTML('beforeend', ctrlHTML());
+    tools.insertAdjacentHTML('beforeend', lblHTML());
+  }
+  syncCtrl(); showParts(); updLabel();
+}
+
+window.ocMetaRangeSet = function(part, value){
+  var f = getF();
+  f[part] = T(value);
+  if(part !== 'mode' && f.mode === 'all') f.mode = (part === 'from' || part === 'to') ? 'custom' : part;
+  setF(f);
+  syncCtrl(); showParts();
+  try{ window.__mlLim = 100; }catch(e){}
+  try{ if(typeof renderMetaLeads === 'function') renderMetaLeads(); }catch(e){}
+};
+window.ocMetaRangeReset = function(){ window.ocMetaRangeSet('mode', 'all'); };
+
+/* ---- wrap the renderer ------------------------------------------------ */
+(function(){
+  var orig = window.renderMetaLeads;
+  if(typeof orig !== 'function') return;
+  window.renderMetaLeads = function(){
+    var self = this, args = arguments;
+    var r = withFilter(function(){ return orig.apply(self, args); });
+    try{ inject(); keepPlatformOption(); }catch(e){}
+    return r;
+  };
+})();
+
+/* ---- wrap the Export -------------------------------------------------- */
+(function(){
+  if(!window.ML || typeof window.ML.exportSheet !== 'function') return;
+  var orig = window.ML.exportSheet;
+
+  /* the file is written inside a promise, so the rename patch restores
+     itself on first use (and on a timer if the export falls back to CSV) */
+  function stampName(rg){
+    var _w;
+    try{ if(typeof XLSX === 'undefined' || !XLSX.writeFile) return; _w = XLSX.writeFile; }catch(e){ return; }
+    var done = false;
+    function restore(){ if(done) return; done = true; try{ XLSX.writeFile = _w; }catch(e){} }
+    XLSX.writeFile = function(wb, name){
+      var nm = T(name);
+      if(/^meta_leads_/i.test(nm)){
+        nm = nm.replace(/\.xlsx$/i, '') + '-' + (rg.from || 'start') + '_to_' + (rg.to || 'today') + '.xlsx';
+      }
+      restore();
+      return _w.call(XLSX, wb, nm);
+    };
+    setTimeout(restore, 15000);
+  }
+
+  window.ML.exportSheet = function(){
+    var self = this, args = arguments;
+    var rg = activeRange();
+    if(!rg.from && !rg.to) return orig.apply(self, args);
+    stampName(rg);
+    return withFilter(function(){ return orig.apply(self, args); });
+  };
+})();
+
+/* ---- if the Meta Leads sheet is already on screen, decorate it now ----- */
+try{ if(document.querySelector('.mls-tools')) inject(); }catch(e){}
+
+console.log('[oc v27] date-range filter for meta leads active');
 })();
 </script>
 
