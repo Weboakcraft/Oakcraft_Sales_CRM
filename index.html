@@ -8000,7 +8000,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.21.2';
+var OC_WEB_BUILD = '2026.09.21.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13509,6 +13509,118 @@ try{
 }catch(e){}
 
 console.log('[oc v28] revenue trend = bars + filter-aware buckets');
+})();
+</script>
+
+
+<script>
+/* ====================================================================== *
+ * 31. OAKCRAFT v29 — SALES CHARTS COUNT CANCELLED ORDERS TOO              *
+ *                                                                        *
+ *   Until now the three Sales charts -- Sales by Person (ch-sales),       *
+ *   State-wise Sales (ch-state) and Salesperson-wise Sales (ch-salespie)  *
+ *   -- dropped Cancelled orders, while Revenue Trend counted them. The    *
+ *   two panels on the same dashboard therefore disagreed. Now all of      *
+ *   them count every order.                                              *
+ *                                                                        *
+ *   HOW: v24 filters Cancelled inside its own private liveOrders(), which *
+ *   cannot be reached from outside. So for the duration of those three    *
+ *   draw calls (and ocSalesBreakup) DB.orders() hands back COPIES of the  *
+ *   cancelled rows whose status reads 'Cancelled (included)', which that  *
+ *   filter lets through. Only the copies are touched, only during the     *
+ *   draw, and amount / salesperson / customer are never modified -- so    *
+ *   the totals are exactly "every order, cancelled included".            *
+ *                                                                        *
+ *   Nothing is written anywhere: the stored orders keep status            *
+ *   'Cancelled', and every other screen (the Revenue KPI card, Orders,    *
+ *   daily report, incentive rules) still excludes them exactly as before. *
+ *                                                                        *
+ *   NOTE: these charts switch to "Won value" whenever Won enquiries       *
+ *   carry a value. In that mode orders are not used at all, so this       *
+ *   block changes nothing there.                                          *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocSalesInclCancel) return; window.__ocSalesInclCancel = true;
+
+var MARK = 'Cancelled (included)';
+function T(v){ return v == null ? '' : String(v); }
+
+function unmaskedCopy(o){
+  var c = {}, k;
+  for(k in o){ if(Object.prototype.hasOwnProperty.call(o, k)) c[k] = o[k]; }
+  c.status = MARK;
+  c.__ocWasCancelled = 1;
+  return c;
+}
+
+/* run fn() while DB.orders() also yields the cancelled rows */
+function withCancelled(fn){
+  var orig;
+  try{ orig = DB.orders; }catch(e){ return fn(); }
+  if(typeof orig !== 'function') return fn();
+  DB.orders = function(){
+    var a = orig.apply(DB, arguments);
+    if(!Array.isArray(a)) return a;
+    return a.map(function(o){
+      return (o && T(o.status).trim() === 'Cancelled') ? unmaskedCopy(o) : o;
+    });
+  };
+  try{ return fn(); } finally { DB.orders = orig; }
+}
+
+/* the panel subtitle is written by v24 as "Order value (excl. cancelled)" */
+function fixSub(canvasId){
+  try{
+    var cv = document.getElementById(canvasId); if(!cv) return;
+    var panel = cv.closest ? cv.closest('.panel') : null;
+    var small = panel ? panel.querySelector('h3 small') : null;
+    if(!small) return;
+    var t = small.textContent;
+    if(/excl\. cancelled/i.test(t)){
+      small.textContent = t.replace(/Order value \(excl\. cancelled\)/i, 'Order value (incl. cancelled)');
+    }
+  }catch(e){}
+}
+
+var CHART_OF = { drawSalesBy:'ch-sales', drawStateSales:'ch-state', drawSalesPie:'ch-salespie' };
+
+Object.keys(CHART_OF).forEach(function(fnName){
+  var orig = window[fnName];
+  if(typeof orig !== 'function') return;
+  window[fnName] = function(){
+    var self = this, args = arguments;
+    var r = withCancelled(function(){ return orig.apply(self, args); });
+    fixSub(CHART_OF[fnName]);
+    return r;
+  };
+});
+
+/* keep the debug/report helper in step with what the charts now show */
+(function(){
+  var orig = window.ocSalesBreakup;
+  if(typeof orig !== 'function') return;
+  window.ocSalesBreakup = function(){
+    var self = this, args = arguments;
+    var out = withCancelled(function(){ return orig.apply(self, args); });
+    try{
+      if(out && typeof out.label === 'string'){
+        out.label = out.label.replace(/Order value \(excl\. cancelled\)/i, 'Order value (incl. cancelled)');
+      }
+    }catch(e){}
+    return out;
+  };
+})();
+
+/* dashboard already open? redraw once so the change shows without a refresh */
+try{
+  if(document.getElementById('ch-state') && typeof state !== 'undefined' && state.view === 'dashboard'
+     && typeof renderDashboard === 'function'){
+    setTimeout(function(){ try{ renderDashboard(); }catch(e){} }, 0);
+  }
+}catch(e){}
+
+console.log('[oc v29] sales charts now include cancelled orders');
 })();
 </script>
 
