@@ -195,6 +195,46 @@ tab in the backend sheet the first time a lead is pushed — nothing has to be p
 hand. Permissions (`indiamart`) and the sidebar badge work like every other section, and the
 same per-user scoping applies: a Sales Executive sees only the leads assigned to them.
 
+## IndiaMART — sheet se apne aap leads (auto sync)
+
+`apps-script/IndiaMartAutoSync.gs` IndiaMART waali Google Sheet ke **`Indiamart_crm`** tab se
+har enquiry CRM ke IndiaMART section (`indiamartLeads`) me le aata hai — bilkul waise hi jaise
+`MetaAutoSync.gs` Meta leads laata hai. Assigned Salesperson ka naam CRM ke users roster se
+match karke lead usi ke naam par assign ho jaati hai.
+
+* **Column header ke naam se** field map hoti hai, position se nahi — column aage-peeche hon ya
+  beech me naya column jud jaaye, kuch nahi bigadta (`Enquiry Id`, `Enquiry Time`, `Buyer Name`,
+  `Company Name`, `Mobile Number`, `Email`, `Product / Requirement`, `Quantity`,
+  `City/ Location`, `Subject`, `Assigned Salesperson`, `Lead's Quality`, `Qualification Status`,
+  `Discussion` — aur inke aam-fehm doosre naam).
+* **Mobile:** `+91-9176016345` -> `9176016345`. Country code / dash / space hat jaate hain; 10 ank
+  ka number jaisa hai waisa; jo samajh na aaye (landline, ek cell me do number) wo waisa hi rehta
+  hai — kuch gum nahi hota. Yahi safai CRM ke andar bhi lagti hai, isliye purane record bhi saaf
+  dikhte hain.
+* **`send_to_crm` nishaan:** enquiry CRM me pahunchte hi source row ke **column L** me
+  `send_to_crm` likh diya jaata hai, aur aisi row dobara kabhi import nahi hoti. Jo enquiry CRM me
+  pehle se thi par sheet par unmarked reh gayi thi, uspar bhi nishaan apne aap lag jaata hai.
+* **Column L ka pehra:** agar column L par koi asli data column ka header mila (jaise
+  *Assigned Salesperson*), to script wahan **kuch nahi likhta** aur Logs me saaf bata deta hai —
+  aapka data kabhi overwrite nahi hota. Aise me `IMS_MARK_COL` badal kar koi khaali column de
+  dijiye, ya header row me `CRM Status` naam ka column bana dijiye (script khud use pehchan
+  leta hai). Cell me pehle se kuch aur likha ho to wo bhi chhua nahi jaata.
+* **Duplicate ke chaar pehre:** (1) row par `send_to_crm`, (2) wahi `Enquiry Id` CRM me pehle se,
+  (3) wahi mobile **+** wahi enquiry time pehle se (sirf mobile match ho aur time alag ho to wo
+  nayi enquiry maani jaati hai — ek hi customer dobara enquiry kar sakta hai), (4) ek hi run ki
+  aapas ki duplicate rows.
+* **Status:** sheet ka *Qualification Status* saaf-saaf `Qualified` kahe to lead CRM me bhi
+  `QUALIFIED` jaati hai (aur Qualified section me dikh jaati hai); baaki sab `CREATED` se shuru
+  hoti hain. Sheet ka apna quality / qualification / subject / qty text note me chala jaata hai,
+  kuch chhutta nahi.
+* Ek run me zyada se zyada `IMS_MAX_PER_RUN` (150) enquiry jaati hain, trigger har
+  `IMS_MINUTES` (5) minute chalta hai — purana backlog thode-thode karke apne aap chadh jaata hai.
+
+**Ek baar ka setup** (Apps Script editor, `Code.gs` ke saath): file paste kijiye ->
+`previewIndiaMartAutoSync` (kuch likhta nahi, sirf Logs) -> theek lage to `installIndiaMartAutoSync`
+ek baar. Baaki helpers: `runIndiaMartAutoSyncNow`, `statusIndiaMartAutoSync`,
+`markIndiaMartSyncedInSource` (purani rows par nishaan), `removeIndiaMartAutoSync`.
+
 ## Meta Leads — the status no longer resets itself
 
 Users reported that a status set in Meta Leads came back as **New / CREATED** a while later.

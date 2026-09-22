@@ -8006,7 +8006,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.22.2';
+var OC_WEB_BUILD = '2026.09.22.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13786,18 +13786,35 @@ function isoOf(s){
   var d = new Date(); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
 }
 function phoneKey(p){ var d = T(p).replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; }
+/* IndiaMART sheet me number "+91-9176016345" ki shakal me aata hai. CRM me sirf
+   asli 10 ank ka mobile dikhna chahiye, isliye country code / dash / space hata
+   dete hain. 10 ank ka number (chahe 91 se shuru ho) jaisa hai waisa rehta hai;
+   jo kuch samajh na aaye (jaise landline ya do number ek hi cell me) wo bhi
+   waisa hi chhod dete hain -- kuch gum nahi hota. */
+function cleanMobile(v){
+  var s = TR(v);
+  if(!s) return '';
+  var d = s.replace(/\D/g, '');
+  if(d.length === 10) return d;
+  if(d.length > 10 && d.length <= 13) return d.slice(-10);
+  return s;
+}
+window.ocCleanMobile = cleanMobile;
 
 /* ---------------------------------------------------------------- 3. normalise */
 function norm(r){
   if(!r || typeof r !== 'object') return r;
   if(!r.id) r.id = imId();
   r.sender_name       = TR(r.sender_name || r.name || '');
-  r.sender_mobile     = TR(r.sender_mobile || r.mobile || r.phone || '');
+  r.sender_mobile     = cleanMobile(r.sender_mobile || r.mobile || r.phone || '');
   r.sender_email      = TR(r.sender_email || r.email || '');
   r.sender_city_state = TR(r.sender_city_state || r.city || '');
   r.product           = TR(r.product || '');
   r.company           = TR(r.company || '');
   r.query_type        = TR(r.query_type || '');
+  r.enquiry_no        = TR(r.enquiry_no || r.enquiry_id || '');
+  r.subject           = TR(r.subject || '');
+  r.qty               = TR(r.qty || r.quantity || '');
   r.note              = TR(r.note || '');
   r.query_time        = normTime(r.query_time || r.createdAt || new Date());
   r.date              = /^\d{4}-\d{2}-\d{2}$/.test(T(r.date)) ? r.date : isoOf(r.query_time);
@@ -13843,7 +13860,8 @@ function visible(){
     else if(f.owner && LC(l.owner) !== LC(f.owner)) return false;
     if(!q) return true;
     return [l.query_time, l.sender_name, l.sender_mobile, l.sender_email, l.sender_city_state,
-            l.product, l.company, l.lead_status, l.assigned_to, l.note].join(' ').toLowerCase().indexOf(q) >= 0;
+            l.product, l.company, l.lead_status, l.assigned_to, l.note, l.enquiry_no, l.subject]
+           .join(' ').toLowerCase().indexOf(q) >= 0;
   });
 }
 function sorted(list){
@@ -13910,7 +13928,8 @@ window.renderIndiamart = function(){
       : E(l.assigned_to || nameOf(l.owner) || '—');
 
     return '<tr>'
-      + '<td class="sub tabular" style="white-space:nowrap">' + E(l.query_time || '—') + '</td>'
+      + '<td class="sub tabular" style="white-space:nowrap">' + E(l.query_time || '—')
+        + (l.enquiry_no ? '<div class="sub">#' + E(l.enquiry_no) + '</div>' : '') + '</td>'
       + '<td><span class="strong">' + E(l.sender_name || '—') + '</span>'
         + (l.company ? '<div class="sub">' + E(l.company) + '</div>' : '') + '</td>'
       + '<td class="tabular" style="white-space:nowrap">' + E(l.sender_mobile || '—')
@@ -14062,6 +14081,8 @@ IM.form = function(id){
     '<div class="modal-head"><h3>' + (id ? 'Edit' : 'New') + ' IndiaMART Lead</h3>'
     + '<button class="icon-btn" onclick="closeModal()">✕</button></div>'
     + '<div class="modal-body">'
+    + (l.enquiry_no ? '<div class="form-row"><label>IndiaMART enquiry no</label>'
+        + '<input value="' + A(l.enquiry_no) + '" disabled></div>' : '')
     + '<div class="form-row two"><div><label>Query time</label><input id="imTime" value="' + A(l.query_time) + '" placeholder="DD-MM-YYYY HH:MM:SS"></div>'
     +   '<div><label>Buyer name</label><input id="imName" value="' + A(l.sender_name) + '"></div></div>'
     + '<div class="form-row two"><div><label>Mobile</label><input id="imMob" value="' + A(l.sender_mobile) + '"></div>'
@@ -14182,7 +14203,8 @@ IM.exportXlsx = function(){
       return {
         'Query Time': l.query_time, 'Buyer': l.sender_name, 'Company': l.company,
         'Mobile': l.sender_mobile, 'Email': l.sender_email, 'City / State': l.sender_city_state,
-        'Product / Requirement': l.product, 'Query Type': l.query_type,
+        'Enquiry No': l.enquiry_no || '', 'Product / Requirement': l.product,
+        'Quantity': l.qty || '', 'Query Type': l.query_type,
         'Status': STATUS_LABEL[statusOf(l.lead_status)] || l.lead_status,
         'Assigned To': l.assigned_to || nameOf(l.owner), 'Note': l.note,
         'Enquiry Id': l.enquiryId || ''
@@ -14211,6 +14233,9 @@ var BULK_MAP = {
   company:           ['company','company_name','sender_company','firm','firm_name','organisation','organization'],
   product:           ['product','product_name','query_product_name','subject','requirement','query','item','product_interest','enquiry_for'],
   query_type:        ['query_type','type','lead_type','call_type','query_source'],
+  enquiry_no:        ['enquiry_id','enquiry_no','enquiry_number','query_id','lead_id','indiamart_enquiry_id'],
+  subject:           ['subject','title','enquiry_subject'],
+  qty:               ['quantity','qty','qty_need','required_quantity','req_qty'],
   lead_status:       ['lead_status','status','qualification_status','stage','current_status'],
   assigned_to:       ['assigned_to','assigned_salesperson','assigned','assignee','owner','salesperson','sales_person','sales_executive','executive','agent'],
   note:              ['note','notes','remarks','message','comments','description','buyer_requirement','query_message']
@@ -14274,6 +14299,7 @@ function rowsToLeads(rows){
     var r = rows[i], o = {};
     for(var f in idx) o[f] = TR(r[idx[f]] == null ? '' : r[idx[f]]);
     if(!o.sender_name && !o.sender_mobile && !o.sender_email) continue;
+    o.sender_mobile = cleanMobile(o.sender_mobile);
     out.push(o);
   }
   return { leads: out, cols: got };
@@ -14394,18 +14420,22 @@ IM.buApply = function(){
   arr.forEach(function(l){
     var k = phoneKey(l.sender_mobile) || LC(l.sender_email);
     if(k) seen[k] = 1;
+    if(l.enquiry_no) seen['E' + TR(l.enquiry_no)] = 1;
   });
   var added = 0, dup = 0, my = meEmail();
   BU.leads.forEach(function(o){
     var k = phoneKey(o.sender_mobile) || LC(o.sender_email);
-    if(dedup && k && seen[k]){ dup++; return; }
+    var ek = o.enquiry_no ? ('E' + TR(o.enquiry_no)) : '';
+    if(dedup && ((k && seen[k]) || (ek && seen[ek]))){ dup++; return; }
     if(k) seen[k] = 1;
+    if(ek) seen[ek] = 1;
     var rec = {
       id: imId(),
       query_time: normTime(o.query_time) || fmtTS(new Date()),
       sender_name: TR(o.sender_name), sender_mobile: TR(o.sender_mobile), sender_email: TR(o.sender_email),
       sender_city_state: TR(o.sender_city_state), company: TR(o.company), product: TR(o.product),
       query_type: TR(o.query_type), note: TR(o.note),
+      enquiry_no: TR(o.enquiry_no), subject: TR(o.subject), qty: TR(o.qty),
       lead_status: o.lead_status ? statusOf(o.lead_status) : defStat,
       source: 'IndiaMART',
       createdAt: new Date().toISOString(),
