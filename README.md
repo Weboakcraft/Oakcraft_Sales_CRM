@@ -227,8 +227,17 @@ match karke lead usi ke naam par assign ho jaati hai.
   `QUALIFIED` jaati hai (aur Qualified section me dikh jaati hai); baaki sab `CREATED` se shuru
   hoti hain. Sheet ka apna quality / qualification / subject / qty text note me chala jaata hai,
   kuch chhutta nahi.
-* Ek run me zyada se zyada `IMS_MAX_PER_RUN` (150) enquiry jaati hain, trigger har
+* Ek run me zyada se zyada `IMS_MAX_PER_RUN` (400) enquiry jaati hain, trigger har
   `IMS_MINUTES` (5) minute chalta hai — purana backlog thode-thode karke apne aap chadh jaata hai.
+  Jaldi chahiye to **`backfillIndiaMartAll`** chala dijiye: ye 4.5 minute tak lagataar batch
+  chalata hai (Apps Script ka 6 minute ka limit dekh kar khud ruk jaata hai) aur bata deta hai
+  kitna baaki hai. `send_to_crm` ka nishaan ab ek-ek cell ki jagah **batch** me likha jaata hai,
+  isliye run kai guna tez hai.
+* **Nishaan tabhi lagta hai jab lead sach me CRM me pahunch jaaye:** likhne ke baad collection
+  dobara padha jaata hai aur sirf unhi rows par `send_to_crm` lagta hai jinki id mil gayi. Ek bhi
+  na pahunche to koi nishaan nahi aur log me saaf error — leads agli baar dobara koshish karengi.
+  Galti se lag chuke nishaan `clearIndiaMartMarks()` se hat jaate hain (jo lead sach me CRM me
+  hai, uska nishaan chhua nahi jaata).
 
 * **Kisi salesperson ka data CRM me na bhejna ho** to uska naam `IMS_SKIP_ASSIGNED` me likh
   dijiye (abhi: `Anjali Sharma`). Aisi row na import hoti hai aur na hi uspar `send_to_crm` ka
