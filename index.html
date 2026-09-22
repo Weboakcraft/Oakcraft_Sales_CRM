@@ -8006,7 +8006,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.22.5';
+var OC_WEB_BUILD = '2026.09.22.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13903,6 +13903,22 @@ function sorted(list){
 }
 
 /* ---------------------------------------------------------------- 5. render */
+/* Khaali section me asli wajah dikhao (sirf admin ko) -- warna pata hi nahi
+   chalta ki backend ne data bheja hi nahi. */
+function fetchHint(){
+  if(!isAdm()) return '';
+  var info = null;
+  try{ info = (typeof window.ocCollFetchInfo === 'function') ? window.ocCollFetchInfo()[KEY] : null; }catch(e){}
+  if(!info) return '<div class="sub" style="margin-top:10px">Server se abhi data maanga nahi gaya.</div>';
+  if(info.rows != null && !info.problem){
+    return '<div class="sub" style="margin-top:10px">Server ne ' + info.rows + ' row bheji thi.</div>';
+  }
+  return '<div class="sub" style="margin-top:10px;color:var(--crit)">Backend se data nahi aaya — '
+       + E(info.problem || 'pata nahi') + (info.error ? ': ' + E(info.error) : '')
+       + (info.keys ? ' (jawab me: ' + E(info.keys) + ')' : '')
+       + '<div style="margin-top:4px">Console me <code>ocCollFetchInfo()</code> se poori detail milegi.</div></div>';
+}
+
 window.renderIndiamart = function(){
   var admin = isAdm();
   var all   = mine();
@@ -13992,7 +14008,8 @@ window.renderIndiamart = function(){
     +   th('lead_status', 'Status') + th('assigned_to', 'Assigned to') + '<th></th>'
     + '</tr></thead><tbody id="im-body">'
     + (body || '<tr><td colspan="8" class="empty">' + (all.length ? 'Is filter par koi lead nahi mili.'
-        : 'Abhi koi IndiaMART lead nahi hai. <b>Bulk Upload</b> se apni IndiaMART export file (Excel / CSV) daal dijiye.') + '</td></tr>')
+        : 'Abhi koi IndiaMART lead nahi hai. <b>Bulk Upload</b> se apni IndiaMART export file (Excel / CSV) daal dijiye.'
+          + fetchHint()) + '</td></tr>')
     + '</tbody></table></div>'
     + (list.length > rows.length
         ? '<div style="padding:10px 20px 14px"><button class="btn sm" onclick="IM.more()">Load ' + Math.min(PAGE, list.length - rows.length) + ' more</button></div>'
@@ -15786,6 +15803,9 @@ window.ocServedKeys = function(){ return JSON.parse(JSON.stringify(served)); };
 })();
 
 /* ---------------------------------------------------------------- 2. ek collection maango */
+var lastInfo = {};
+window.ocCollFetchInfo = function(){ return JSON.parse(JSON.stringify(lastInfo)); };
+
 function askServer(coll){
   return new Promise(function(resolve){
     try{
@@ -15796,13 +15816,22 @@ function askServer(coll){
       x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
       x.onload = function(){
         var j = null; try{ j = JSON.parse(x.responseText); }catch(e){}
-        if(!j || j.error){ resolve(null); return; }
+        var info = { at: new Date().toISOString(), http: x.status };
+        if(!j){ info.problem = 'jawab JSON nahi tha'; info.raw = T(x.responseText).slice(0, 200); lastInfo[coll] = info; resolve(null); return; }
+        if(j.error){ info.problem = 'server ne error diya'; info.error = T(j.error).slice(0, 200); lastInfo[coll] = info; resolve(null); return; }
         var rows = j.data || j.records || j.rows || [];
-        if(!Array.isArray(rows)){ resolve(null); return; }
+        if(!Array.isArray(rows)){
+          info.problem = 'server ne is collection ka data nahi bheja';
+          info.keys = (j && typeof j === 'object') ? Object.keys(j).join(',') : '';
+          lastInfo[coll] = info;
+          resolve(null); return;
+        }
+        info.rows = rows.length;
+        lastInfo[coll] = info;
         resolve(rows.map(function(o){ return (o && o.data !== undefined) ? o.data : o; })
                     .filter(function(o){ return o && typeof o === 'object' && o.id; }));
       };
-      x.onerror = function(){ resolve(null); };
+      x.onerror = function(){ lastInfo[coll] = { at: new Date().toISOString(), problem: 'network fail' }; resolve(null); };
       x.send(JSON.stringify(payload));
     }catch(e){ resolve(null); }
   });
