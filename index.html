@@ -8006,7 +8006,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.22.1';
+var OC_WEB_BUILD = '2026.09.22.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -15179,7 +15179,7 @@ function stampOf(r){
    likh deta tha -- aur agar is device ki copy purani thi to doosre user ka naya
    status usse dab jaata tha. Ab sirf tabhi bhejte hain jab record ka apna
    timestamp badla ho, ya status / owner / link jaise asli field badle hon. */
-var REAL_FIELDS = ['lead_status','status','stage','owner','assigned_to','enquiryId','note'];
+var REAL_FIELDS = ['lead_status','status','stage','owner','assigned_to','enquiryId','note','dupOf'];
 function realChange(local, wasJson){
   var srv = null;
   try{ srv = JSON.parse(wasJson); }catch(e){ return true; }
@@ -15429,6 +15429,209 @@ setInterval(flush, 2 * 60 * 1000);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden) setTimeout(flush, 1200); });
 
 console.log('[oc v32] lead sync guard active — status ab reset nahi hoga (' + COLLS.join(', ') + ')');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 35. OAKCRAFT v33 — DOBARA IMPORT HUI META LEAD KA PEHRA                 *
+ *                                                                        *
+ *   Kyun: MetaAutoSync ek row NUMBER (pointer) se chalta hai. Sheet me    *
+ *   beech me row insert/delete ho jaye, ya script property gum ho jaye,   *
+ *   to pointer peeche khisak jaata hai aur WAHI lead dobara import ho     *
+ *   jaati hai -- nayi id ke saath aur lead_status = CREATED. User ko      *
+ *   lagta hai ki uska set kiya hua status apne aap "New" ho gaya.         *
+ *                                                                        *
+ *   Asli ilaaj sheet ke Apps Script me hai (MetaAutoSync.gs ab            *
+ *   Sync_Done_CRM waali row dobara import nahi karta). Par jab tak wo     *
+ *   file editor me paste nahi hoti, CRM khud apne aap ko bacha leta hai:  *
+ *                                                                        *
+ *   - Har pull ke baad Meta leads me EKDAM ek jaisi rows dhoondhi jaati   *
+ *     hain: same mobile (aakhri 10 ank) AUR same created_time_ist.        *
+ *     Ek hi Meta lead do baar isi shakal me aati hai; alag-alag enquiry   *
+ *     ka timestamp kabhi same second ka nahi hota.                        *
+ *   - Group me jis row par kaam hua hai (status CREATED se aage hai, ya   *
+ *     updatedAt laga hai) wahi rehti hai. Jo row bilkul chhui hi nahi     *
+ *     gayi (CREATED, koi update nahi) wo `dupOf` se nishaan-zada ho kar   *
+ *     CRM ki list, counts, badge aur export se hat jaati hai.             *
+ *   - Nishaan sheet par bhi jaata hai, isliye har device par wahi row     *
+ *     chhupti hai. Sheet se row DELETE nahi hoti -- kuch mitaaya nahi     *
+ *     jaata, sirf chhupaya jaata hai.                                     *
+ *   - Agar group ki DONO rows par kaam ho chuka hai to kuch nahi chhupta  *
+ *     (kisi ka kiya hua kaam gaayab nahi hona chahiye) -- console me      *
+ *     warning aa jaati hai.                                              *
+ *                                                                        *
+ *   Admin ke liye console helpers:                                        *
+ *     ocMetaDupReport()      -> kaun si rows chhupi hain                   *
+ *     ocMetaUnhideDup(id)    -> kisi row ka nishaan hata do                *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocMetaDup) return; window.__ocMetaDup = true;
+
+var KEY = 'metaLeads';
+
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LC(v){ return TR(v).toLowerCase(); }
+function arr(){
+  try{ var a = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function phoneKey(p){ var d = T(p).replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; }
+function tsKey(s){ return T(s).replace(/\D/g, ''); }
+function code(v){ return TR(v).toUpperCase().replace(/[\s\-\/]+/g, '_'); }
+
+/* row par kaam hua hai ya wo bilkul jaisi aayi thi waisi hi padi hai? */
+function touched(r){
+  if(!r) return false;
+  var st = code(r.lead_status || r.stage);
+  if(st && st !== 'CREATED' && st !== 'NEW' && st !== 'OPEN' && st !== 'FRESH') return true;
+  if(TR(r.updatedAt)) return true;
+  if(TR(r.statusUpdatedAt)) return true;
+  if(TR(r.enquiryId)) return true;
+  if(TR(r.qualifiedAt)) return true;
+  return false;
+}
+/* kaun si row rakhni hai: pehle wo jispar kaam hua, phir jo pehle aayi thi */
+function better(a, b){
+  var ta = touched(a), tb = touched(b);
+  if(ta !== tb) return ta ? a : b;
+  var ca = TR(a.createdAt) || TR(a.created_time_ist), cb = TR(b.createdAt) || TR(b.created_time_ist);
+  if(ca && cb && ca !== cb) return ca < cb ? a : b;
+  return a;
+}
+
+/* ---- ek pass: nishaan lagao (sheet par bhi) ---- */
+function mark(){
+  var list = arr();
+  if(list.length < 2) return false;
+  var groups = {}, i;
+  for(i = 0; i < list.length; i++){
+    var r = list[i];
+    if(!r || r.dupOf) continue;
+    var p = phoneKey(r.phone_number || r.phone), t = tsKey(r.created_time_ist);
+    if(!p || !t) continue;                       /* dono chahiye, warna pakka nahi kah sakte */
+    var k = p + '|' + t;
+    (groups[k] = groups[k] || []).push(r);
+  }
+  var changed = false, hid = [];
+  Object.keys(groups).forEach(function(k){
+    var g = groups[k];
+    if(g.length < 2) return;
+    var keep = g[0], j;
+    for(j = 1; j < g.length; j++) keep = better(keep, g[j]);
+    var workedOn = g.filter(touched).length;
+    if(workedOn > 1){
+      console.warn('[oc v33] ek hi Meta lead ki ' + g.length + ' copies hain aur ' + workedOn
+        + ' par kaam ho chuka hai — kuch chhupaya nahi gaya (' + k + '): '
+        + g.map(function(x){ return x.id + '=' + (x.lead_status || x.stage); }).join(', '));
+      return;
+    }
+    g.forEach(function(x){
+      if(x === keep || touched(x)) return;
+      x.dupOf = T(keep.id);
+      x.dupAt = new Date().toISOString();
+      x.updatedAt = x.dupAt;
+      changed = true;
+      hid.push(x.id + ' -> ' + keep.id);
+    });
+  });
+  if(!changed) return false;
+  console.log('[oc v33] dobara import hui ' + hid.length + ' Meta lead chhupayi gayi: ' + hid.join(', '));
+  try{ store.set(KEY, list); }catch(e){ return false; }   /* nishaan sheet par bhi jaata hai */
+  return true;
+}
+
+/* ---- doosra pass: nishaan-zada rows local list se hata do (push nahi) ---- */
+function hide(){
+  var list = arr();
+  var keep = list.filter(function(r){ return !(r && r.dupOf); });
+  if(keep.length === list.length) return false;
+  try{ localStorage.setItem(KEY, JSON.stringify(keep)); }catch(e){ return false; }
+  return true;
+}
+
+var busy = false;
+function sweep(){
+  if(busy) return false;
+  busy = true;
+  var out = false;
+  try{
+    if(mark()) out = true;
+    if(hide()) out = true;
+  }catch(e){ console.warn('[oc v33] dup sweep', e); }
+  busy = false;
+  return out;
+}
+window.ocMetaDupSweep = sweep;
+
+/* ---- admin helpers ---- */
+window.ocMetaDupReport = function(){
+  var out = [];
+  try{
+    fetchAll().forEach(function(r){
+      if(r && r.dupOf) out.push({ id:r.id, name:r.full_name || r.name, phone:r.phone_number || r.phone,
+                                  time:r.created_time_ist, dupOf:r.dupOf, hiddenAt:r.dupAt });
+    });
+  }catch(e){}
+  console.table ? console.table(out) : console.log(out);
+  return out;
+};
+/* report ke liye sheet ki poori list chahiye (local se to rows hat chuki hain) */
+function fetchAll(){
+  var seen = {}, out = arr().slice();
+  out.forEach(function(r){ if(r && r.id) seen[r.id] = 1; });
+  try{
+    var snap = JSON.parse(localStorage.getItem('oc_leadSnap') || '{}')[KEY] || {};
+    Object.keys(snap).forEach(function(id){
+      if(seen[id]) return;
+      try{ var r = JSON.parse(snap[id]); if(r && r.dupOf) out.push(r); }catch(e){}
+    });
+  }catch(e){}
+  return out;
+};
+window.ocMetaUnhideDup = function(id){
+  var snap = {};
+  try{ snap = JSON.parse(localStorage.getItem('oc_leadSnap') || '{}')[KEY] || {}; }catch(e){}
+  var raw = snap[T(id)];
+  if(!raw){ console.warn('[oc v33] ye id sheet snapshot me nahi mili: ' + id); return false; }
+  var rec = null;
+  try{ rec = JSON.parse(raw); }catch(e){ return false; }
+  if(!rec) return false;
+  delete rec.dupOf; delete rec.dupAt;
+  rec.updatedAt = new Date().toISOString();
+  var list = arr();
+  if(!list.some(function(x){ return x && T(x.id) === T(id); })) list.unshift(rec);
+  try{ store.set(KEY, list); }catch(e){}
+  console.log('[oc v33] ' + id + ' wapas dikhne lagi');
+  try{ if(state && state.view === 'metaLeads' && typeof renderMetaLeads === 'function') renderMetaLeads(); }catch(e){}
+  return true;
+};
+
+/* ---- pull ke baad aur boot par chalao ---- */
+try{
+  if(typeof CLOUD !== 'undefined' && typeof CLOUD.pull === 'function'){
+    var _pull = CLOUD.pull;
+    CLOUD.pull = function(){
+      var self = this;
+      return Promise.resolve(_pull.apply(self, arguments)).then(function(r){
+        try{
+          if(sweep()){
+            if(typeof refreshBadges === 'function') refreshBadges();
+            if(state && state.view === 'metaLeads' && typeof renderMetaLeads === 'function'
+               && !(window.__ocUserTyping && window.__ocUserTyping())) renderMetaLeads();
+            if(state && state.view === 'qualified' && typeof renderQualified === 'function') renderQualified();
+          }
+        }catch(e){}
+        return r;
+      });
+    };
+  }
+}catch(e){}
+[1500, 8000].forEach(function(ms){ setTimeout(function(){ try{ sweep(); }catch(e){} }, ms); });
+
+console.log('[oc v33] dobara import hui Meta leads ka pehra active');
 })();
 </script>
 

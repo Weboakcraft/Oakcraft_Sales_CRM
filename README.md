@@ -230,6 +230,17 @@ Apps Script editor to pick the change up; no trigger or pointer has to be touche
 
 The same guard covers `indiamartLeads`.
 
+**The CRM also defends itself if that Apps Script file is not re-pasted.** After every sync it
+looks for two Meta rows with the *same mobile* (last 10 digits) **and** the *same*
+`created_time_ist` — that is what a re-import looks like; two genuine enquiries never share the
+same second. The row that was worked on (status past `CREATED`, or any update on it) stays; the
+untouched copy is marked `dupOf: <kept id>` and disappears from the Meta list, the counts, the
+badge and the export. The mark travels to the sheet, so every device hides the same row, and the
+sheet row itself is **never deleted** — nothing is destroyed, only hidden. If *both* copies have
+been worked on, nothing is hidden and a warning is logged instead, because hiding either one
+would lose somebody's work. Admin helpers in the browser console: `ocMetaDupReport()` lists what
+is hidden, `ocMetaUnhideDup('<id>')` brings a row back.
+
 ## Meta Leads — "New Meta Leads Assigned" email
 
 `apps-script/LeadNotify.gs` mails each user one bulk summary of the leads newly assigned to
