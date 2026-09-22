@@ -16,7 +16,8 @@ Google Sheet through an Apps Script backend, plus an Android app (`android/`).
 
 ## Modules
 
-Dashboard (KPIs, charts, incentive dashboards) · Enquiries / Leads · Pipeline board (drag & drop)
+Dashboard (KPIs, charts, incentive dashboards) · Enquiries · Qualified (System Master /
+Quotation Sent / Won / Lost) · Pipeline board (drag & drop) · IndiaMART (sheet view + bulk upload)
 · Meta Leads (sheet view + bulk upload) · Quotations (in-CRM form + PDF builder) · Orders
 (multi-product, GST billing, edit quota, WhatsApp update) · Dispatch (courier / tracking / ETA)
 · Customers · Products (bulk upload) · Admin Panel (users, permissions, form builder, API settings).
@@ -148,6 +149,86 @@ Dispatch badge counts every dispatch row (Delivered included), matching the two 
 The app remembers the open section (`oc_lastView`) and returns to it after a refresh instead
 of jumping to the Dashboard; a section the user may not see falls back to the Dashboard as
 before. Background sync (every 25 s) now repaints only when the Sheet data really changed.
+
+## Qualified — every qualified lead in one place
+
+**Enquiries / Leads** is now just **Enquiries**, and a **Qualified** section sits right under it.
+Any lead from **Enquiries, IndiaMART or Meta Leads** whose status becomes `Qualified` shows up
+there automatically — it stays visible in its own section as well, nothing is moved away or
+hidden.
+
+The section has the four subsections the sales flow needs, and each one is simply a status:
+
+| Subsection | Enquiry stage | IndiaMART / Meta `lead_status` |
+|---|---|---|
+| System Master | `System Master` | `SYSTEM_MASTER` |
+| Quotation Sent | `Quoted` | `QUOTATION_SENT` (legacy `PROPOSAL` counts here too) |
+| Won | `Won` | `WON` |
+| Lost | `Lost` | `LOST` |
+
+Changing a lead's status to one of those four moves it into that subsection and into its count,
+straight away, wherever the change is made (the lead's own section or the Qualified list). The
+status dropdown inside Qualified writes through the section's existing code — `ocMoveEnq` /
+`ML.setStatus` / `IM.setStatus` — so the mandatory remark, the permissions, the owner check and
+the audit history all behave exactly as before. A fifth card, *Qualified (pending)*, holds leads
+that are qualified but have not moved on yet.
+
+`System Master` is a new enquiry stage (between *Qualified* and *Quoted*); it is added to the
+stage dropdowns, the stage filter and the pipeline board. `Quoted` and `Quotation Sent` are the
+same step — an enquiry keeps writing `Quoted` (the quotation flow depends on it) and the
+Qualified section labels it *Quotation Sent*. A lead is listed under *Won* / *Lost* only if it
+really passed through `Qualified` (`qualifiedAt` is stamped the first time it is seen qualified),
+so a deal that went straight from *New* to *Lost* never appears here.
+
+## IndiaMART
+
+IndiaMART enquiries get their own section, built like Meta Leads: a sheet-style table
+(`query_time · buyer · mobile · city/state · product · status · assigned to`), search, status and
+owner filters, inline status and assignment, per-status KPI cards, Excel export, a one-click
+**→ Enq** that creates a CRM enquiry, and **Bulk Upload** for an IndiaMART export — drop the
+`.xlsx` / `.csv` in or paste the rows; the column names are matched automatically (Sender Name,
+Sender Mobile, Product, Assigned Salesperson, Status …) and duplicate mobiles / e-mails are
+skipped. Leads can also be added by hand.
+
+Data lives in the `indiamartLeads` collection, which the Apps Script backend creates as its own
+tab in the backend sheet the first time a lead is pushed — nothing has to be prepared there by
+hand. Permissions (`indiamart`) and the sidebar badge work like every other section, and the
+same per-user scoping applies: a Sales Executive sees only the leads assigned to them.
+
+## Meta Leads — the status no longer resets itself
+
+Users reported that a status set in Meta Leads came back as **New / CREATED** a while later.
+Three things together caused it, and all three are fixed:
+
+1. **The whole collection was pushed on every save.** `metaLeads` had no row-level guard (orders
+   and enquiries got one in v7/v8), so `store.set('metaLeads', …)` sent *every* row to the sheet
+   with `saveMany`. Merely opening the section was enough — `renderMetaLeads()` normalises and
+   saves on every render. A browser whose copy was a couple of minutes old therefore rewrote all
+   the rows and pushed somebody else's fresh status back to `CREATED`.
+   *Now:* only rows that really changed are sent, and only rows this user is allowed to write
+   (owner / admin). A pure normalisation difference (alias fields like `name` / `phone`) is not
+   sent at all, and the debounced full-collection push that was already queued at page load is
+   cancelled.
+2. **A push was never confirmed.** The old `fetch` was fired and forgotten, so a failed or
+   rejected write was silently lost and the next sync overwrote the local copy.
+   *Now:* the write goes out over XHR, the row is marked as synced only after the server
+   acknowledges it, and anything unconfirmed sits in a pending queue that is retried every two
+   minutes, after each pull and when the tab regains focus (`ocLeadPending()` in the console
+   shows what is still waiting).
+3. **A pull always overwrote local data.** The sheet's copy replaced localStorage even when the
+   local record was newer, so a change made seconds earlier disappeared.
+   *Now:* a pull merges. A row whose local timestamp is newer than the sheet's (or that is still
+   pending) is kept and re-sent; everything else comes from the sheet. A row that is missing from
+   the sheet is kept only if it never reached it — a row deleted on the sheet still goes away.
+
+`apps-script/MetaAutoSync.gs` got the matching fix on the sheet side: a source row that already
+carries `Sync_Done_CRM` in column H is never imported again (the row-number pointer could slip
+after rows were inserted, deleted or the script property was lost, and the lead came back as a
+brand-new `CREATED` record), and a name + mobile pair that already exists in the CRM is skipped
+as well. `SYSTEM_MASTER` and `QUOTATION_SENT` map to the new stages. Re-paste that file in the
+Apps Script editor to pick the change up; no trigger or pointer has to be touched.
+
+The same guard covers `indiamartLeads`.
 
 ## Meta Leads — "New Meta Leads Assigned" email
 
