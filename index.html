@@ -8006,7 +8006,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.22.4';
+var OC_WEB_BUILD = '2026.09.22.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13857,8 +13857,12 @@ function hiddenLead(l){
   for(var i = 0; i < HIDE_ASSIGNED.length; i++){
     var s = LC(HIDE_ASSIGNED[i]);
     if(!s) continue;
+    /* poora naam match, ya poore SHABD ka match ("Anjali" <-> "Anjali Sharma").
+       Aadha-adhoora prefix nahi -- warna "A" jaisa chhota naam bhi is list me
+       fas jaata tha. */
     if(n === s) return true;
-    if(s.length >= 4 && (n.indexOf(s) === 0 || s.indexOf(n) === 0)) return true;
+    if(n.length >= 4 && s.indexOf(n + ' ') === 0) return true;
+    if(s.length >= 4 && n.indexOf(s + ' ') === 0) return true;
   }
   return false;
 }
@@ -15691,6 +15695,215 @@ try{
 [1500, 8000].forEach(function(ms){ setTimeout(function(){ try{ sweep(); }catch(e){} }, ms); });
 
 console.log('[oc v33] dobara import hui Meta leads ka pehra active');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 36. OAKCRAFT v34 — JO COLLECTION getAll NAHI BHEJTA, USE KHUD MAANGO    *
+ *                                                                        *
+ *   Dikkat: CLOUD.pull() sirf `?action=getAll` maarta hai aur jo bhi      *
+ *   collections uska jawab bhejta hai, wahi localStorage me aati hain.    *
+ *   Backend (Code.gs) apni ek jaani-pehchani list bhejta hai -- usme      *
+ *   `indiamartLeads` hai hi nahi. Isliye IndiaMART ki leads backend sheet *
+ *   me to likhi ja rahi thi (IndiaMartAutoSync ne row par send_to_crm bhi *
+ *   likh diya), par CRM me section khaali dikh raha tha.                  *
+ *                                                                        *
+ *   Ilaaj (bina Code.gs chhue):                                          *
+ *     1. getAll ke jawab par nazar rakhte hain -- kaun si collection      *
+ *        server ne bheji aur kaun si nahi.                                *
+ *     2. Jo CLOUD.keys me hai par jawab me nahi aayi, us collection ko    *
+ *        seedha `action:'list'` se maang lete hain (yahi API app pehle se *
+ *        users ke liye istemal karta hai).                                *
+ *     3. Aayi hui rows ko local ke saath MERGE karte hain -- jis row ka   *
+ *        local timestamp naya hai wo local hi rehti hai (status kabhi     *
+ *        peeche nahi jaata), baaki server se aa jaati hain.               *
+ *     4. Jis din backend getAll me ye collection bhejne lagega, ye extra  *
+ *        call apne aap band ho jayegi (server ne bheja = "served" mark).  *
+ *                                                                        *
+ *   Privacy: jo user poora data nahi dekh sakta (admin / elevated role    *
+ *   nahi hai), uske device par sirf uske apne (owner) records hi rakhe    *
+ *   jaate hain -- wahi rule jo scope() UI me lagata hai.                  *
+ *                                                                        *
+ *   Console: ocPullCollection('indiamartLeads') se kabhi bhi haath se     *
+ *   mangwaya ja sakta hai; ocServedKeys() batata hai server kya bhejta hai.*
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocFetchColl) return; window.__ocFetchColl = true;
+
+var WATCH = ['indiamartLeads'];          /* jinke liye fallback chahiye */
+var MIN_GAP_MS = 12000;                  /* itni der me ek se zyada call nahi */
+
+function T(v){ return v == null ? '' : String(v); }
+function LC(v){ return T(v).trim().toLowerCase(); }
+function arrOf(k){
+  try{ var a = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function myMail(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function seesAll(coll){
+  if(isAdm()) return true;
+  try{ return !!(window.meSeesAll && window.meSeesAll(coll)); }catch(e){ return false; }
+}
+function stampOf(r){
+  if(!r) return '';
+  var best = '';
+  ['statusUpdatedAt','updatedAt','modifiedAt','stageChangedAt','createdAt'].forEach(function(k){
+    var v = T(r[k]);
+    if(v && v > best) best = v;
+  });
+  return best;
+}
+
+/* server ne getAll me kaun si collections bheji */
+var served = {};
+window.ocServedKeys = function(){ return JSON.parse(JSON.stringify(served)); };
+
+/* ---------------------------------------------------------------- 1. getAll par nazar */
+(function(){
+  var _fetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    var isGetAll = false;
+    try{
+      var url = (typeof input === 'string') ? input : (input && input.url) || '';
+      var body = (init && typeof init.body === 'string') ? init.body : '';
+      if(url.indexOf('/macros/s/') >= 0 && (url.indexOf('action=getAll') >= 0 || body.indexOf('"getAll"') >= 0)) isGetAll = true;
+    }catch(e){}
+    var p = _fetch(input, init);
+    if(!isGetAll) return p;
+    return Promise.resolve(p).then(function(r){
+      try{
+        r.clone().json().then(function(j){
+          var d = (j && j.data) || j || {};
+          WATCH.forEach(function(k){ served[k] = Array.isArray(d[k]); });
+        }).catch(function(){});
+      }catch(e){}
+      return r;
+    });
+  };
+})();
+
+/* ---------------------------------------------------------------- 2. ek collection maango */
+function askServer(coll){
+  return new Promise(function(resolve){
+    try{
+      var payload = { action:'list', collection:coll };
+      try{ var sid = (window.SRV && SRV.get) ? SRV.get() : ''; if(sid) payload.sid = sid; }catch(e){}
+      var x = new XMLHttpRequest();
+      x.open('POST', CLOUD.url, true);
+      x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+      x.onload = function(){
+        var j = null; try{ j = JSON.parse(x.responseText); }catch(e){}
+        if(!j || j.error){ resolve(null); return; }
+        var rows = j.data || j.records || j.rows || [];
+        if(!Array.isArray(rows)){ resolve(null); return; }
+        resolve(rows.map(function(o){ return (o && o.data !== undefined) ? o.data : o; })
+                    .filter(function(o){ return o && typeof o === 'object' && o.id; }));
+      };
+      x.onerror = function(){ resolve(null); };
+      x.send(JSON.stringify(payload));
+    }catch(e){ resolve(null); }
+  });
+}
+
+/* ---------------------------------------------------------------- 3. merge */
+function merge(coll, rows){
+  var local = arrOf(coll), byId = {}, i;
+  for(i = 0; i < local.length; i++) if(local[i] && local[i].id) byId[T(local[i].id)] = local[i];
+
+  var all = seesAll(coll), me = myMail();
+  var keepable = function(r){
+    if(all) return true;
+    if(!me) return false;
+    var ow = LC(r.owner || r.ownerEmail || r.createdBy);
+    return ow === me;                        /* wahi rule jo scope() lagata hai */
+  };
+
+  var out = [], seenId = {}, added = 0, updated = 0;
+  rows.forEach(function(srv){
+    var id = T(srv.id);
+    if(!keepable(srv)) return;
+    seenId[id] = 1;
+    var loc = byId[id];
+    if(!loc){ out.push(srv); added++; return; }
+    var ls = stampOf(loc), ss = stampOf(srv);
+    if(ls && (!ss || ls > ss)) out.push(loc);              /* local naya hai -> local hi rahe */
+    else { out.push(srv); if(JSON.stringify(loc) !== JSON.stringify(srv)) updated++; }
+  });
+  /* jo local me hai par server ki list me nahi aaya -- use chhodte nahi
+     (ho sakta hai abhi push hone waala ho ya scope se bahar ho) */
+  local.forEach(function(loc){
+    var id = T(loc && loc.id);
+    if(id && !seenId[id]) out.push(loc);
+  });
+
+  if(!added && !updated) return 0;
+  try{ localStorage.setItem(coll, JSON.stringify(out)); }catch(e){ return 0; }
+  console.log('[oc v34] ' + coll + ': ' + added + ' nayi + ' + updated + ' updated row server se aayin');
+  return added + updated;
+}
+
+/* ---------------------------------------------------------------- 4. chalao */
+var last = {}, busy = {};
+function pull(coll, force){
+  if(!coll) return Promise.resolve(0);
+  if(busy[coll]) return Promise.resolve(0);
+  var now = Date.now();
+  if(!force && last[coll] && (now - last[coll]) < MIN_GAP_MS) return Promise.resolve(0);
+  try{ if(typeof AUTH === 'undefined' || !AUTH.session || !AUTH.session()) return Promise.resolve(0); }catch(e){ return Promise.resolve(0); }
+  busy[coll] = 1; last[coll] = now;
+  return askServer(coll).then(function(rows){
+    busy[coll] = 0;
+    if(!rows) return 0;
+    var n = merge(coll, rows);
+    if(n){
+      try{
+        if(typeof refreshBadges === 'function') refreshBadges();
+        if(typeof state !== 'undefined' && !(window.__ocUserTyping && window.__ocUserTyping())){
+          if(state.view === 'indiamart' && typeof renderIndiamart === 'function') renderIndiamart();
+          if(state.view === 'qualified' && typeof renderQualified === 'function') renderQualified();
+        }
+      }catch(e){}
+    }
+    return n;
+  }, function(){ busy[coll] = 0; return 0; });
+}
+window.ocPullCollection = function(coll){ return pull(coll || WATCH[0], true); };
+
+/* har pull ke baad: jo collection getAll me nahi aayi, use khud maang lo */
+try{
+  if(typeof CLOUD !== 'undefined' && typeof CLOUD.pull === 'function'){
+    var _pull = CLOUD.pull;
+    CLOUD.pull = function(){
+      var self = this;
+      return Promise.resolve(_pull.apply(self, arguments)).then(function(r){
+        WATCH.forEach(function(k){
+          if(served[k] === true) return;              /* server khud bhej raha hai */
+          setTimeout(function(){ pull(k, false); }, 150);
+        });
+        return r;
+      });
+    };
+  }
+}catch(e){}
+
+/* section kholte hi ek baar taaza kar lo */
+try{
+  var _setView = window.setView;
+  if(typeof _setView === 'function'){
+    window.setView = function(v){
+      var out = _setView.apply(this, arguments);
+      try{ if(v === 'indiamart' || v === 'qualified') pull('indiamartLeads', false); }catch(e){}
+      return out;
+    };
+  }
+}catch(e){}
+
+[2500, 12000].forEach(function(ms){ setTimeout(function(){ WATCH.forEach(function(k){ pull(k, false); }); }, ms); });
+
+console.log('[oc v34] collection fallback fetch active (' + WATCH.join(', ') + ')');
 })();
 </script>
 
