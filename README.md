@@ -252,6 +252,32 @@ match karke lead usi ke naam par assign ho jaati hai.
 ek baar. Baaki helpers: `runIndiaMartAutoSyncNow`, `statusIndiaMartAutoSync`,
 `markIndiaMartSyncedInSource` (purani rows par nishaan), `removeIndiaMartAutoSync`.
 
+## `bad_collection` — backend ko naye collection ka naam batana padta hai
+
+CRM ka web app har request par collection ka naam apni ek list se milata hai. Us list me
+`indiamartLeads` nahi tha, isliye app ko `{"error":"bad_collection"}` milta tha aur IndiaMART
+section khaali dikhta tha — jabki sheet ke `indiamartLeads` tab me data maujood hai (Apps Script
+andar se seedha `_upsertMany()` bulata hai, jahan ye check lagta hi nahi).
+
+`apps-script/CodeGs_AddIndiaMartCollection.gs` yahi theek karta hai: load hote hi backend ki wahi
+list dhoondh kar usme `indiamartLeads` jod deta hai — list ka naam kuch bhi ho, kyunki naam se
+nahi **content** se pehchanta hai (jis array/object me `enquiries` aur `orders` dono hain, wahi
+list hai). Kisi maujooda naam ko na hataata hai na badalta hai, aur do baar chal jaye to bhi naam
+ek hi baar judta hai.
+
+* **Lagana:** poora code **Code.gs ke sabse neeche** paste kar dijiye (sabse pakka), ya alag file
+  ki tarah (tab wo Code.gs ke baad load honi chahiye).
+* **Jaanch:** `checkIndiaMartCollection()` — log batata hai list mili ya nahi, naam juda ya nahi,
+  aur seedha API se `list` ka jawab bhi dikhata hai.
+* **Zaroori:** iske baad *Deploy → Manage deployments → edit (pencil) → Version: New version →
+  Deploy*. URL wahi rehta hai; naye version ke bina web app purana code hi chalata rahega.
+* List agar kisi function ke andar chhupi ho to patch imaandari se bata deta hai — us soorat me
+  Code.gs me `bad_collection` search karke aas-paas waali list me naam haath se jod dijiye.
+
+`apps-script/CrmBackendProbe.gs` (sirf jaanch, kuch likhta nahi) backend ka poora naksha dikhata
+hai: kaun se function maujood hain, har collection me kitni rows hain, sheet ke tabs, aur
+`list` / `getAll` ka asli jawab.
+
 ## Jo collection `getAll` nahi bhejta, CRM khud maang leta hai
 
 `CLOUD.pull()` sirf `?action=getAll` maarta hai aur backend apni jaani-pehchani collections hi
