@@ -56,7 +56,8 @@
  *      IMS_MINUTES minute ka trigger lag jayega.
  *
  *   Band karna ho     : `removeIndiaMartAutoSync`
- *   Abhi chalana ho   : `runIndiaMartAutoSyncNow`
+ *   Abhi chalana ho   : `runIndiaMartAutoSyncNow`  (ek run = IMS_MAX_PER_RUN tak)
+ *   Poora backlog jaldi: `backfillIndiaMartAll`  (4.5 minute tak lagataar)
  *   Haalat dekhni ho  : `statusIndiaMartAutoSync`
  *   Purani rows par nishaan lagana ho (jo CRM me pehle se hain):
  *                       `markIndiaMartSyncedInSource`
@@ -77,7 +78,7 @@ var IMS_SRC_ID      = '1TWlFg1dflWOTnKtaE9sqOSMS_YcCcCDpQ8J-Ka3-qpA';
 var IMS_SRC_TAB     = 'Indiamart_crm';
 var IMS_COLL        = 'indiamartLeads';
 var IMS_MINUTES     = 5;                  // trigger kitni der me chale
-var IMS_MAX_PER_RUN = 150;                // ek run me itni se zyada nahi (safety)
+var IMS_MAX_PER_RUN = 400;                // ek run me itni se zyada nahi (safety)
 var IMS_MARK_COL    = 12;                 // column L
 var IMS_MARK_TEXT   = 'send_to_crm';      // CRM me chala gaya -> yahi likha jaata hai
 
@@ -379,23 +380,38 @@ function ims_write_(recs){
  */
 function ims_mark_(sheet, markCol, rowNumbers){
   if(!markCol || !rowNumbers.length) return 0;
-  var done = 0;
+  /* Ek-ek cell likhna bahut dheema tha (150 rows = 150 API call). Ab paas-paas
+     waali rows ko ek saath, ek hi setValues call me likhte hain. Sirf unhi rows
+     ko chhua jaata hai jo is batch me hain -- beech ki doosri rows jaisi hain
+     waisi rehti hain. */
+  var sorted = rowNumbers.slice().sort(function(a, b){ return a - b; });
+  var groups = [], cur = null, i;
+  for(i = 0; i < sorted.length; i++){
+    var n = sorted[i];
+    if(cur && n === cur.end + 1){ cur.end = n; continue; }
+    cur = { start: n, end: n };
+    groups.push(cur);
+  }
+  var done = 0, busy = [];
   try{
-    rowNumbers.forEach(function(n){
+    groups.forEach(function(g){
       try{
-        var cell = sheet.getRange(n, markCol);
-        var cur  = ims_tr_(cell.getValue());
-        if(cur && cur !== IMS_MARK_TEXT){
-          Logger.log('IndiaMartAutoSync: row ' + n + ' ke mark column me pehle se "' + cur
-                   + '" likha hai — chhua nahi gaya.');
-          return;
+        var len = g.end - g.start + 1;
+        var rng = sheet.getRange(g.start, markCol, len, 1);
+        var vals = rng.getValues(), touched = false, k;
+        for(k = 0; k < len; k++){
+          var was = ims_tr_(vals[k][0]);
+          if(was === IMS_MARK_TEXT) continue;                 /* pehle se laga hai */
+          if(was){ busy.push(g.start + k); continue; }        /* kuch aur likha hai -- chhodo */
+          vals[k][0] = IMS_MARK_TEXT; touched = true; done++;
         }
-        cell.setValue(IMS_MARK_TEXT);
-        done++;
-      }catch(e){ Logger.log('IndiaMartAutoSync: row ' + n + ' par mark nahi laga — ' + e); }
+        if(touched) rng.setValues(vals);
+      }catch(e){ Logger.log('IndiaMartAutoSync: row ' + g.start + '-' + g.end + ' par mark nahi laga — ' + e); }
     });
     SpreadsheetApp.flush();
   }catch(err){ Logger.log('IndiaMartAutoSync: mark likhne me dikkat — ' + err); }
+  if(busy.length) Logger.log('IndiaMartAutoSync: ' + busy.length + ' row ke mark column me pehle se kuch aur '
+    + 'likha tha — chhua nahi gaya (rows: ' + busy.slice(0, 10).join(', ') + (busy.length > 10 ? ' …' : '') + ')');
   return done;
 }
 
@@ -563,6 +579,41 @@ function ims_run_(dryRun){
 
 /** Trigger yahi chalata hai. */
 function indiaMartAutoSyncTick(){ ims_run_(false); }
+
+/**
+ * Poora purana backlog ek hi baar me (jitna 4.5 minute me ho sake).
+ * Apps Script ka 6 minute ka limit hai, isliye ye khud ruk jaata hai aur
+ * bata deta hai ki kitna baaki hai -- dobara chala dijiye. Trigger bhi
+ * apne aap chalta rehta hai, ye sirf jaldi karne ke liye hai.
+ */
+function backfillIndiaMartAll(){
+  var started = Date.now(), rounds = 0, LIMIT_MS = 4.5 * 60 * 1000;
+  while(Date.now() - started < LIMIT_MS){
+    var before = ims_pendingCount_();
+    if(!before){ Logger.log('backfillIndiaMartAll: sab kuch CRM me ja chuka hai.'); return; }
+    ims_run_(false);
+    rounds++;
+    var after = ims_pendingCount_();
+    Logger.log('backfillIndiaMartAll: round ' + rounds + ' — baaki ' + after + ' rows.');
+    if(after >= before){ Logger.log('backfillIndiaMartAll: aage badhna ruk gaya, yahin rok rahe hain.'); break; }
+    if(!after){ Logger.log('backfillIndiaMartAll: sab enquiry CRM me pahunch gayi.'); return; }
+  }
+  Logger.log('backfillIndiaMartAll: ' + rounds + ' round hue, abhi ' + ims_pendingCount_()
+           + ' rows baaki hain. Dobara chala dijiye (ya trigger ko apne aap chalne dijiye).');
+}
+/** Kitni rows abhi CRM me jaani baaki hain (mark aur skip-list chhod kar). */
+function ims_pendingCount_(){
+  try{
+    var src = ims_srcRows_(), n = 0;
+    src.rows.forEach(function(r){
+      if(ims_lc_(r.mark) === ims_lc_(IMS_MARK_TEXT)) return;
+      if(ims_skipAssigned_(r.assigned)) return;
+      if(!r.mobile && !r.enquiry_no) return;
+      n++;
+    });
+    return n;
+  }catch(e){ return 0; }
+}
 
 /** Kuch likhta nahi — sirf Logs me dikhata hai ki kya hota. */
 function previewIndiaMartAutoSync(){ ims_run_(true); }
