@@ -14,8 +14,13 @@
  *   Load hote hi backend ki wahi list dhoondh kar usme `indiamartLeads` jod
  *   deta hai -- list ka naam kuch bhi ho (COLLECTIONS / COLLS / ALLOWED /
  *   VALID_COLLECTIONS ...), kyunki naam se nahi, CONTENT se pehchanta hai:
- *   jis array/object me 'enquiries' aur 'orders' dono hain, wahi list hai.
+ *   jis ARRAY me 'enquiries' aur 'orders' dono hon, wahi allowed-list hai.
  *   Kisi maujooda naam ko na hataata hai, na badalta hai.
+ *
+ *   PREFERRED / FORM_OF / REQ_FORM_OF jaise config OBJECTS ko jaan-boojh kar
+ *   NAHI chhua jaata -- wo allowed-list nahi hain, har collection ka apna
+ *   setting hota hai (column order, form ka naam ...). Naam wahan na hone par
+ *   backend apna default le leta hai, jo bilkul theek hai.
  *
  * KAISE LAGAYEIN  (dono me se koi bhi ek)
  *   A) SABSE PAKKA — Code.gs ke SABSE NEECHE ye poora code paste kar dijiye
@@ -48,6 +53,8 @@
 function ocAllowIndiaMartCollection_(){
   var WANT = 'indiamartLeads';
   var MARKERS = ['enquiries', 'orders'];        /* asli list me ye dono honge */
+  /* Sirf NAAMO KI LIST (array) chhui jaati hai -- wahi list `bad_collection`
+     ka faisla karti hai. Config objects ko haath nahi lagate. */
   var patched = [];
   var g = this, names = [];
   try{ names = Object.keys(g); }catch(e){ return patched; }
@@ -66,18 +73,12 @@ function ocAllowIndiaMartCollection_(){
       return;
     }
 
-    /* shakal 2: { enquiries: {...}, orders: {...} } */
-    if(typeof v === 'object' && !(v instanceof Date)){
-      var keys = [];
-      try{ keys = Object.keys(v); }catch(e){ return; }
-      var ok = true;
-      MARKERS.forEach(function(m){ if(keys.indexOf(m) < 0) ok = false; });
-      if(!ok) return;
-      if(keys.indexOf(WANT) < 0){
-        try{ v[WANT] = v.metaLeads !== undefined ? v.metaLeads : true; patched.push(n + ' (object)'); }
-        catch(e){}
-      }
-    }
+    /* Object shakal ko JAAN-BOOJH KAR chhod dete hain.
+       Jaise PREFERRED / FORM_OF / REQ_FORM_OF -- ye allowed-list nahi, har
+       collection ka apna config hota hai (column order, form ka naam ...).
+       Unme kuch bhi daal dena aage jaakar tod sakta hai, aur `bad_collection`
+       ka check unse hota bhi nahi. Naam na hone par backend default behaviour
+       le leta hai, jo bilkul theek hai. */
   });
   return patched;
 }
@@ -88,7 +89,7 @@ function ocAllowIndiaMartCollection_(){
  */
 function checkIndiaMartCollection(){
   var out = [], WANT = 'indiamartLeads';
-  var found = [];
+  var found = [], others = [];
   try{
     var g = this, names = Object.keys(g);
     names.forEach(function(n){
@@ -101,7 +102,7 @@ function checkIndiaMartCollection(){
       } else if(typeof v === 'object' && !(v instanceof Date)){
         var keys = []; try{ keys = Object.keys(v); }catch(e){ return; }
         if(keys.indexOf('enquiries') >= 0 && keys.indexOf('orders') >= 0){
-          found.push(n + ' (object) -> ' + (keys.indexOf(WANT) >= 0 ? 'HAAN, naam juda hai' : 'NAHI') + ' : [' + keys.join(',') + ']');
+          others.push(n + ' (config object, JAAN-BOOJH KAR nahi chhua) : [' + keys.join(',') + ']');
         }
       }
     });
@@ -113,10 +114,14 @@ function checkIndiaMartCollection(){
     out.push('search kijiye -- uske aas-paas collection ke naamo ki list hogi; usme');
     out.push('\'indiamartLeads\' haath se jod dijiye.');
   } else {
-    out.push('Mili hui list(ein):');
+    out.push('Allowed-collections list(ein):');
     found.forEach(function(f){ out.push('  ' + f); });
     out.push('"HAAN" likha hai to patch lag chuka hai -- ab Deploy > Manage deployments >');
     out.push('edit > New version > Deploy zaroor kijiye.');
+  }
+  if(others.length){
+    out.push('Ye per-collection config hain, inhe chhua nahi gaya (aur chhedna bhi nahi chahiye):');
+    others.forEach(function(f){ out.push('  ' + f); });
   }
   /* seedha API se bhi pooch lo */
   try{

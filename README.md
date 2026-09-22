@@ -261,9 +261,14 @@ andar se seedha `_upsertMany()` bulata hai, jahan ye check lagta hi nahi).
 
 `apps-script/CodeGs_AddIndiaMartCollection.gs` yahi theek karta hai: load hote hi backend ki wahi
 list dhoondh kar usme `indiamartLeads` jod deta hai — list ka naam kuch bhi ho, kyunki naam se
-nahi **content** se pehchanta hai (jis array/object me `enquiries` aur `orders` dono hain, wahi
-list hai). Kisi maujooda naam ko na hataata hai na badalta hai, aur do baar chal jaye to bhi naam
-ek hi baar judta hai.
+nahi **content** se pehchanta hai (jis **array** me `enquiries` aur `orders` dono hon, wahi
+allowed-list hai). Kisi maujooda naam ko na hataata hai na badalta hai, aur do baar chal jaye to
+bhi naam ek hi baar judta hai. Is CRM me wo list `COLLECTIONS` naam ki hai.
+
+`PREFERRED` / `FORM_OF` / `REQ_FORM_OF` jaise **config objects** ko patch jaan-boojh kar nahi
+chhuta — wo allowed-list nahi, har collection ka apna setting hai (column order, form ka naam …),
+aur `bad_collection` ka check unse hota bhi nahi. Naam wahan na hone par backend apna default le
+leta hai, jo bilkul theek hai. `checkIndiaMartCollection()` unhe sirf report karta hai.
 
 * **Lagana:** poora code **Code.gs ke sabse neeche** paste kar dijiye (sabse pakka), ya alag file
   ki tarah (tab wo Code.gs ke baad load honi chahiye).
