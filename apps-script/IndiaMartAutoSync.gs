@@ -174,8 +174,11 @@ function ims_skipAssigned_(name){
   for(var i = 0; i < IMS_SKIP_ASSIGNED.length; i++){
     var s = ims_lc_(IMS_SKIP_ASSIGNED[i]);
     if(!s) continue;
+    /* poora naam, ya poore SHABD ka match ("Anjali" <-> "Anjali Sharma").
+       Aadha-adhoora prefix nahi, warna chhote naam bhi fas jaate hain. */
     if(n === s) return true;
-    if(s.length >= 4 && (n.indexOf(s) === 0 || s.indexOf(n) === 0)) return true;
+    if(n.length >= 4 && s.indexOf(n + ' ') === 0) return true;
+    if(s.length >= 4 && n.indexOf(s + ' ') === 0) return true;
   }
   return false;
 }

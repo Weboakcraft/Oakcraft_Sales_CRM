@@ -243,6 +243,24 @@ match karke lead usi ke naam par assign ho jaati hai.
 ek baar. Baaki helpers: `runIndiaMartAutoSyncNow`, `statusIndiaMartAutoSync`,
 `markIndiaMartSyncedInSource` (purani rows par nishaan), `removeIndiaMartAutoSync`.
 
+## Jo collection `getAll` nahi bhejta, CRM khud maang leta hai
+
+`CLOUD.pull()` sirf `?action=getAll` maarta hai aur backend apni jaani-pehchani collections hi
+bhejta hai — `indiamartLeads` uski list me nahi hai. Isliye IndiaMART leads backend sheet me likhi
+to ja rahi thin (source row par `send_to_crm` bhi lag raha tha) par CRM ka section khaali dikhta
+tha. Ab (build `2026.09.22.5`) CRM khud sambhaal leta hai, **Code.gs ko chhue bina**:
+
+1. `getAll` ke jawab par nazar rakhi jaati hai — kaun si collection aayi, kaun si nahi.
+2. Jo `CLOUD.keys` me hai par jawab me nahi aayi, use seedha `action:'list'` se maanga jaata hai
+   (yahi API app pehle se `users` ke liye istemal karta hai).
+3. Aayi hui rows local ke saath **merge** hoti hain — jis row ka local timestamp naya hai wo local
+   hi rehti hai, isliye abhi-abhi badla hua status kabhi peeche nahi jaata.
+4. Jis din backend `getAll` me ye collection bhejne lagega, ye extra call apne aap band ho jayegi.
+
+Privacy wahi rehti hai: jo user poora data nahi dekh sakta, uske device par sirf uske apne (owner)
+records hi rakhe jaate hain — wahi rule jo `scope()` UI me lagata hai. Console helpers:
+`ocPullCollection('indiamartLeads')` aur `ocServedKeys()`.
+
 ## Meta Leads — the status no longer resets itself
 
 Users reported that a status set in Meta Leads came back as **New / CREATED** a while later.
