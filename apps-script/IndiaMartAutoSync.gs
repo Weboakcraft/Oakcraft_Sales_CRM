@@ -60,6 +60,8 @@
  *   Haalat dekhni ho  : `statusIndiaMartAutoSync`
  *   Purani rows par nishaan lagana ho (jo CRM me pehle se hain):
  *                       `markIndiaMartSyncedInSource`
+ *   Jhootha nishaan hatana ho (nishaan hai par CRM me lead nahi):
+ *                       `clearIndiaMartMarks`
  *
  * SAFETY
  *   - Sirf indiamartLeads collection me NAYI rows add karta hai. Kisi maujooda
@@ -523,12 +525,33 @@ function ims_run_(dryRun){
     var wrote = ims_write_(fresh.map(function(f){ return f.rec; }));
     SpreadsheetApp.flush();
 
-    /* CRM me pahunch gaya -> source row par send_to_crm likh do */
-    var markedNow = ims_mark_(src.sheet, src.markCol, fresh.map(function(f){ return f.row; }));
+    /* ---- TASDEEQ: sach me CRM me pahunchi ya nahi? ----------------------
+       _upsertMany bina error diye bhi kuch na likhe (naya collection, schema
+       na bana ho) to source row par nishaan lagana sabse bada nuksaan hai --
+       wo lead phir kabhi import nahi hogi. Isliye likhne ke BAAD collection
+       dobara padhte hain aur sirf UNHI rows par nishaan lagate hain jinki id
+       sach me CRM me mil gayi. */
+    var landedMap = {};
+    ims_read_(IMS_COLL).forEach(function(l){ if(l && l.id) landedMap[String(l.id)] = 1; });
+    var landed = fresh.filter(function(f){ return landedMap[String(f.rec.id)]; });
+    var lost   = fresh.length - landed.length;
 
-    Logger.log('IndiaMartAutoSync: ' + wrote + ' nayi enquiry CRM me gayi (' + markedNow + ' row par '
-      + IMS_MARK_TEXT + ' likha) —\n  '
-      + fresh.map(function(f){
+    if(!landed.length){
+      Logger.log('IndiaMartAutoSync ERROR: ' + fresh.length + ' enquiry bheji par CRM ke "'
+        + IMS_COLL + '" collection me ek bhi nahi pahunchi (_upsertMany ne bina error diye kuch '
+        + 'nahi likha). Source sheet par KOI nishaan nahi lagaya gaya, isliye ye leads baad me '
+        + 'dobara koshish karengi. Backend (Code.gs) is collection ko nahi jaanta lagta hai.');
+      return;
+    }
+    if(lost) Logger.log('IndiaMartAutoSync: WARNING — ' + lost + ' enquiry CRM me nahi pahunchi, '
+      + 'unpar nishaan nahi lagaya (agli baar dobara koshish hogi).');
+
+    /* CRM me pahunch gaya -> source row par send_to_crm likh do */
+    var markedNow = ims_mark_(src.sheet, src.markCol, landed.map(function(f){ return f.row; }));
+
+    Logger.log('IndiaMartAutoSync: ' + landed.length + ' nayi enquiry CRM me gayi (' + markedNow + ' row par '
+      + IMS_MARK_TEXT + ' likha, bheji thi ' + wrote + ') —\n  '
+      + landed.map(function(f){
           return f.rec.sender_name + ' | ' + f.rec.sender_mobile + ' -> ' + (f.rec.owner || '(owner nahi mila)');
         }).join('\n  '));
   }catch(err){
@@ -593,6 +616,47 @@ function markIndiaMartSyncedInSource(){
   var n = ims_mark_(src.sheet, src.markCol, todo);
   Logger.log('markIndiaMartSyncedInSource: ' + n + ' row par ' + IMS_MARK_TEXT + ' likha.');
   return n;
+}
+
+/**
+ * Recovery — jin rows par `send_to_crm` likha hai par wo enquiry CRM me hai hi
+ * nahi (pehle ke kisi adhoore run me galat nishaan lag gaya tha), unka nishaan
+ * hata deta hai taaki wo leads dobara import ho sakein. Jo enquiry sach me CRM
+ * me hai, uska nishaan chhua nahi jaata.
+ */
+function clearIndiaMartMarks(){
+  var src = ims_srcRows_();
+  if(!src.markCol){ Logger.log('clearIndiaMartMarks: mark column nahi mila.'); return 0; }
+  var haveEnq = {}, havePhoneTime = {};
+  ims_read_(IMS_COLL).forEach(function(l){
+    var e = ims_tr_(l.enquiry_no); if(e) haveEnq[e] = 1;
+    var p = ims_phoneKey_(l.sender_mobile || l.mobile || l.phone);
+    var t = ims_tsKey_(l.query_time);
+    if(p && t) havePhoneTime[p + '|' + t] = 1;
+  });
+  var todo = [], kept = 0;
+  src.rows.forEach(function(r){
+    if(ims_lc_(r.mark) !== ims_lc_(IMS_MARK_TEXT)) return;
+    var pk = ims_phoneKey_(r.mobile), tk = ims_tsKey_(r.query_time);
+    var inCrm = (r.enquiry_no && haveEnq[r.enquiry_no]) || (pk && tk && havePhoneTime[pk + '|' + tk]);
+    if(inCrm){ kept++; return; }
+    todo.push(r.row);
+  });
+  if(!todo.length){
+    Logger.log('clearIndiaMartMarks: sab theek hai — ' + kept + ' nishaan wali rows CRM me maujood hain.');
+    return 0;
+  }
+  var done = 0;
+  try{
+    todo.forEach(function(n){
+      try{ src.sheet.getRange(n, src.markCol).setValue(''); done++; }
+      catch(e){ Logger.log('clearIndiaMartMarks: row ' + n + ' — ' + e); }
+    });
+    SpreadsheetApp.flush();
+  }catch(err){ Logger.log('clearIndiaMartMarks: ' + err); }
+  Logger.log('clearIndiaMartMarks: ' + done + ' rows ka jhootha nishaan hata diya (ye dobara import '
+           + 'hongi). ' + kept + ' rows sach me CRM me hain, unhe chhua nahi.');
+  return done;
 }
 
 /** Abhi ki haalat dekhne ke liye. */
