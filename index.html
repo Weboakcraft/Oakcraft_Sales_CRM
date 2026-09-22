@@ -267,8 +267,10 @@ td .sub{color:var(--muted);font-size:12px}
       <div class="nav-label">Overview</div>
       <a data-view="dashboard" data-icon="dash" class="active"><span>Dashboard</span></a>
       <div class="nav-label">Sales Pipeline</div>
-      <a data-view="enquiries" data-icon="inbox"><span>Enquiries / Leads</span><span class="badge" id="nb-enq">0</span></a>
+      <a data-view="enquiries" data-icon="inbox"><span>Enquiries</span><span class="badge" id="nb-enq">0</span></a>
+      <a data-view="qualified" data-icon="flow"><span>Qualified</span><span class="badge" id="nb-qual">0</span></a>
       <a data-view="pipeline" data-icon="flow"><span>Pipeline Board</span></a>
+      <a data-view="indiamart" data-icon="inbox"><span>IndiaMART</span><span class="badge" id="nb-im">0</span></a>
       <a data-view="metaLeads" data-icon="flow"><span>Meta Leads</span><span class="badge" id="nb-meta">0</span></a>
       <a data-view="quotations" data-icon="doc"><span>Quotations</span><span class="badge" id="nb-quo">0</span></a>
       <a data-view="orders" data-icon="cart"><span>Orders</span><span class="badge" id="nb-ord">0</span></a>
@@ -555,7 +557,7 @@ const state = { view:'dashboard', charts:{} };
 
 const PAGE_META = {
   dashboard:['Dashboard','Sales performance overview'],
-  enquiries:['Enquiries / Leads','Capture & qualify incoming demand'],
+  enquiries:['Enquiries','Capture & qualify incoming demand'],
   pipeline:['Pipeline Board','Drag your deals through stages'],
   quotations:['Quotations','Proposals sent to customers'],
   orders:['Orders','Confirmed orders in production'],
@@ -7678,7 +7680,7 @@ window.saveQuo = function(id, enqId){
     if(enqId){
       try{
         var enqs = DB.enquiries(), e = enqs.filter(function(x){ return x.id === enqId; })[0];
-        if(e && ['New','Contacted','Qualified'].indexOf(e.stage) >= 0){ e.stage = 'Quoted'; DB.save('enquiries', enqs); }
+        if(e && ['New','Contacted','Qualified','System Master'].indexOf(e.stage) >= 0){ e.stage = 'Quoted'; DB.save('enquiries', enqs); }
       }catch(e2){}
     }
   }
@@ -7732,7 +7734,11 @@ window.paintEnq = function(){
 /* ====================================================================== *
  * 5. PIPELINE BOARD — drag & drop + move buttons + click to edit          *
  * ====================================================================== */
-var PIPE_STAGES = ['New','Contacted','Qualified','Quoted','Won','Lost'];
+var PIPE_STAGES = ['New','Contacted','Qualified','System Master','Quoted','Won','Lost'];
+/* v31: 'System Master' Qualified section ka ek sub-status hai ('Quoted' = Quotation Sent).
+   PIPE_STAGES is block ke andar band tha, isliye use bahar bhi de dete hain — Qualified
+   section aur baaki naye module isi ek hi list ko maanein. */
+window.PIPE_STAGES = PIPE_STAGES;
 window.ocMoveEnq = function(id, stage){
   var list = DB.enquiries() || [], e = list.filter(function(x){ return x.id === id; })[0];
   if(!e) return;
@@ -8000,7 +8006,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.21.3';
+var OC_WEB_BUILD = '2026.09.22.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -11411,7 +11417,7 @@ function perfCardHTML(){
  * ================================================================ */
 function slaEditorHTML(){
   var cfg = slaCfg();
-  var sec = [['enquiries','Enquiries / Leads'], ['orders','Orders'], ['dispatch','Dispatch'], ['metaLeads','Meta Leads']];
+  var sec = [['enquiries','Enquiries'], ['orders','Orders'], ['dispatch','Dispatch'], ['metaLeads','Meta Leads']];
   var blocks = sec.map(function(p){
     var k = p[0], stages = Object.keys(cfg[k] || {});
     return '<div style="margin-bottom:14px">'
@@ -13621,6 +13627,1808 @@ try{
 }catch(e){}
 
 console.log('[oc v29] sales charts now include cancelled orders');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 32. OAKCRAFT v30 — INDIAMART SECTION                                    *
+ *                                                                        *
+ *   IndiaMART se aane waali enquiries ka apna section, bilkul Meta Leads  *
+ *   ki tarah: ek sheet-style table, inline status, assign, bulk upload    *
+ *   (Excel / CSV / paste), Excel export aur ek click me Enquiry banana.   *
+ *                                                                        *
+ *   Backend: collection 'indiamartLeads' (Google Sheet ka apna tab, wahi  *
+ *   {id,data} shape jo baaki collections ka hai). CLOUD.keys me register  *
+ *   hai, isliye pull/push apne aap chalta hai. Status kabhi reset na ho   *
+ *   iske liye section 34 (lead sync guard) isi collection ko bhi          *
+ *   sambhaalta hai.                                                       *
+ *                                                                        *
+ *   Status vocabulary poore CRM me ek hi hai:                             *
+ *     CREATED · CONTACTED · QUALIFIED · SYSTEM_MASTER · QUOTATION_SENT ·  *
+ *     WON · LOST                                                          *
+ *   QUALIFIED hote hi lead apne aap Qualified section me bhi dikhne       *
+ *   lagti hai (section 33).                                               *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocIndiaMart) return; window.__ocIndiaMart = true;
+
+var KEY  = 'indiamartLeads';          /* localStorage + sheet collection */
+var VIEW = 'indiamart';               /* nav / router ka naam            */
+var PAGE = 200;
+
+/* ---------------------------------------------------------------- 0. helpers */
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LC(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function A(v){ return E(v).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function $$(id){ return document.getElementById(id); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+function tell(m){ try{ toast(m); }catch(e){ try{ alert(m); }catch(x){} } }
+
+function meEmail(){ try{ var u = AUTH.current(); return u ? LC(u.email) : ''; }catch(e){ return ''; } }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function mayTouch(r){ try{ return (typeof canTouch === 'function') ? !!canTouch(r, KEY) : true; }catch(e){ return true; } }
+function allow(action){ try{ return (typeof can === 'function') ? !!can(VIEW, action) : true; }catch(e){ return true; } }
+function noPerm(action){ try{ if(typeof permToast === 'function') return permToast(action); }catch(e){} tell('Permission nahi hai'); }
+
+/* ---------------------------------------------------------------- 1. status vocabulary
+   Ye list poore CRM me ek hi hai — Meta Leads, IndiaMART aur Qualified
+   section teeno isi ko maante hain. */
+var STATUSES = ['CREATED','CONTACTED','QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
+var STATUS_LABEL = {
+  CREATED:'New', CONTACTED:'Contacted', QUALIFIED:'Qualified',
+  SYSTEM_MASTER:'System Master', QUOTATION_SENT:'Quotation Sent',
+  WON:'Won', LOST:'Lost'
+};
+var STATUS_ALIAS = {
+  NEW:'CREATED', OPEN:'CREATED', FRESH:'CREATED', CREATED:'CREATED',
+  FOLLOW_UP:'CONTACTED', FOLLOWUP:'CONTACTED', CALLED:'CONTACTED', CONTACTED:'CONTACTED',
+  INTERESTED:'QUALIFIED', QUALIFIED:'QUALIFIED',
+  SYSTEM_MASTER:'SYSTEM_MASTER', SYSTEMMASTER:'SYSTEM_MASTER', SYSTEM:'SYSTEM_MASTER',
+  QUOTATION_SENT:'QUOTATION_SENT', QUOTATIONSENT:'QUOTATION_SENT', QUOTED:'QUOTATION_SENT',
+  QUOTATION:'QUOTATION_SENT', PROPOSAL:'QUOTATION_SENT', QUOTE_SENT:'QUOTATION_SENT',
+  WON:'WON', CONVERTED:'WON', CLOSED_WON:'WON',
+  LOST:'LOST', CLOSED:'LOST', REJECTED:'LOST', NOT_INTERESTED:'LOST', CLOSED_LOST:'LOST'
+};
+function code(v){ return TR(v).toUpperCase().replace(/[\s\-\/]+/g, '_').replace(/_+/g, '_'); }
+function statusOf(v){
+  var c = code(v);
+  if(!c) return 'CREATED';
+  return STATUS_ALIAS[c] || c;
+}
+function statusLabel(v){ var c = statusOf(v); return STATUS_LABEL[c] || c.replace(/_/g, ' '); }
+function statusChipClass(v){
+  var c = statusOf(v);
+  return c === 'WON' ? 'c-won' : c === 'LOST' ? 'c-lost'
+       : c === 'QUALIFIED' ? 'c-ship' : c === 'QUOTATION_SENT' ? 'c-quo'
+       : c === 'SYSTEM_MASTER' ? 'c-quo' : c === 'CONTACTED' ? 'c-prog' : 'c-new';
+}
+window.OC_LEAD_STATUSES     = STATUSES.slice();
+window.OC_LEAD_STATUS_LABEL = STATUS_LABEL;
+window.ocLeadStatusCode     = statusOf;
+window.ocLeadStatusLabel    = statusLabel;
+window.ocLeadStatusChip     = statusChipClass;
+
+/* ---------------------------------------------------------------- 2. store */
+function imAll(){
+  try{ var a = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function imSave(arr){
+  try{ store.set(KEY, arr); }
+  catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(arr)); }catch(x){} }
+  try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+}
+function imId(){ return 'IM-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase(); }
+function find(arr, id){ for(var i = 0; i < arr.length; i++) if(arr[i] && T(arr[i].id) === T(id)) return arr[i]; return null; }
+
+function roster(){
+  try{ var u = JSON.parse(localStorage.getItem('users') || '[]'); return (Array.isArray(u) ? u : []).filter(function(x){ return x && x.email; }); }
+  catch(e){ return []; }
+}
+function nameOf(email){
+  var e = LC(email); if(!e) return '';
+  var r = roster();
+  for(var i = 0; i < r.length; i++) if(LC(r[i].email) === e) return TR(r[i].name) || email;
+  return email;
+}
+function emailOfName(v){
+  var s = LC(v); if(!s) return '';
+  var r = roster(), i;
+  for(i = 0; i < r.length; i++) if(LC(r[i].email) === s) return LC(r[i].email);
+  for(i = 0; i < r.length; i++) if(LC(r[i].name) === s) return LC(r[i].email);
+  for(i = 0; i < r.length; i++){
+    var n = LC(r[i].name);
+    if(n && (n.split(' ')[0] === s || n.indexOf(s) === 0)) return LC(r[i].email);
+  }
+  return '';
+}
+
+/* ---- query_time : DD-MM-YYYY HH:MM:SS (wahi shakal jo Meta me hai) ---- */
+function fmtTS(d){
+  if(!(d instanceof Date) || isNaN(d.getTime())) return '';
+  return p2(d.getDate()) + '-' + p2(d.getMonth() + 1) + '-' + d.getFullYear()
+       + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
+}
+function normTime(v){
+  if(v == null || v === '') return '';
+  if(v instanceof Date) return fmtTS(v);
+  var s = TR(v);
+  if(!s) return '';
+  if(/^\d{2}-\d{2}-\d{4}(\s+\d{1,2}:\d{2}(:\d{2})?)?$/.test(s)) return s;
+  var m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(m) return p2(+m[1]) + '-' + p2(+m[2]) + '-' + m[3] + ' ' + p2(+(m[4] || 0)) + ':' + (m[5] || '00') + ':' + (m[6] || '00');
+  var y = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if(y) return y[3] + '-' + y[2] + '-' + y[1] + ' ' + (y[4] || '00') + ':' + (y[5] || '00') + ':' + (y[6] || '00');
+  if(/^\d+(\.\d+)?$/.test(s)){                                   /* Excel serial */
+    var n = parseFloat(s);
+    if(n > 20000 && n < 80000){
+      var dt = new Date(Math.round((n - 25569) * 86400000));
+      return p2(dt.getUTCDate()) + '-' + p2(dt.getUTCMonth() + 1) + '-' + dt.getUTCFullYear()
+           + ' ' + p2(dt.getUTCHours()) + ':' + p2(dt.getUTCMinutes()) + ':' + p2(dt.getUTCSeconds());
+    }
+  }
+  var p = new Date(s);
+  return isNaN(p.getTime()) ? s : fmtTS(p);
+}
+function timeKey(s){
+  var m = T(s).match(/^(\d{2})-(\d{2})-(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(!m) return 0;
+  return +(m[3] + m[2] + m[1] + p2(+(m[4] || 0)) + (m[5] || '00') + (m[6] || '00'));
+}
+/* YYYY-MM-DD — date filter / export / Qualified section ke liye */
+function isoOf(s){
+  var m = T(s).match(/^(\d{2})-(\d{2})-(\d{4})/);
+  if(m) return m[3] + '-' + m[2] + '-' + m[1];
+  var d = new Date(); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+}
+function phoneKey(p){ var d = T(p).replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; }
+
+/* ---------------------------------------------------------------- 3. normalise */
+function norm(r){
+  if(!r || typeof r !== 'object') return r;
+  if(!r.id) r.id = imId();
+  r.sender_name       = TR(r.sender_name || r.name || '');
+  r.sender_mobile     = TR(r.sender_mobile || r.mobile || r.phone || '');
+  r.sender_email      = TR(r.sender_email || r.email || '');
+  r.sender_city_state = TR(r.sender_city_state || r.city || '');
+  r.product           = TR(r.product || '');
+  r.company           = TR(r.company || '');
+  r.query_type        = TR(r.query_type || '');
+  r.note              = TR(r.note || '');
+  r.query_time        = normTime(r.query_time || r.createdAt || new Date());
+  r.date              = /^\d{4}-\d{2}-\d{2}$/.test(T(r.date)) ? r.date : isoOf(r.query_time);
+  r.lead_status       = statusOf(r.lead_status);
+  r.status            = r.lead_status;        /* history view isi field ko padhti hai */
+  if(!r.assigned_to && r.owner) r.assigned_to = nameOf(r.owner);
+  if(!r.owner && r.assigned_to){ var e = emailOfName(r.assigned_to); if(e) r.owner = e; }
+  r.assigned_to = TR(r.assigned_to);
+  r.owner  = LC(r.owner);
+  r.source = r.source || 'IndiaMART';
+  if(!r.createdAt) r.createdAt = new Date().toISOString();
+  return r;
+}
+function normAll(persist){
+  var arr = imAll(), changed = false;
+  arr.forEach(function(r){
+    var was = JSON.stringify(r);
+    norm(r);
+    if(JSON.stringify(r) !== was) changed = true;
+  });
+  if(changed && persist !== false) imSave(arr);
+  return arr;
+}
+window.ocIndiamartAll = imAll;
+window.ocIndiamartSave = imSave;
+window.ocIndiamartNorm = norm;
+
+/* ---------------------------------------------------------------- 4. view state */
+window.__imQ    = window.__imQ    || '';
+window.__imFilt = window.__imFilt || { status:'', owner:'' };
+window.__imSort = window.__imSort || { k:'query_time', dir:-1 };
+window.__imLim  = window.__imLim  || PAGE;
+
+function mine(){
+  var all = normAll(false);
+  try{ return (typeof scope === 'function') ? (scope(all, KEY) || []) : all; }catch(e){ return all; }
+}
+function visible(){
+  var f = window.__imFilt, q = LC(window.__imQ);
+  return mine().filter(function(l){
+    if(f.status && statusOf(l.lead_status) !== f.status) return false;
+    if(f.owner === '__none__'){ if(l.owner || l.assigned_to) return false; }
+    else if(f.owner && LC(l.owner) !== LC(f.owner)) return false;
+    if(!q) return true;
+    return [l.query_time, l.sender_name, l.sender_mobile, l.sender_email, l.sender_city_state,
+            l.product, l.company, l.lead_status, l.assigned_to, l.note].join(' ').toLowerCase().indexOf(q) >= 0;
+  });
+}
+function sorted(list){
+  var s = window.__imSort;
+  return list.slice().sort(function(a, b){
+    var av, bv;
+    if(s.k === 'query_time'){ av = timeKey(a.query_time); bv = timeKey(b.query_time); }
+    else { av = LC(a[s.k]); bv = LC(b[s.k]); }
+    if(av < bv) return -1 * s.dir;
+    if(av > bv) return  1 * s.dir;
+    return 0;
+  });
+}
+
+/* ---------------------------------------------------------------- 5. render */
+window.renderIndiamart = function(){
+  var admin = isAdm();
+  var all   = mine();
+  var list  = sorted(visible());
+  var rows  = list.slice(0, Math.min(window.__imLim, list.length));
+
+  var byStatus = {};
+  list.forEach(function(l){ var s = statusOf(l.lead_status); byStatus[s] = (byStatus[s] || 0) + 1; });
+  var unassigned = list.filter(function(l){ return !l.owner && !l.assigned_to; }).length;
+
+  var kpi = '<div class="kpi-grid" style="margin-bottom:16px">'
+    + '<div class="kpi"><div class="val tabular">' + list.length + '</div><div class="lbl">Total leads</div></div>'
+    + STATUSES.filter(function(s){ return byStatus[s]; }).map(function(s){
+        return '<div class="kpi"><div class="val tabular">' + byStatus[s] + '</div><div class="lbl">' + E(STATUS_LABEL[s]) + '</div></div>';
+      }).join('')
+    + (admin ? '<div class="kpi"><div class="val tabular">' + unassigned + '</div><div class="lbl">Unassigned</div></div>' : '')
+    + '</div>';
+
+  var statOpts = '<option value="">All status</option>' + STATUSES.map(function(s){
+    return '<option value="' + A(s) + '"' + (window.__imFilt.status === s ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>';
+  }).join('');
+  var ownOpts = '<option value="">All owners</option><option value="__none__"' + (window.__imFilt.owner === '__none__' ? ' selected' : '') + '>— Unassigned —</option>'
+    + roster().map(function(u){
+        return '<option value="' + A(u.email) + '"' + (LC(window.__imFilt.owner) === LC(u.email) ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>';
+      }).join('');
+
+  function th(k, label){
+    var on = window.__imSort.k === k;
+    var arrow = on ? (window.__imSort.dir === 1 ? ' ▲' : ' ▼') : '';
+    return '<th style="cursor:pointer;white-space:nowrap" onclick="IM.sort(\'' + k + '\')" title="Sort">' + E(label) + arrow + '</th>';
+  }
+
+  var body = rows.map(function(l){
+    var edit = mayTouch(l) && allow('edit');
+    var st   = statusOf(l.lead_status);
+    var statusCell = edit
+      ? '<select class="field" style="padding:4px 8px;font-size:12px" onchange="IM.setStatus(\'' + A(l.id) + '\',this.value)">'
+          + STATUSES.map(function(s){ return '<option value="' + A(s) + '"' + (s === st ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>'; }).join('')
+        + '</select>'
+      : '<span class="chip ' + statusChipClass(st) + '">' + E(STATUS_LABEL[st] || st) + '</span>';
+    var ownCell = admin
+      ? '<select class="field" style="padding:4px 8px;font-size:12px" onchange="IM.setAssign(\'' + A(l.id) + '\',this.value)">'
+          + '<option value="">— Unassigned —</option>'
+          + roster().map(function(u){
+              var on = LC(u.email) === LC(l.owner) || (!l.owner && LC(u.name) === LC(l.assigned_to));
+              return '<option value="' + A(u.email) + '"' + (on ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>';
+            }).join('')
+        + '</select>'
+      : E(l.assigned_to || nameOf(l.owner) || '—');
+
+    return '<tr>'
+      + '<td class="sub tabular" style="white-space:nowrap">' + E(l.query_time || '—') + '</td>'
+      + '<td><span class="strong">' + E(l.sender_name || '—') + '</span>'
+        + (l.company ? '<div class="sub">' + E(l.company) + '</div>' : '') + '</td>'
+      + '<td class="tabular" style="white-space:nowrap">' + E(l.sender_mobile || '—')
+        + (l.sender_email ? '<div class="sub">' + E(l.sender_email) + '</div>' : '') + '</td>'
+      + '<td>' + E(l.sender_city_state || '—') + '</td>'
+      + '<td>' + E(l.product || '—')
+        + (l.query_type ? '<div class="sub">' + E(l.query_type) + '</div>' : '') + '</td>'
+      + '<td>' + statusCell + '</td>'
+      + '<td>' + ownCell + '</td>'
+      + '<td><div class="row-actions" style="display:flex;gap:4px">'
+        + '<button title="Edit" onclick="IM.form(\'' + A(l.id) + '\')">Edit</button>'
+        + '<button title="Enquiry banao" onclick="IM.convert(\'' + A(l.id) + '\')">→ Enq</button>'
+        + (edit && allow('delete') ? '<button title="Delete" onclick="IM.del(\'' + A(l.id) + '\')">✕</button>' : '')
+      + '</div></td>'
+      + '</tr>';
+  }).join('');
+
+  content.innerHTML = kpi
+    + '<div class="card">'
+    + '<div class="card-head"><h3>IndiaMART Leads <span class="chip c-neutral" style="margin-left:4px">' + list.length + '</span></h3>'
+    +   '<div class="tools">'
+    +     '<input class="field" id="imSearch" placeholder="Search name / mobile / city / product…" value="' + A(window.__imQ) + '" style="min-width:190px">'
+    +     '<select class="field" id="imFStat">' + statOpts + '</select>'
+    +     (admin ? '<select class="field" id="imFOwn">' + ownOpts + '</select>' : '')
+    +     '<button class="btn sm" onclick="IM.bulkBox()">⬆ Bulk Upload</button>'
+    +     '<button class="btn sm" onclick="IM.exportXlsx()">Excel</button>'
+    +     (admin ? '<button class="btn sm" onclick="IM.syncSheet()">Sync to Sheet</button>' : '')
+    +     (allow('create') ? '<button class="btn primary sm" onclick="IM.form()">+ Add Lead</button>' : '')
+    +   '</div>'
+    + '</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr>'
+    +   th('query_time', 'Query time') + th('sender_name', 'Buyer') + th('sender_mobile', 'Mobile')
+    +   th('sender_city_state', 'City / State') + th('product', 'Product / Requirement')
+    +   th('lead_status', 'Status') + th('assigned_to', 'Assigned to') + '<th></th>'
+    + '</tr></thead><tbody id="im-body">'
+    + (body || '<tr><td colspan="8" class="empty">' + (all.length ? 'Is filter par koi lead nahi mili.'
+        : 'Abhi koi IndiaMART lead nahi hai. <b>Bulk Upload</b> se apni IndiaMART export file (Excel / CSV) daal dijiye.') + '</td></tr>')
+    + '</tbody></table></div>'
+    + (list.length > rows.length
+        ? '<div style="padding:10px 20px 14px"><button class="btn sm" onclick="IM.more()">Load ' + Math.min(PAGE, list.length - rows.length) + ' more</button></div>'
+        : '')
+    + '</div>';
+
+  var si = $$('imSearch');
+  if(si){
+    si.oninput = function(){
+      window.__imQ = si.value;
+      clearTimeout(window.__imT);
+      window.__imT = setTimeout(function(){
+        var pos = si.selectionStart;
+        window.__imLim = PAGE;
+        renderIndiamart();
+        var n = $$('imSearch');
+        if(n){ n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} }
+      }, 220);
+    };
+  }
+  function bind(id, k){ var el = $$(id); if(el) el.onchange = function(){ window.__imFilt[k] = el.value; window.__imLim = PAGE; renderIndiamart(); }; }
+  bind('imFStat', 'status');
+  bind('imFOwn', 'owner');
+
+  try{ if(typeof ocPaginate === 'function') ocPaginate(); }catch(e){}
+  try{ if(typeof ocApplyViewPerms === 'function') ocApplyViewPerms(); }catch(e){}
+};
+
+/* ---------------------------------------------------------------- 6. actions */
+var IM = {};
+IM.sort = function(k){
+  if(window.__imSort.k === k) window.__imSort.dir *= -1;
+  else window.__imSort = { k:k, dir:(k === 'query_time' ? -1 : 1) };
+  renderIndiamart();
+};
+IM.more = function(){ window.__imLim += PAGE; renderIndiamart(); };
+
+IM.setStatus = function(id, val){
+  if(!allow('edit')) return noPerm('edit');
+  var arr = imAll(), l = find(arr, id);
+  if(!l) return;
+  if(!mayTouch(l)){ tell('Ye lead aapki nahi hai.'); return; }
+  var from = statusOf(l.lead_status), to = statusOf(val);
+  if(from === to) return;
+  l.lead_status  = to;
+  l.statusBy     = meEmail();
+  l.updatedAt    = new Date().toISOString();
+  l.statusUpdatedAt = l.updatedAt;
+  if(to === 'QUALIFIED' && !l.qualifiedAt) l.qualifiedAt = l.updatedAt;
+  imSave(arr);
+  try{
+    if(typeof ocLogChange === 'function'){
+      ocLogChange({ coll:KEY, recId:id, recName:(l.sender_name || l.sender_mobile), field:'status',
+                    from:from, to:to, remark:'', owner:l.owner, sp:l.assigned_to, createdAt:l.createdAt });
+    }
+  }catch(e){}
+  tell('Status: ' + statusLabel(to));
+  if(state && state.view === VIEW) renderIndiamart();
+  else if(state && state.view === 'qualified' && typeof renderQualified === 'function') renderQualified();
+};
+
+IM.setAssign = function(id, email){
+  if(!isAdm()) return;
+  var arr = imAll(), l = find(arr, id);
+  if(!l) return;
+  var from = LC(l.owner);
+  l.owner       = LC(email);
+  l.assigned_to = email ? nameOf(email) : '';
+  l.updatedAt   = new Date().toISOString();
+  imSave(arr);
+  try{
+    if(typeof ocLogChange === 'function' && from !== LC(email)){
+      ocLogChange({ coll:KEY, recId:id, recName:(l.sender_name || l.sender_mobile), field:'assigned',
+                    from:nameOf(from), to:l.assigned_to, remark:'Lead reassigned', owner:l.owner,
+                    sp:l.assigned_to, createdAt:l.createdAt });
+    }
+  }catch(e){}
+  tell(email ? 'Assigned to ' + l.assigned_to : 'Unassigned');
+  renderIndiamart();
+};
+
+IM.del = function(id){
+  if(!allow('delete')) return noPerm('delete');
+  var arr = imAll(), l = find(arr, id);
+  if(!l) return;
+  if(!mayTouch(l)){ tell('Ye lead aapki nahi hai.'); return; }
+  if(!confirm('Ye IndiaMART lead delete kar dein?\n\n' + (l.sender_name || l.sender_mobile || l.id))) return;
+  imSave(arr.filter(function(x){ return T(x.id) !== T(id); }));
+  try{ if(typeof CLOUD !== 'undefined' && typeof CLOUD.remove === 'function') CLOUD.remove(KEY, id); }catch(e){}
+  tell('Lead delete ho gaya');
+  renderIndiamart();
+};
+
+IM.form = function(id){
+  if(!allow(id ? 'edit' : 'create')) return noPerm(id ? 'edit' : 'create');
+  var arr = imAll();
+  var l = id ? find(arr, id) : null;
+  if(id && !l) return;
+  if(l && !mayTouch(l)){ tell('Ye lead aapki nahi hai.'); return; }
+  var admin = isAdm();
+  l = norm(l || { lead_status:'CREATED', query_time:fmtTS(new Date()) });
+
+  var ownSel = admin
+    ? '<div><label>Assigned to</label><select id="imOwner"><option value="">— Unassigned —</option>'
+      + roster().map(function(u){
+          var on = LC(u.email) === LC(l.owner);
+          return '<option value="' + A(u.email) + '"' + (on ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>';
+        }).join('') + '</select></div>'
+    : '<div><label>Assigned to</label><input value="' + A(l.assigned_to || nameOf(l.owner)) + '" disabled></div>';
+
+  openModal(
+    '<div class="modal-head"><h3>' + (id ? 'Edit' : 'New') + ' IndiaMART Lead</h3>'
+    + '<button class="icon-btn" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body">'
+    + '<div class="form-row two"><div><label>Query time</label><input id="imTime" value="' + A(l.query_time) + '" placeholder="DD-MM-YYYY HH:MM:SS"></div>'
+    +   '<div><label>Buyer name</label><input id="imName" value="' + A(l.sender_name) + '"></div></div>'
+    + '<div class="form-row two"><div><label>Mobile</label><input id="imMob" value="' + A(l.sender_mobile) + '"></div>'
+    +   '<div><label>Email</label><input id="imMail" value="' + A(l.sender_email) + '"></div></div>'
+    + '<div class="form-row two"><div><label>City / State</label><input id="imCity" value="' + A(l.sender_city_state) + '"></div>'
+    +   '<div><label>Company</label><input id="imComp" value="' + A(l.company) + '"></div></div>'
+    + '<div class="form-row two"><div><label>Product / Requirement</label><input id="imProd" value="' + A(l.product) + '"></div>'
+    +   '<div><label>Query type</label><input id="imType" value="' + A(l.query_type) + '" placeholder="Direct Enquiry / Buy Lead"></div></div>'
+    + '<div class="form-row two"><div><label>Status</label><select id="imStat">'
+      + STATUSES.map(function(s){ return '<option value="' + A(s) + '"' + (s === statusOf(l.lead_status) ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>'; }).join('')
+      + '</select></div>'
+    + ownSel + '</div>'
+    + '<div class="form-row"><label>Note</label><textarea id="imNote" rows="3">' + E(l.note) + '</textarea></div>'
+    + '</div>'
+    + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button>'
+    + '<button class="btn primary" onclick="IM.save(' + (id ? "'" + A(id) + "'" : 'null') + ')">Save</button></div>'
+  );
+};
+
+IM.save = function(id){
+  if(!allow(id ? 'edit' : 'create')) return noPerm(id ? 'edit' : 'create');
+  var arr = imAll();
+  var v = function(x){ var e = $$(x); return e ? TR(e.value) : ''; };
+  var rec = id ? find(arr, id) : null;
+  var isNew = !rec;
+  if(isNew) rec = { id:imId(), createdAt:new Date().toISOString(), source:'IndiaMART' };
+  var from = statusOf(rec.lead_status);
+
+  rec.query_time       = normTime(v('imTime')) || fmtTS(new Date());
+  rec.sender_name      = v('imName');
+  rec.sender_mobile    = v('imMob');
+  rec.sender_email     = v('imMail');
+  rec.sender_city_state= v('imCity');
+  rec.company          = v('imComp');
+  rec.product          = v('imProd');
+  rec.query_type       = v('imType');
+  rec.lead_status      = statusOf(v('imStat'));
+  rec.note             = v('imNote');
+  if(isAdm()){
+    var em = v('imOwner');
+    rec.owner = LC(em);
+    rec.assigned_to = em ? nameOf(em) : '';
+  } else if(!rec.owner){
+    rec.owner = meEmail();
+    rec.assigned_to = nameOf(rec.owner);
+  }
+  if(!rec.sender_name && !rec.sender_mobile && !rec.sender_email){ tell('Naam, mobile ya email me se kuch to daaliye.'); return; }
+  if(rec.lead_status === 'QUALIFIED' && !rec.qualifiedAt) rec.qualifiedAt = new Date().toISOString();
+  rec.updatedAt = new Date().toISOString();
+  norm(rec);
+  if(isNew) arr.unshift(rec);
+  imSave(arr);
+  try{
+    if(typeof ocLogChange === 'function'){
+      if(isNew){
+        ocLogChange({ coll:KEY, recId:rec.id, recName:(rec.sender_name || rec.sender_mobile), field:'created',
+                      from:'', to:rec.lead_status, remark:'Lead added', owner:rec.owner, sp:rec.assigned_to, createdAt:rec.createdAt });
+      } else if(from !== rec.lead_status){
+        ocLogChange({ coll:KEY, recId:rec.id, recName:(rec.sender_name || rec.sender_mobile), field:'status',
+                      from:from, to:rec.lead_status, remark:'', owner:rec.owner, sp:rec.assigned_to, createdAt:rec.createdAt });
+      }
+    }
+  }catch(e){}
+  closeModal();
+  tell(isNew ? 'Lead add ho gaya' : 'Lead update ho gaya');
+  renderIndiamart();
+};
+
+/* ---- ek click me Enquiry ---- */
+IM.convert = function(id){
+  var arr = imAll(), l = find(arr, id);
+  if(!l) return;
+  if(!mayTouch(l)){ tell('Ye lead aapki nahi hai.'); return; }
+  if(l.enquiryId){ tell('Is lead ki enquiry pehle hi ban chuki hai (' + l.enquiryId + ')'); return; }
+  try{ if(typeof can === 'function' && !can('enquiries', 'create')){ noPerm('create'); return; } }catch(e){}
+  var owner = l.owner || meEmail();
+  var d = new Date();
+  var enq = {
+    id: 'ENQ-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase(),
+    date: d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()),
+    customer: l.company || l.sender_name || l.sender_mobile || 'IndiaMART Lead',
+    custId: '', product: l.product || '', prodId: '', qty: 1,
+    source: 'IndiaMART',
+    salesperson: nameOf(owner) || '',
+    priority: 'Medium',
+    stage: (statusOf(l.lead_status) === 'CREATED' ? 'New' : 'Qualified'),
+    note: [l.note, l.sender_mobile ? 'Mobile: ' + l.sender_mobile : '', l.sender_email ? 'Email: ' + l.sender_email : '',
+           l.sender_city_state ? 'City: ' + l.sender_city_state : '', 'IndiaMART lead ' + l.id].filter(Boolean).join(' | '),
+    value: 0,
+    owner: owner
+  };
+  var eArr = [];
+  try{ eArr = DB.enquiries() || []; }catch(e){ eArr = []; }
+  eArr.unshift(enq);
+  try{ DB.save('enquiries', eArr); }catch(e){}
+  l.enquiryId = enq.id;
+  l.updatedAt = new Date().toISOString();
+  imSave(arr);
+  tell('Enquiry ban gayi: ' + enq.id);
+  if(state && state.view === VIEW) renderIndiamart();
+};
+
+IM.syncSheet = function(){
+  if(!isAdm()) return;
+  var arr = normAll(true);
+  try{ CLOUD.push(KEY, arr); tell('Backend sheet par ' + arr.length + ' leads bheje ja rahe hain…'); }
+  catch(e){ tell('Sync fail hua — internet check kijiye'); }
+};
+
+/* ---------------------------------------------------------------- 7. export */
+IM.exportXlsx = function(){
+  var list = sorted(visible());
+  if(!list.length){ tell('Nothing to export'); return; }
+  var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+  Promise.resolve(pre).then(function(ok){
+    if(ok === false || typeof XLSX === 'undefined') return;
+    var rows = list.map(function(l){
+      return {
+        'Query Time': l.query_time, 'Buyer': l.sender_name, 'Company': l.company,
+        'Mobile': l.sender_mobile, 'Email': l.sender_email, 'City / State': l.sender_city_state,
+        'Product / Requirement': l.product, 'Query Type': l.query_type,
+        'Status': STATUS_LABEL[statusOf(l.lead_status)] || l.lead_status,
+        'Assigned To': l.assigned_to || nameOf(l.owner), 'Note': l.note,
+        'Enquiry Id': l.enquiryId || ''
+      };
+    });
+    var ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = Object.keys(rows[0]).map(function(k){
+      var w = k.length;
+      rows.forEach(function(r){ w = Math.max(w, T(r[k]).length); });
+      return { wch: Math.min(w + 2, 40) };
+    });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'IndiaMART');
+    XLSX.writeFile(wb, 'OakCraft-indiamart-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    tell('Downloaded ' + rows.length + ' rows ✓');
+  });
+};
+
+/* ---------------------------------------------------------------- 8. bulk upload */
+var BULK_MAP = {
+  query_time:        ['query_time','query_date','date','datetime','date_time','timestamp','time','created','created_time','lead_date','enquiry_date'],
+  sender_name:       ['sender_name','name','buyer_name','customer_name','contact_person','person_name','sender','buyer'],
+  sender_mobile:     ['sender_mobile','sender_mobile_no','mobile','mobile_no','mobile_number','phone','phone_no','phone_number','contact','contact_no','whatsapp'],
+  sender_email:      ['sender_email','email','email_id','e_mail','mail'],
+  sender_city_state: ['sender_city_state','city_state','city','state','sender_city','location','address','region','area'],
+  company:           ['company','company_name','sender_company','firm','firm_name','organisation','organization'],
+  product:           ['product','product_name','query_product_name','subject','requirement','query','item','product_interest','enquiry_for'],
+  query_type:        ['query_type','type','lead_type','call_type','query_source'],
+  lead_status:       ['lead_status','status','qualification_status','stage','current_status'],
+  assigned_to:       ['assigned_to','assigned_salesperson','assigned','assignee','owner','salesperson','sales_person','sales_executive','executive','agent'],
+  note:              ['note','notes','remarks','message','comments','description','buyer_requirement','query_message']
+};
+function hkey(h){
+  return T(h).replace(/^﻿/, '').trim().toLowerCase()
+    .replace(/[\s\-\/\\.()]+/g, '_').replace(/[^a-z0-9_]/g, '').replace(/_+/g, '_').replace(/^_|_$/g, '');
+}
+function guessSep(t){
+  var first = (T(t).split('\n')[0] || '');
+  var c = [[',', (first.match(/,/g) || []).length], ['\t', (first.match(/\t/g) || []).length], [';', (first.match(/;/g) || []).length]];
+  c.sort(function(a, b){ return b[1] - a[1]; });
+  return c[0][1] ? c[0][0] : ',';
+}
+function parseDelimited(text, sep){
+  text = T(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if(!sep) sep = guessSep(text);
+  var rows = [], row = [], cur = '', q = false;
+  for(var i = 0; i < text.length; i++){
+    var ch = text.charAt(i);
+    if(q){
+      if(ch === '"'){ if(text.charAt(i + 1) === '"'){ cur += '"'; i++; } else q = false; }
+      else cur += ch;
+    }
+    else if(ch === '"'){ q = true; }
+    else if(ch === sep){ row.push(cur); cur = ''; }
+    else if(ch === '\n'){ row.push(cur); rows.push(row); row = []; cur = ''; }
+    else cur += ch;
+  }
+  if(cur !== '' || row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(function(r){
+    for(var j = 0; j < r.length; j++) if(T(r[j]).trim() !== '') return true;
+    return false;
+  });
+}
+function mapHeader(headRow){
+  var hs = (headRow || []).map(hkey), idx = {};
+  for(var f in BULK_MAP){
+    var alts = BULK_MAP[f];
+    for(var a = 0; a < alts.length; a++){
+      var p = hs.indexOf(alts[a]);
+      if(p >= 0){ idx[f] = p; break; }
+    }
+  }
+  return idx;
+}
+function findHeaderRow(rows){
+  for(var i = 0; i < Math.min(rows.length, 8); i++){
+    var idx = mapHeader(rows[i]);
+    if(idx.sender_name != null || idx.sender_mobile != null || idx.sender_email != null) return i;
+  }
+  return 0;
+}
+function rowsToLeads(rows){
+  if(!rows || rows.length < 2) return { leads:[], cols:[] };
+  var hi = findHeaderRow(rows), idx = mapHeader(rows[hi] || []);
+  var got = Object.keys(idx);
+  if(!got.length) return { leads:[], cols:[] };
+  var out = [];
+  for(var i = hi + 1; i < rows.length; i++){
+    var r = rows[i], o = {};
+    for(var f in idx) o[f] = TR(r[idx[f]] == null ? '' : r[idx[f]]);
+    if(!o.sender_name && !o.sender_mobile && !o.sender_email) continue;
+    out.push(o);
+  }
+  return { leads: out, cols: got };
+}
+
+var BU = { leads:[], srcName:'' };
+
+IM.bulkBox = function(){
+  if(!allow('create')) return noPerm('create');
+  BU = { leads:[], srcName:'' };
+  var admin = isAdm();
+  openModal(
+    '<div class="modal-head"><h3>IndiaMART Bulk Upload</h3>'
+    + '<button class="icon-btn" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body">'
+    + '<p style="margin:0 0 12px;color:var(--text-2);font-size:12.5px">IndiaMART se download ki hui Excel / CSV file daal dijiye, ya data seedha paste kar dijiye. '
+    + 'Column ke naam apne aap match hote hain (Sender Name, Sender Mobile, Product, Assigned Salesperson, Status …). Duplicate mobile skip ho jaate hain.</p>'
+    + '<input type="file" id="imFile" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt" style="display:none">'
+    + '<div id="imDrop" onclick="document.getElementById(\'imFile\').click()" '
+    +   'style="border:1.5px dashed var(--border);border-radius:12px;padding:22px 16px;text-align:center;background:var(--surface-2);cursor:pointer">'
+    +   '<b style="display:block;margin-bottom:4px">Excel ya CSV file yahan chhodiye</b>'
+    +   '<span style="font-size:12px;color:var(--muted)">ya click karke choose kijiye · .xlsx .xls .csv .tsv</span>'
+    + '</div>'
+    + '<div class="form-row" style="margin-top:12px"><label>…ya data paste kijiye (header row ke saath)</label>'
+    +   '<textarea id="imPaste" rows="5" style="font:12px/1.5 ui-monospace,Menlo,monospace" '
+    +   'placeholder="Query Time,Sender Name,Sender Mobile,Sender City/State,Product,Status,Assigned Salesperson"></textarea>'
+    +   '<button class="btn sm" style="margin-top:6px" onclick="IM.buPaste()">Read pasted data</button>'
+    + '</div>'
+    + '<div id="imBuBody" style="margin:12px 0;font-size:12.5px;color:var(--muted)"></div>'
+    + '<div id="imBuOpts" style="display:none">'
+    +   '<div class="form-row two">'
+    +   (admin ? '<div><label>Assign all to</label>'
+    +     '<select id="imBuOwn"><option value="">— file ka assigned_to use karo —</option>'
+    +     roster().map(function(u){ return '<option value="' + A(u.email) + '">' + E(u.name || u.email) + '</option>'; }).join('')
+    +     '</select></div>' : '')
+    +   '<div><label>Default status</label>'
+    +     '<select id="imBuStat">'
+    +     STATUSES.map(function(s){ return '<option value="' + A(s) + '"' + (s === 'CREATED' ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>'; }).join('')
+    +     '</select></div>'
+    +   '</div>'
+    +   '<div class="form-row"><label style="font-weight:600">'
+    +     '<input type="checkbox" id="imBuDedup" checked style="width:auto;margin-right:6px;vertical-align:-1px">Duplicate mobile / email wale leads skip karo</label></div>'
+    + '</div>'
+    + '</div>'
+    + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button>'
+    + '<button class="btn primary" id="imBuGo" onclick="IM.buApply()" disabled style="opacity:.5">Upload</button></div>'
+  );
+  var inp = $$('imFile');
+  if(inp) inp.onchange = function(){ if(inp.files && inp.files[0]) IM.buRead(inp.files[0]); };
+  var drop = $$('imDrop');
+  if(drop){
+    ['dragenter','dragover'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.style.borderColor = 'var(--brand)'; }); });
+    ['dragleave','drop'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.style.borderColor = 'var(--border)'; }); });
+    drop.addEventListener('drop', function(e){
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f) IM.buRead(f);
+    });
+  }
+};
+
+function buShow(msg, ok){
+  var b = $$('imBuBody'); if(b) b.innerHTML = msg;
+  var go = $$('imBuGo'), opts = $$('imBuOpts');
+  if(go){ go.disabled = !ok; go.style.opacity = ok ? '1' : '.5'; }
+  if(opts) opts.style.display = ok ? 'block' : 'none';
+}
+function buSetRows(rows){
+  var p = rowsToLeads(rows);
+  BU.leads = p.leads;
+  if(!p.leads.length){
+    buShow('Koi lead nahi mili — header row (Sender Name / Sender Mobile waali line) file me honi chahiye.', false);
+    return;
+  }
+  var sample = p.leads.slice(0, 3).map(function(l){
+    return '<div style="padding:3px 0">• ' + E(l.sender_name || '—') + ' · ' + E(l.sender_mobile || '—') + ' · ' + E(l.product || '—') + '</div>';
+  }).join('');
+  buShow('<b style="color:var(--text)">' + p.leads.length + ' lead</b> mile' + (BU.srcName ? ' (' + E(BU.srcName) + ')' : '')
+       + ' — columns: ' + E(p.cols.join(', ')) + sample, true);
+}
+IM.buRead = function(file){
+  BU.srcName = file.name || 'file';
+  buShow('Reading <b>' + E(BU.srcName) + '</b>…', false);
+  if(/\.(csv|tsv|txt)$/i.test(file.name || '')){
+    var fr = new FileReader();
+    fr.onload = function(){ buSetRows(parseDelimited(T(fr.result))); };
+    fr.onerror = function(){ buShow('File padhi nahi ja saki.', false); };
+    fr.readAsText(file);
+    return;
+  }
+  var pre = (typeof ensureXLSX === 'function') ? ensureXLSX() : Promise.resolve(true);
+  Promise.resolve(pre).then(function(){
+    var fr = new FileReader();
+    fr.onload = function(){
+      try{
+        var wb = XLSX.read(new Uint8Array(fr.result), { type:'array', cellDates:true });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'', blankrows:false });
+        buSetRows(rows.map(function(r){ return (r || []).map(function(c){ return c == null ? '' : T(c); }); }));
+      }catch(e){ buShow('Excel padhi nahi ja saki — file check kijiye.', false); }
+    };
+    fr.onerror = function(){ buShow('File padhi nahi ja saki.', false); };
+    fr.readAsArrayBuffer(file);
+  }, function(){ buShow('Excel library load nahi hui — internet check kijiye.', false); });
+};
+IM.buPaste = function(){
+  var el = $$('imPaste');
+  BU.srcName = 'pasted data';
+  buSetRows(parseDelimited(el ? el.value : ''));
+};
+IM.buApply = function(){
+  if(!allow('create')) return noPerm('create');
+  if(!BU.leads.length) return;
+  var arr = imAll();
+  var forceOwner = $$('imBuOwn') ? TR($$('imBuOwn').value) : '';
+  var defStat    = $$('imBuStat') ? statusOf($$('imBuStat').value) : 'CREATED';
+  var dedup      = $$('imBuDedup') ? !!$$('imBuDedup').checked : true;
+  var seen = {};
+  arr.forEach(function(l){
+    var k = phoneKey(l.sender_mobile) || LC(l.sender_email);
+    if(k) seen[k] = 1;
+  });
+  var added = 0, dup = 0, my = meEmail();
+  BU.leads.forEach(function(o){
+    var k = phoneKey(o.sender_mobile) || LC(o.sender_email);
+    if(dedup && k && seen[k]){ dup++; return; }
+    if(k) seen[k] = 1;
+    var rec = {
+      id: imId(),
+      query_time: normTime(o.query_time) || fmtTS(new Date()),
+      sender_name: TR(o.sender_name), sender_mobile: TR(o.sender_mobile), sender_email: TR(o.sender_email),
+      sender_city_state: TR(o.sender_city_state), company: TR(o.company), product: TR(o.product),
+      query_type: TR(o.query_type), note: TR(o.note),
+      lead_status: o.lead_status ? statusOf(o.lead_status) : defStat,
+      source: 'IndiaMART',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    var owner = forceOwner || emailOfName(o.assigned_to);
+    if(!isAdm() && !owner) owner = my;
+    rec.owner = LC(owner);
+    rec.assigned_to = owner ? nameOf(owner) : TR(o.assigned_to);
+    if(rec.lead_status === 'QUALIFIED') rec.qualifiedAt = rec.createdAt;
+    norm(rec);
+    arr.unshift(rec);
+    added++;
+  });
+  imSave(arr);
+  closeModal();
+  tell(added + ' IndiaMART lead upload hue' + (dup ? ', ' + dup + ' duplicate chhode' : ''));
+  window.__imLim = PAGE;
+  renderIndiamart();
+};
+
+window.IM = IM;
+
+/* ---------------------------------------------------------------- 9. registration */
+try{ if(typeof CLOUD !== 'undefined' && CLOUD.keys && CLOUD.keys.indexOf(KEY) < 0) CLOUD.keys.push(KEY); }catch(e){}
+try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['IndiaMART', 'IndiaMART enquiries · assign, qualify & convert']; }catch(e){}
+try{ if(typeof PERM_SECTIONS !== 'undefined' && PERM_SECTIONS.indexOf(VIEW) < 0) PERM_SECTIONS.push(VIEW); }catch(e){}
+try{ if(typeof SECTION_OF_VIEW !== 'undefined') SECTION_OF_VIEW[VIEW] = VIEW; }catch(e){}
+try{ if(typeof SECTION_OF_KEY !== 'undefined') SECTION_OF_KEY[KEY] = VIEW; }catch(e){}
+
+/* router: setView ka apna map sirf purane views jaanta hai, isliye naye view
+   ko yahin se paint karte hain (permission check pehle). */
+(function(){
+  var _setView = window.setView;
+  if(typeof _setView !== 'function') return;
+  window.setView = function(v){
+    if(v !== VIEW) return _setView.apply(this, arguments);
+    if(!allow('view')){ noPerm('view'); return _setView.call(this, 'dashboard'); }
+    try{ state.view = VIEW; }catch(e){}
+    try{
+      document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active', a.dataset.view === VIEW); });
+      var t = $$('pageTitle'), s = $$('pageSub');
+      if(t && t.childNodes[0]) t.childNodes[0].nodeValue = 'IndiaMART';
+      if(s) s.textContent = 'IndiaMART enquiries · assign, qualify & convert';
+      var sb = $$('searchBox'); if(sb) sb.style.display = 'none';
+      var qa = $$('quickAdd'); if(qa) qa.style.display = 'none';
+      Object.keys(state.charts || {}).forEach(function(k){ try{ state.charts[k].destroy(); }catch(e){} });
+      state.charts = {};
+    }catch(e){}
+    try{ localStorage.setItem('oc_lastView', VIEW); }catch(e){}
+    renderIndiamart();
+    try{ content.scrollTop = 0; }catch(e){}
+    try{ if(typeof navOpen === 'function') navOpen(false); }catch(e){}
+    try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+    return true;
+  };
+})();
+
+/* sidebar badge */
+(function(){
+  var _rb = window.refreshBadges;
+  window.refreshBadges = function(){
+    var r = (typeof _rb === 'function') ? _rb.apply(this, arguments) : undefined;
+    try{
+      var el = $$('nb-im');
+      if(el){ var n = mine().length; if(el.textContent !== String(n)) el.textContent = String(n); }
+    }catch(e){}
+    return r;
+  };
+})();
+
+/* Activity Log ka section filter v22 ke andar band hai (list wahin likhi hai),
+   isliye render ke baad IndiaMART ka option yahin se jod dete hain -- warna
+   IndiaMART ki history sirf "All sections" me hi dikhti. */
+(function(){
+  var _sv = window.setView;
+  if(typeof _sv !== 'function') return;
+  window.setView = function(v){
+    var r = _sv.apply(this, arguments);
+    try{
+      if(v === 'activity'){
+        var sel = $$('oc-ac-coll');
+        if(sel && !sel.querySelector('option[value="' + KEY + '"]')){
+          var o = document.createElement('option');
+          o.value = KEY; o.textContent = KEY;
+          sel.appendChild(o);
+        }
+      }
+    }catch(e){}
+    return r;
+  };
+})();
+
+/* naya data aaye to khula section apne aap refresh ho jaaye */
+try{
+  if(typeof CLOUD !== 'undefined' && typeof CLOUD.pull === 'function'){
+    var _pullIM = CLOUD.pull;
+    CLOUD.pull = function(){
+      var self = this;
+      return Promise.resolve(_pullIM.apply(self, arguments)).then(function(r){
+        try{
+          if(state && state.view === VIEW && !(window.__ocUserTyping && window.__ocUserTyping())) renderIndiamart();
+          if(typeof refreshBadges === 'function') refreshBadges();
+        }catch(e){}
+        return r;
+      });
+    };
+  }
+}catch(e){}
+
+try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+console.log('[oc v30] IndiaMART section active (collection ' + KEY + ')');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 33. OAKCRAFT v31 — QUALIFIED SECTION                                    *
+ *                                                                        *
+ *   Enquiries, IndiaMART aur Meta Leads — teeno me se jis bhi lead ka     *
+ *   status QUALIFIED hota hai, wo apne aap is section me aa jaati hai     *
+ *   (apne section me bhi dikhti rehti hai, kahin se gaayab nahi hoti).    *
+ *                                                                        *
+ *   Yahan uske aage ka safar chalta hai — 4 subsections, jo seedhe        *
+ *   status se bante hain:                                                 *
+ *       System Master · Quotation Sent · Won · Lost                       *
+ *   Qualified lead ka status inme se koi bhi set karte hi wo usi          *
+ *   subsection me chala jaata hai aur wahin count hota hai.               *
+ *                                                                        *
+ *   Status kis field me likha jaata hai:                                  *
+ *       enquiries       -> stage   (New / Contacted / Qualified /         *
+ *                                   System Master / Quoted / Won / Lost)  *
+ *       metaLeads       -> lead_status (+ stage auto-link, jaise pehle)   *
+ *       indiamartLeads  -> lead_status                                    *
+ *   'Quoted' aur 'Quotation Sent' ek hi cheez hain — enquiry me purana    *
+ *   'Quoted' hi likha jaata hai (quotation flow usi par tika hai) aur     *
+ *   yahan uska naam "Quotation Sent" dikhta hai.                          *
+ *                                                                        *
+ *   Har status change purane hi raaste se hota hai (ocMoveEnq /           *
+ *   ML.setStatus / IM.setStatus), isliye remark, permission, owner        *
+ *   check aur history sab waise ke waise chalte hain.                     *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocQualified) return; window.__ocQualified = true;
+
+var VIEW = 'qualified';
+
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LC(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function A(v){ return E(v).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function $$(id){ return document.getElementById(id); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+function tell(m){ try{ toast(m); }catch(e){} }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function nowISO(){ return new Date().toISOString(); }
+
+/* ---------------------------------------------------------------- 1. buckets */
+var BUCKETS = [
+  { key:'QUALIFIED',      label:'Qualified',       chip:'c-ship' },
+  { key:'SYSTEM_MASTER',  label:'System Master',   chip:'c-prog' },
+  { key:'QUOTATION_SENT', label:'Quotation Sent',  chip:'c-quo'  },
+  { key:'WON',            label:'Won',             chip:'c-won'  },
+  { key:'LOST',           label:'Lost',            chip:'c-lost' }
+];
+var SUBSECTIONS = ['SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];   /* 4 subsections */
+/* Ye do status khud hi bata dete hain ki lead qualified ho chuki hai --
+   inke liye qualifiedAt ka intezaar nahi karna padta. Won / Lost / Quoted
+   bina qualify hue bhi ho sakte hain, isliye unke liye qualifiedAt zaroori hai. */
+var IMPLIES_QUALIFIED = { QUALIFIED:1, SYSTEM_MASTER:1 };
+function bucketLabel(k){
+  for(var i = 0; i < BUCKETS.length; i++) if(BUCKETS[i].key === k) return BUCKETS[i].label;
+  return k;
+}
+function bucketChip(k){
+  for(var i = 0; i < BUCKETS.length; i++) if(BUCKETS[i].key === k) return BUCKETS[i].chip;
+  return 'c-neutral';
+}
+function code(v){ return TR(v).toUpperCase().replace(/[\s\-\/]+/g, '_').replace(/_+/g, '_'); }
+/* koi bhi status -> bucket ('' = abhi qualified hua hi nahi) */
+function bucketOf(v){
+  var c = code(v);
+  if(!c) return '';
+  if(c === 'QUALIFIED' || c === 'INTERESTED') return 'QUALIFIED';
+  if(c === 'SYSTEM_MASTER' || c === 'SYSTEMMASTER' || c === 'SYSTEM') return 'SYSTEM_MASTER';
+  if(c === 'QUOTATION_SENT' || c === 'QUOTATIONSENT' || c === 'QUOTED' || c === 'QUOTATION'
+     || c === 'PROPOSAL' || c === 'QUOTE_SENT') return 'QUOTATION_SENT';
+  if(c === 'WON' || c === 'CONVERTED' || c === 'CLOSED_WON') return 'WON';
+  if(c === 'LOST' || c === 'REJECTED' || c === 'NOT_INTERESTED' || c === 'CLOSED_LOST' || c === 'CLOSED') return 'LOST';
+  return '';
+}
+
+/* har collection me bucket ka apna likha hua roop */
+var ENQ_STAGE = { QUALIFIED:'Qualified', SYSTEM_MASTER:'System Master', QUOTATION_SENT:'Quoted', WON:'Won', LOST:'Lost' };
+var LEAD_CODE = { QUALIFIED:'QUALIFIED', SYSTEM_MASTER:'SYSTEM_MASTER', QUOTATION_SENT:'QUOTATION_SENT', WON:'WON', LOST:'LOST' };
+
+/* ---------------------------------------------------------------- 2. sources */
+function lsArr(k){
+  try{ var a = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function enqArr(){ try{ return DB.enquiries() || []; }catch(e){ return lsArr('enquiries'); } }
+function metaArr(){ return lsArr('metaLeads'); }
+function imArr(){ return lsArr('indiamartLeads'); }
+
+function nameOfEmail(em){
+  var e = LC(em); if(!e) return '';
+  var u = lsArr('users');
+  for(var i = 0; i < u.length; i++) if(LC(u[i] && u[i].email) === e) return TR(u[i].name) || em;
+  return em;
+}
+function scoped(list, coll){
+  try{ return (typeof scope === 'function') ? (scope(list, coll) || []) : list; }catch(e){ return list; }
+}
+
+var SRC = {
+  enquiries: {
+    label: 'Enquiry', key: 'enquiries',
+    all: function(){ return scoped(enqArr(), 'enquiries'); },
+    status: function(r){ return r.stage; },
+    row: function(r){
+      return {
+        src:'enquiries', id:r.id, date:T(r.date), name:T(r.customer), contact:'',
+        product:T(r.product), qty:r.qty, value:(+r.value || 0),
+        person:T(r.salesperson) || nameOfEmail(r.owner), owner:LC(r.owner), rec:r
+      };
+    }
+  },
+  indiamartLeads: {
+    label: 'IndiaMART', key: 'indiamartLeads',
+    all: function(){ return scoped(imArr(), 'indiamartLeads'); },
+    status: function(r){ return r.lead_status; },
+    row: function(r){
+      return {
+        src:'indiamartLeads', id:r.id, date:T(r.date) || isoOfStamp(r.query_time),
+        name:T(r.sender_name) || T(r.company), contact:T(r.sender_mobile),
+        product:T(r.product), qty:'', value:0,
+        person:T(r.assigned_to) || nameOfEmail(r.owner), owner:LC(r.owner), rec:r
+      };
+    }
+  },
+  metaLeads: {
+    label: 'Meta', key: 'metaLeads',
+    all: function(){ return scoped(metaArr(), 'metaLeads'); },
+    status: function(r){ return r.lead_status || r.stage; },
+    row: function(r){
+      return {
+        src:'metaLeads', id:r.id, date:isoOfStamp(r.created_time_ist) || T(r.createdAt).slice(0, 10),
+        name:T(r.full_name) || T(r.name), contact:T(r.phone_number) || T(r.phone),
+        product:T(r.product), qty:'', value:0,
+        person:T(r.assigned_to) || nameOfEmail(r.owner), owner:LC(r.owner), rec:r
+      };
+    }
+  }
+};
+function isoOfStamp(s){
+  var m = T(s).match(/^(\d{2})-(\d{2})-(\d{4})/);
+  return m ? (m[3] + '-' + m[2] + '-' + m[1]) : '';
+}
+
+/* ---------------------------------------------------------------- 3. qualified flag
+   Lead ek baar QUALIFIED ho gayi to uspar qualifiedAt lag jaata hai. Isse
+   baad me Won / Lost hone par bhi wo is section me rehti hai, aur jo lead
+   kabhi qualified hui hi nahi (seedhe Lost ho gayi) wo yahan nahi aati. */
+var sweeping = false;
+function sweep(){
+  if(sweeping) return;
+  sweeping = true;
+  try{
+    ['enquiries','indiamartLeads','metaLeads'].forEach(function(k){
+      var arr = (k === 'enquiries') ? enqArr() : lsArr(k), changed = false;
+      arr.forEach(function(r){
+        if(!r || r.qualifiedAt) return;
+        if(!IMPLIES_QUALIFIED[bucketOf(SRC[k].status(r))]) return;
+        r.qualifiedAt = T(r.updatedAt) || T(r.stageChangedAt) || nowISO();
+        changed = true;
+      });
+      if(!changed) return;
+      try{
+        if(k === 'enquiries') DB.save('enquiries', arr);
+        else store.set(k, arr);
+      }catch(e){}
+    });
+  }catch(e){ console.warn('[oc v31] sweep', e); }
+  sweeping = false;
+}
+
+/* ---------------------------------------------------------------- 4. rows */
+function allRows(){
+  sweep();
+  var out = [];
+  ['enquiries','indiamartLeads','metaLeads'].forEach(function(k){
+    var s = SRC[k];
+    s.all().forEach(function(r){
+      if(!r) return;
+      var b = bucketOf(s.status(r));
+      if(!b) return;
+      if(!IMPLIES_QUALIFIED[b] && !r.qualifiedAt) return;   /* kabhi qualified hui hi nahi */
+      var row = s.row(r);
+      row.bucket = b;
+      row.qualifiedAt = T(r.qualifiedAt);
+      out.push(row);
+    });
+  });
+  return out.sort(function(a, b){
+    return T(b.qualifiedAt || b.date).localeCompare(T(a.qualifiedAt || a.date));
+  });
+}
+
+window.__qlTab  = window.__qlTab  || 'ALL';
+window.__qlQ    = window.__qlQ    || '';
+window.__qlSrc  = window.__qlSrc  || '';
+
+function filtered(rows){
+  var q = LC(window.__qlQ), tab = window.__qlTab, src = window.__qlSrc;
+  return rows.filter(function(r){
+    if(tab !== 'ALL' && r.bucket !== tab) return false;
+    if(src && r.src !== src) return false;
+    if(!q) return true;
+    return [r.id, r.name, r.contact, r.product, r.person].join(' ').toLowerCase().indexOf(q) >= 0;
+  });
+}
+
+/* ---------------------------------------------------------------- 5. render */
+window.renderQualified = function(){
+  var rows  = allRows();
+  var count = { ALL: rows.length };
+  BUCKETS.forEach(function(b){ count[b.key] = 0; });
+  rows.forEach(function(r){ count[r.bucket] = (count[r.bucket] || 0) + 1; });
+
+  var list = filtered(rows);
+  var admin = isAdm();
+
+  /* 4 subsections — seedhe status se bante hain */
+  var cards = '<div class="kpi-grid" style="margin-bottom:16px">'
+    + SUBSECTIONS.map(function(k){
+        var on = window.__qlTab === k;
+        return '<div class="kpi" onclick="QL.tab(\'' + k + '\')" title="' + A(bucketLabel(k)) + ' subsection" '
+             + 'style="cursor:pointer' + (on ? ';outline:2px solid var(--brand)' : '') + '">'
+             + '<div class="val tabular">' + (count[k] || 0) + '</div>'
+             + '<div class="lbl">' + E(bucketLabel(k)) + '</div></div>';
+      }).join('')
+    + '<div class="kpi" onclick="QL.tab(\'QUALIFIED\')" title="Qualified — abhi aage nahi badhi" '
+    +   'style="cursor:pointer' + (window.__qlTab === 'QUALIFIED' ? ';outline:2px solid var(--brand)' : '') + '">'
+    +   '<div class="val tabular">' + (count.QUALIFIED || 0) + '</div><div class="lbl">Qualified (pending)</div></div>'
+    + '</div>';
+
+  var tabs = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">'
+    + [{ key:'ALL', label:'All qualified' }].concat(BUCKETS).map(function(b){
+        var on = window.__qlTab === b.key;
+        return '<button class="btn sm" onclick="QL.tab(\'' + b.key + '\')"'
+             + (on ? ' style="background:var(--brand);color:#fff;border-color:var(--brand)"' : '')
+             + '>' + E(b.label) + ' <span style="opacity:.75">' + (count[b.key] || 0) + '</span></button>';
+      }).join('')
+    + '</div>';
+
+  var body = list.map(function(r){
+    var rec = r.rec;
+    var canEdit = true;
+    try{ canEdit = (typeof canTouch === 'function') ? !!canTouch(rec, r.src) : true; }catch(e){}
+    try{
+      var sec = (r.src === 'enquiries') ? 'enquiries' : (r.src === 'metaLeads' ? 'metaLeads' : 'indiamart');
+      if(typeof can === 'function' && !can(sec, 'edit')) canEdit = false;
+    }catch(e){}
+    var sel = canEdit
+      ? '<select class="field" style="padding:4px 8px;font-size:12px" onchange="QL.setStatus(\'' + A(r.src) + '\',\'' + A(r.id) + '\',this.value)">'
+        + BUCKETS.map(function(b){
+            return '<option value="' + A(b.key) + '"' + (b.key === r.bucket ? ' selected' : '') + '>' + E(b.label) + '</option>';
+          }).join('')
+        + '</select>'
+      : '<span class="chip ' + bucketChip(r.bucket) + '">' + E(bucketLabel(r.bucket)) + '</span>';
+
+    return '<tr>'
+      + '<td><span class="chip c-neutral">' + E(SRC[r.src].label) + '</span></td>'
+      + '<td class="sub tabular" style="white-space:nowrap">' + E(T(r.qualifiedAt).slice(0, 10) || r.date || '—') + '</td>'
+      + '<td><span class="strong">' + E(r.name || '—') + '</span>'
+        + '<div class="sub tabular">' + E(r.id) + '</div></td>'
+      + '<td class="tabular">' + E(r.contact || '—') + '</td>'
+      + '<td>' + E(r.product || '—') + (r.qty ? ' <span class="sub">×' + E(r.qty) + '</span>' : '') + '</td>'
+      + '<td class="tabular">' + (r.value ? money(r.value) : '—') + '</td>'
+      + '<td>' + E(r.person || '—') + '</td>'
+      + '<td>' + sel + '</td>'
+      + '<td><div class="row-actions" style="display:flex;gap:4px">'
+        + '<button title="Record kholo" onclick="QL.open(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Open</button>'
+        + '<button title="Status history" onclick="ocTrackHistory(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">⏱</button>'
+      + '</div></td>'
+      + '</tr>';
+  }).join('');
+
+  content.innerHTML = cards + tabs
+    + '<div class="card">'
+    + '<div class="card-head"><h3>' + E(window.__qlTab === 'ALL' ? 'All qualified leads' : bucketLabel(window.__qlTab))
+    +   ' <span class="chip c-neutral" style="margin-left:4px">' + list.length + '</span></h3>'
+    +   '<div class="tools">'
+    +     '<input class="field" id="qlSearch" placeholder="Search name / contact / product…" value="' + A(window.__qlQ) + '" style="min-width:190px">'
+    +     '<select class="field" id="qlSrc"><option value="">All sources</option>'
+    +       ['enquiries','indiamartLeads','metaLeads'].map(function(k){
+              return '<option value="' + A(k) + '"' + (window.__qlSrc === k ? ' selected' : '') + '>' + E(SRC[k].label) + '</option>';
+            }).join('')
+    +     '</select>'
+    +     '<button class="btn sm" onclick="QL.exportXlsx()">Excel</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Enquiries, IndiaMART aur Meta Leads — jo bhi lead Qualified hui, wo yahan aa jaati hai. '
+    +   'Status badalte hi wo upar wale subsection me chali jaati hai.</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr>'
+    +   '<th>Source</th><th>Qualified on</th><th>Name</th><th>Contact</th><th>Product</th><th>Value</th><th>Salesperson</th><th>Status</th><th></th>'
+    + '</tr></thead><tbody id="ql-body">'
+    + (body || '<tr><td colspan="9" class="empty">' + (rows.length ? 'Is filter par koi lead nahi mili.'
+        : 'Abhi koi qualified lead nahi hai. Kisi bhi Enquiry, IndiaMART ya Meta lead ka status <b>Qualified</b> karte hi wo yahan aa jaayegi.') + '</td></tr>')
+    + '</tbody></table></div></div>';
+
+  var si = $$('qlSearch');
+  if(si){
+    si.oninput = function(){
+      window.__qlQ = si.value;
+      clearTimeout(window.__qlT);
+      window.__qlT = setTimeout(function(){
+        var pos = si.selectionStart;
+        renderQualified();
+        var n = $$('qlSearch');
+        if(n){ n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} }
+      }, 220);
+    };
+  }
+  var ss = $$('qlSrc');
+  if(ss) ss.onchange = function(){ window.__qlSrc = ss.value; renderQualified(); };
+
+  try{ if(typeof ocPaginate === 'function') ocPaginate(); }catch(e){}
+};
+
+/* ---------------------------------------------------------------- 6. actions */
+var QL = {};
+QL.tab = function(k){ window.__qlTab = k; renderQualified(); };
+
+QL.open = function(src, id){
+  try{
+    if(src === 'enquiries' && typeof openEnqModal === 'function') return openEnqModal(id);
+    if(src === 'metaLeads' && window.ML && typeof ML.form === 'function') return ML.form(id);
+    if(src === 'indiamartLeads' && window.IM && typeof IM.form === 'function') return IM.form(id);
+  }catch(e){}
+};
+
+/* status yahan se badla jaaye to bhi wahi purana raasta chalta hai --
+   remark, permission, owner check aur history sab lagte hain. */
+QL.setStatus = function(src, id, bucket){
+  var b = code(bucket);
+  if(!ENQ_STAGE[b]) return;
+  if(src === 'enquiries'){
+    if(typeof ocMoveEnq === 'function') ocMoveEnq(id, ENQ_STAGE[b]);
+    return;
+  }
+  if(src === 'metaLeads'){
+    if(window.ML && typeof ML.setStatus === 'function') ML.setStatus(id, LEAD_CODE[b]);
+    return;
+  }
+  if(src === 'indiamartLeads'){
+    if(window.IM && typeof IM.setStatus === 'function') IM.setStatus(id, LEAD_CODE[b]);
+    return;
+  }
+};
+
+QL.exportXlsx = function(){
+  var list = filtered(allRows());
+  if(!list.length){ tell('Nothing to export'); return; }
+  var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+  Promise.resolve(pre).then(function(ok){
+    if(ok === false || typeof XLSX === 'undefined') return;
+    var rows = list.map(function(r){
+      return {
+        'Source': SRC[r.src].label, 'Record Id': r.id,
+        'Qualified On': T(r.qualifiedAt).slice(0, 10), 'Date': r.date,
+        'Name': r.name, 'Contact': r.contact, 'Product': r.product,
+        'Value': r.value || '', 'Salesperson': r.person, 'Status': bucketLabel(r.bucket)
+      };
+    });
+    var ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = Object.keys(rows[0]).map(function(k){
+      var w = k.length;
+      rows.forEach(function(x){ w = Math.max(w, T(x[k]).length); });
+      return { wch: Math.min(w + 2, 40) };
+    });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Qualified');
+    XLSX.writeFile(wb, 'OakCraft-qualified-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    tell('Downloaded ' + rows.length + ' rows ✓');
+  });
+};
+window.QL = QL;
+
+/* ---------------------------------------------------------------- 7. status vocabulary
+   a) Enquiry stages me 'System Master' jud gaya ('Quoted' = Quotation Sent). */
+(function(){
+  try{
+    var ps = window.PIPE_STAGES;
+    if(!ps || !ps.splice || ps.indexOf('System Master') >= 0) return;
+    var at = ps.indexOf('Quoted');
+    if(at < 0) at = Math.max(0, ps.indexOf('Won'));
+    ps.splice(at, 0, 'System Master');     /* purane build par bhi chale */
+  }catch(e){}
+})();
+var ENQ_STAGE_LIST = ['New','Contacted','Qualified','System Master','Quoted','Won','Lost'];
+
+/* stage ke naye chip colours */
+(function(){
+  var _chip = window.stageChip;
+  if(typeof _chip !== 'function') return;
+  window.stageChip = function(s){
+    if(TR(s) === 'System Master') return '<span class="chip c-prog">System Master</span>';
+    return _chip.apply(this, arguments);
+  };
+})();
+
+/* har enquiry stage-dropdown me naye option daal do (list + modal) */
+function fillStageSelect(sel){
+  if(!sel) return;
+  var have = {}, i;
+  for(i = 0; i < sel.options.length; i++) have[TR(sel.options[i].value || sel.options[i].text)] = 1;
+  var cur = sel.value;
+  ENQ_STAGE_LIST.forEach(function(st, idx){
+    if(have[st]) return;
+    var o = document.createElement('option');
+    o.value = st; o.textContent = st;
+    /* sahi jagah par daalo (New … Lost ka order bana rahe) */
+    var before = null;
+    for(var j = idx + 1; j < ENQ_STAGE_LIST.length && !before; j++){
+      for(var k = 0; k < sel.options.length; k++){
+        if(TR(sel.options[k].value || sel.options[k].text) === ENQ_STAGE_LIST[j]){ before = sel.options[k]; break; }
+      }
+    }
+    if(before) sel.insertBefore(o, before); else sel.appendChild(o);
+    have[st] = 1;
+  });
+  if(cur) sel.value = cur;
+}
+(function(){
+  var _ren = window.renderEnquiries;
+  if(typeof _ren === 'function'){
+    window.renderEnquiries = function(){
+      var r = _ren.apply(this, arguments);
+      try{ fillStageSelect($$('f-stage')); }catch(e){}
+      return r;
+    };
+  }
+  var _mod = window.openEnqModal;
+  if(typeof _mod === 'function'){
+    window.openEnqModal = function(){
+      var r = _mod.apply(this, arguments);
+      try{ fillStageSelect($$('m-stage')); }catch(e){}
+      return r;
+    };
+  }
+})();
+
+/* b) Meta pipeline stages — 'System Master' aur 'Quotation Sent' zaroori hain,
+      warna ML.setStatus in statuses ka stage 'New' bana deta (purana bug). */
+var META_STAGES = ['New','Contacted','Qualified','System Master','Quotation Sent','Proposal','Won','Lost'];
+function ensureMetaStages(push){
+  try{
+    var ff = {};
+    try{ ff = JSON.parse(localStorage.getItem('formfields') || '{}') || {}; }catch(e){ ff = {}; }
+    var cur = (ff.__metaPipeline && Array.isArray(ff.__metaPipeline.stages)) ? ff.__metaPipeline.stages.slice() : [];
+    var need = false;
+    META_STAGES.forEach(function(s){ if(cur.indexOf(s) < 0) need = true; });
+    if(!need) return false;
+    var out = cur.slice();
+    META_STAGES.forEach(function(s, i){
+      if(out.indexOf(s) >= 0) return;
+      /* naye stage ko uske padosi ke paas rakho */
+      var at = out.length;
+      for(var j = i + 1; j < META_STAGES.length; j++){
+        var p = out.indexOf(META_STAGES[j]);
+        if(p >= 0){ at = p; break; }
+      }
+      out.splice(at, 0, s);
+    });
+    ff.__metaPipeline = { stages: out };
+    try{ localStorage.setItem('formfields', JSON.stringify(ff)); }catch(e){}
+    if(push && isAdm()){
+      try{ CLOUD.pushObj('formfields', ff); }catch(e){}
+    }
+    return true;
+  }catch(e){ return false; }
+}
+ensureMetaStages(true);
+/* pull har baar formfields ko sheet se overwrite karta hai, isliye dobara lagao */
+try{
+  if(typeof CLOUD !== 'undefined' && typeof CLOUD.pull === 'function'){
+    var _pullQ = CLOUD.pull;
+    CLOUD.pull = function(){
+      var self = this;
+      return Promise.resolve(_pullQ.apply(self, arguments)).then(function(r){
+        try{ ensureMetaStages(false); }catch(e){}
+        return r;
+      });
+    };
+  }
+}catch(e){}
+
+/* ---------------------------------------------------------------- 8. registration */
+try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Qualified', 'Qualified leads · System Master · Quotation Sent · Won · Lost']; }catch(e){}
+try{ if(typeof PERM_SECTIONS !== 'undefined' && PERM_SECTIONS.indexOf(VIEW) < 0) PERM_SECTIONS.push(VIEW); }catch(e){}
+try{ if(typeof SECTION_OF_VIEW !== 'undefined') SECTION_OF_VIEW[VIEW] = VIEW; }catch(e){}
+
+(function(){
+  var _setView = window.setView;
+  if(typeof _setView !== 'function') return;
+  window.setView = function(v){
+    if(v !== VIEW) return _setView.apply(this, arguments);
+    try{ if(typeof can === 'function' && !can(VIEW, 'view')){ if(typeof permToast === 'function') permToast('view'); return _setView.call(this, 'dashboard'); } }catch(e){}
+    try{ state.view = VIEW; }catch(e){}
+    try{
+      document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active', a.dataset.view === VIEW); });
+      var t = $$('pageTitle'), s = $$('pageSub');
+      if(t && t.childNodes[0]) t.childNodes[0].nodeValue = PAGE_META[VIEW][0];
+      if(s) s.textContent = PAGE_META[VIEW][1];
+      var sb = $$('searchBox'); if(sb) sb.style.display = 'none';
+      var qa = $$('quickAdd'); if(qa) qa.style.display = 'none';
+      Object.keys(state.charts || {}).forEach(function(k){ try{ state.charts[k].destroy(); }catch(e){} });
+      state.charts = {};
+    }catch(e){}
+    try{ localStorage.setItem('oc_lastView', VIEW); }catch(e){}
+    renderQualified();
+    try{ content.scrollTop = 0; }catch(e){}
+    try{ if(typeof navOpen === 'function') navOpen(false); }catch(e){}
+    try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+    return true;
+  };
+})();
+
+/* badge + auto-refresh: teeno collections me se kuch bhi badle to yahi
+   section turant sahi count dikhaye */
+function qualCount(){
+  try{ return allRows().length; }catch(e){ return 0; }
+}
+(function(){
+  var _rb = window.refreshBadges;
+  window.refreshBadges = function(){
+    var r = (typeof _rb === 'function') ? _rb.apply(this, arguments) : undefined;
+    try{
+      var el = $$('nb-qual');
+      if(el){ var n = qualCount(); if(el.textContent !== String(n)) el.textContent = String(n); }
+    }catch(e){}
+    return r;
+  };
+})();
+
+(function(){
+  var WATCH = { enquiries:1, metaLeads:1, indiamartLeads:1 };
+  var tmr = null;
+  function schedule(){
+    clearTimeout(tmr);
+    tmr = setTimeout(function(){
+      try{
+        if(typeof refreshBadges === 'function') refreshBadges();
+        if(state && state.view === VIEW && typeof renderQualified === 'function') renderQualified();
+      }catch(e){}
+    }, 150);
+  }
+  var _set = store.set.bind(store);
+  store.set = function(k, v){
+    var r = _set(k, v);
+    try{ if(WATCH[k]) schedule(); }catch(e){}
+    return r;
+  };
+  if(typeof CLOUD !== 'undefined' && typeof CLOUD.pull === 'function'){
+    var _pull = CLOUD.pull;
+    CLOUD.pull = function(){
+      var self = this;
+      return Promise.resolve(_pull.apply(self, arguments)).then(function(r){
+        try{ if(!(window.__ocUserTyping && window.__ocUserTyping())) schedule(); }catch(e){}
+        return r;
+      });
+    };
+  }
+})();
+
+try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+console.log('[oc v31] Qualified section active (System Master · Quotation Sent · Won · Lost)');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 34. OAKCRAFT v32 — LEAD STATUS KABHI RESET NA HO (Meta + IndiaMART)     *
+ *                                                                        *
+ *   BUG (users ne report kiya): Meta Leads me status badalte the, thodi   *
+ *   der baad wahi lead dobara "New / CREATED" par aa jaati thi.           *
+ *                                                                        *
+ *   JADD (root cause) — teen cheezein milkar ye kar rahi thin:            *
+ *                                                                        *
+ *   1. BLIND FULL-COLLECTION PUSH                                         *
+ *      metaLeads ke liye koi row-level guard nahi tha (orders/enquiries   *
+ *      ke liye v7/v8 me hai). mlSave() -> store.set('metaLeads', arr) ->  *
+ *      CLOUD.push poori list 'saveMany' karke bhej deta tha. Matlab jis   *
+ *      browser ki copy 2 minute purani hai, uska ek chhota sa kaam bhi    *
+ *      (sirf section kholna — renderMetaLeads() har baar mlNormAll(true)  *
+ *      karta hai) SAARI rows sheet par dobara likh deta tha. Doosre user  *
+ *      ka abhi kiya hua status change us purani copy se overwrite ho kar  *
+ *      wapas CREATED ho jaata tha.                                        *
+ *                                                                        *
+ *   2. PUSH CONFIRM HI NAHI HOTA THA                                      *
+ *      base CLOUD.push ka fetch bina jawab dekhe chhod diya jaata tha.    *
+ *      Network / Apps Script fail hua to koi retry nahi, aur 25 second    *
+ *      wala auto-pull local copy ko sheet ki purani copy se overwrite     *
+ *      kar deta tha -> user ka status change gaayab.                      *
+ *                                                                        *
+ *   3. PULL LOCAL KO HAMESHA OVERWRITE KARTA THA                          *
+ *      CLOUD.pull sheet ka data seedha localStorage me likh deta tha,     *
+ *      chahe local copy naya ho. Abhi-abhi kiya hua change (jo abhi tak   *
+ *      sheet tak pahuncha nahi) turant mit jaata tha.                     *
+ *                                                                        *
+ *   ILAAJ (ye block) — metaLeads aur indiamartLeads dono ke liye:         *
+ *      a) Sirf wahi rows push hoti hain jo sach me badli hain, aur sirf   *
+ *         wo rows jinhe ye user likh sakta hai (owner / admin). Purani    *
+ *         copy kisi doosre ki row ko chhu bhi nahi sakti.                 *
+ *      b) Push XHR se hoti hai aur server ke "ok" ke BAAD hi row          *
+ *         "synced" mark hoti hai. Fail hui to pending queue me jaati hai  *
+ *         aur apne aap dobara jaati rehti hai (har 2 minute, pull ke baad,*
+ *         tab focus par).                                                 *
+ *      c) Pull ab MERGE karta hai: jis row ka local updatedAt sheet se    *
+ *         naya hai (ya jo abhi pending hai), wo local hi rehti hai. Baaki *
+ *         sab sheet se aata hai. Yaani status kabhi peeche nahi jaata.    *
+ *      d) "Kaun naya hai" ka faisla record par likhe timestamps se hota   *
+ *         hai (statusUpdatedAt / updatedAt / createdAt me se sabse naya). *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocLeadSync) return; window.__ocLeadSync = true;
+
+var COLLS = ['metaLeads','indiamartLeads'];
+var SNAP  = 'oc_leadSnap';        /* { coll: { id: json } }  -> sheet ke paas kya hai */
+var PEND  = 'oc_leadPend';        /* { coll: { id: ms } }    -> abhi confirm nahi hua */
+var SEEN  = 'oc_leadSeen';        /* { coll: { id: 1 } }     -> ye row kabhi sheet par thi */
+var MAX_PEND_MS = 7 * 24 * 60 * 60 * 1000;
+
+function T(v){ return v == null ? '' : String(v); }
+function LC(v){ return T(v).trim().toLowerCase(); }
+function J(k, d){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function P(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function arrOf(k){ var a = J(k, []); return Array.isArray(a) ? a : []; }
+
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function myMail(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function ownerOf(r){ return LC(r && (r.owner || r.ownerEmail || r.createdBy)); }
+function mayWrite(r, coll){
+  if(isAdm()) return true;
+  try{ if(window.meSeesAll && window.meSeesAll(coll)) return true; }catch(e){}
+  var ow = ownerOf(r);
+  if(!ow) return true;                       /* unassigned lead — koi bhi utha sakta hai */
+  var me = myMail();
+  return !me || ow === me;
+}
+/* record ka "kitna naya hai" — sabse naya timestamp jo record par likha hai.
+   ISO strings hain, isliye seedha string compare kaafi hai. */
+function stampOf(r){
+  if(!r) return '';
+  var best = '';
+  ['statusUpdatedAt','updatedAt','modifiedAt','stageChangedAt','createdAt'].forEach(function(k){
+    var v = T(r[k]);
+    if(v && v > best) best = v;
+  });
+  return best;
+}
+
+/* Kya ye sach me ek edit hai, ya sirf normalise/alias ka farak?
+   renderMetaLeads() har baar record ko normalise karke save karta hai (name/phone
+   jaise alias fields). Wo bilkul chhota sa farak bhi pehle poori row sheet par
+   likh deta tha -- aur agar is device ki copy purani thi to doosre user ka naya
+   status usse dab jaata tha. Ab sirf tabhi bhejte hain jab record ka apna
+   timestamp badla ho, ya status / owner / link jaise asli field badle hon. */
+var REAL_FIELDS = ['lead_status','status','stage','owner','assigned_to','enquiryId','note'];
+function realChange(local, wasJson){
+  var srv = null;
+  try{ srv = JSON.parse(wasJson); }catch(e){ return true; }
+  if(!srv) return true;
+  if(stampOf(local) !== stampOf(srv)) return true;
+  for(var i = 0; i < REAL_FIELDS.length; i++){
+    if(T(local[REAL_FIELDS[i]]) !== T(srv[REAL_FIELDS[i]])) return true;
+  }
+  return false;
+}
+
+function snap(){ var s = J(SNAP, {}); return (s && typeof s === 'object') ? s : {}; }
+function snapFor(coll){ var s = snap(); return s[coll] || {}; }
+function snapPut(coll, map){ var s = snap(); s[coll] = map; P(SNAP, s); }
+
+function pend(){ var p = J(PEND, {}); return (p && typeof p === 'object') ? p : {}; }
+function pendFor(coll){ var p = pend(); return p[coll] || {}; }
+function pendPut(coll, map){ var p = pend(); p[coll] = map; P(PEND, p); }
+function pendAdd(coll, ids){
+  if(!ids.length) return;
+  var m = pendFor(coll), now = Date.now(), i;
+  for(i = 0; i < ids.length; i++) if(!m[ids[i]]) m[ids[i]] = now;
+  pendPut(coll, m);
+}
+function pendDrop(coll, ids){
+  var m = pendFor(coll), ch = false, i;
+  for(i = 0; i < ids.length; i++) if(m[ids[i]]){ delete m[ids[i]]; ch = true; }
+  if(ch) pendPut(coll, m);
+}
+function seen(){ var s = J(SEEN, {}); return (s && typeof s === 'object') ? s : {}; }
+function seenFor(coll){ var s = seen(); return s[coll] || {}; }
+function seenAdd(coll, ids){
+  if(!ids || !ids.length) return;
+  var s = seen(), m = s[coll] || {}, ch = false, i;
+  for(i = 0; i < ids.length; i++) if(!m[ids[i]]){ m[ids[i]] = 1; ch = true; }
+  if(ch){ s[coll] = m; P(SEEN, s); }
+}
+function pendIds(coll){
+  var m = pendFor(coll), now = Date.now(), out = [], ch = false;
+  Object.keys(m).forEach(function(id){
+    if(now - (+m[id] || 0) > MAX_PEND_MS){ delete m[id]; ch = true; return; }
+    out.push(id);
+  });
+  if(ch) pendPut(coll, m);
+  return out;
+}
+window.ocLeadPending = function(){
+  var out = {};
+  COLLS.forEach(function(c){ out[c] = pendIds(c); });
+  return out;
+};
+
+/* pehli baar: jo rows abhi local me hain wo pichhle pull se hi aayi hain,
+   yaani sheet par thi. Inhe "seen" mark kar dete hain taaki sheet se delete
+   ki gayi row dobara upload na ho, aur snapshot bhi wahi maan lete hain --
+   isse app khulte hi poora collection bina wajah sheet par nahi likha jaata.
+   (Jo row sach me pending thi wo PEND queue me hai, wo phir bhi jaayegi.) */
+COLLS.forEach(function(c){
+  try{
+    var rows = arrOf(c);
+    seenAdd(c, rows.map(function(r){ return T(r && r.id); }).filter(Boolean));
+    var s = snapFor(c);
+    if(!Object.keys(s).length && rows.length){
+      var m = {};
+      rows.forEach(function(r){ if(r && r.id) m[T(r.id)] = JSON.stringify(r); });
+      snapPut(c, m);
+    }
+    /* base CLOUD.push ka debounce timer page load ke waqt lag chuka ho sakta hai
+       (us waqt tak ye guard laga nahi tha). Wo poori collection bhej deta hai,
+       isliye use yahin rok dete hain -- asli badlav neeche flush se jaate hain. */
+    try{ if(CLOUD._timers && CLOUD._timers[c]){ clearTimeout(CLOUD._timers[c]); CLOUD._timers[c] = null; } }catch(e){}
+  }catch(e){}
+});
+
+/* ---------------------------------------------------------------- 1. confirmed POST */
+function post(coll, records){
+  return new Promise(function(resolve){
+    try{
+      var payload = { action:'saveMany', collection:coll, records:records };
+      try{ var sid = (window.SRV && SRV.get) ? SRV.get() : ''; if(sid) payload.sid = sid; }catch(e){}
+      var x = new XMLHttpRequest();
+      x.open('POST', CLOUD.url, true);
+      x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+      x.onload = function(){
+        var j = null; try{ j = JSON.parse(x.responseText); }catch(err){}
+        var rejected = (j && j.rejected && j.rejected.length) ? j.rejected : null;
+        resolve({ ok: x.status >= 200 && x.status < 300 && (!j || !j.error) && !rejected, resp:j, rejected:rejected });
+      };
+      x.onerror = function(){ resolve({ ok:false }); };
+      x.ontimeout = function(){ resolve({ ok:false }); };
+      x.send(JSON.stringify(payload));
+    }catch(err){ resolve({ ok:false }); }
+  });
+}
+
+var warned = {};
+function warnOnce(coll, msg){
+  var t = Date.now();
+  if(warned[coll] && (t - warned[coll]) < 60000) return;
+  warned[coll] = t;
+  try{ toast(msg); }catch(e){}
+}
+
+/* ---------------------------------------------------------------- 2. row-level push */
+function sendChanged(coll, arr, force){
+  if(!Array.isArray(arr)) arr = arrOf(coll);
+  var was = snapFor(coll);
+  var pendingNow = {}, i;
+  pendIds(coll).forEach(function(id){ pendingNow[id] = 1; });
+
+  var out = [], skipped = 0, cosmetic = 0;
+  for(i = 0; i < arr.length; i++){
+    var o = arr[i];
+    if(!o || !o.id) continue;
+    var id = T(o.id), js = JSON.stringify(o);
+    if(was[id] === js && !pendingNow[id] && !force) continue;   /* bilkul wahi hai jo sheet par hai */
+    if(!mayWrite(o, coll)){ skipped++; continue; }              /* doosre ki row — kabhi mat chhuo */
+    if(was[id] && !pendingNow[id] && !force && !realChange(o, was[id])){ cosmetic++; continue; }
+    out.push({ id:id, js:js, rec:o });
+  }
+  if(cosmetic) console.log('[oc v32] ' + cosmetic + ' ' + coll + ' row(s) me sirf normalise ka farak tha — sheet par nahi bheji');
+  if(skipped) console.log('[oc v32] ' + skipped + ' ' + coll + ' row(s) doosre user ki hain — chhui nahi gayin');
+  if(!out.length) return Promise.resolve(true);
+
+  var records = out.map(function(c){ return { id:c.id, data:c.rec }; });
+  var ids = out.map(function(c){ return c.id; });
+  return post(coll, records).then(function(res){
+    if(res && res.ok){
+      var map = snapFor(coll);
+      out.forEach(function(c){ map[c.id] = c.js; });
+      snapPut(coll, map);
+      seenAdd(coll, ids);
+      pendDrop(coll, ids);
+      console.log('[oc v32] ' + coll + ': ' + ids.length + ' row(s) sheet par confirm ho gayi');
+      return true;
+    }
+    pendAdd(coll, ids);
+    console.warn('[oc v32] ' + coll + ' push FAIL — dobara bheja jayega', res && res.resp);
+    warnOnce(coll, 'Lead update abhi sheet par nahi gaya — apne aap dobara bheja jayega');
+    return false;
+  });
+}
+
+/* debounce: ek hi save ke kai calls ek POST me */
+var timers = {}, queued = {};
+function schedulePush(coll, arr){
+  queued[coll] = arr;
+  clearTimeout(timers[coll]);
+  timers[coll] = setTimeout(function(){
+    var a = queued[coll]; queued[coll] = null;
+    sendChanged(coll, a, false);
+  }, 400);
+}
+
+(function(){
+  if(typeof CLOUD === 'undefined' || typeof CLOUD.push !== 'function') return;
+  var _push = CLOUD.push.bind(CLOUD);
+  CLOUD.push = function(key, arr){
+    if(COLLS.indexOf(key) < 0) return _push(key, arr);
+    try{ schedulePush(key, Array.isArray(arr) ? arr.slice() : arrOf(key)); }
+    catch(e){ console.warn('[oc v32] push wrapper', e); return _push(key, arr); }
+  };
+})();
+
+/* ---------------------------------------------------------------- 3. merge on pull */
+function byId(list){
+  var m = {};
+  (list || []).forEach(function(r){ if(r && r.id) m[T(r.id)] = r; });
+  return m;
+}
+/* pull ke baad: jo local row sheet se NAYI hai (ya abhi pending hai) usi ko
+   rakho, baaki sheet ka data. Isse status kabhi peeche nahi jaata. */
+function merge(coll, before){
+  var after = arrOf(coll);
+  var mineBefore = byId(before), mineAfter = byId(after);
+  var pendingNow = {};
+  pendIds(coll).forEach(function(id){ pendingNow[id] = 1; });
+
+  var out = [], kept = 0, revived = 0;
+  after.forEach(function(srv){
+    var id = T(srv && srv.id);
+    var loc = id ? mineBefore[id] : null;
+    if(!loc){ out.push(srv); return; }
+    var ls = stampOf(loc), ss = stampOf(srv);
+    var localNewer = (ls && (!ss || ls > ss));
+    if(localNewer || pendingNow[id]){ out.push(loc); kept++; }
+    else out.push(srv);
+  });
+  /* jo row sheet se aayi hi nahi: pending hai to zinda rakho (abhi pahunchi
+     nahi hai), warna wo sheet se delete ho chuki hai -> jaane do. */
+  before.forEach(function(loc){
+    var id = T(loc && loc.id);
+    if(!id || mineAfter[id]) return;
+    if(pendingNow[id] || !seenFor(coll)[id]){ out.push(loc); revived++; }
+  });
+
+  if(kept || revived){
+    try{ localStorage.setItem(coll, JSON.stringify(out)); }catch(e){}
+    console.log('[oc v32] ' + coll + ' merge: ' + kept + ' local row(s) nayi thin, ' + revived + ' abhi sheet par nahi pahunchi');
+  }
+
+  /* snapshot = sheet ki asli haalat (jo rows sheet se aayi hain) */
+  var map = {};
+  after.forEach(function(srv){ if(srv && srv.id) map[T(srv.id)] = JSON.stringify(srv); });
+  snapPut(coll, map);
+  seenAdd(coll, after.map(function(srv){ return T(srv && srv.id); }).filter(Boolean));
+
+  /* jo local abhi bhi alag hai use turant bhej do */
+  if(kept || revived || pendIds(coll).length) sendChanged(coll, out, false);
+  return (kept + revived) > 0;
+}
+
+(function(){
+  if(typeof CLOUD === 'undefined' || typeof CLOUD.pull !== 'function') return;
+  var _pull = CLOUD.pull;
+  CLOUD.pull = function(){
+    var self = this, before = {};
+    COLLS.forEach(function(c){ before[c] = arrOf(c); });
+    return Promise.resolve(_pull.apply(self, arguments)).then(function(r){
+      var changed = false;
+      COLLS.forEach(function(c){
+        try{ if(merge(c, before[c])) changed = true; }catch(e){ console.warn('[oc v32] merge ' + c, e); }
+      });
+      try{
+        if(changed && typeof state !== 'undefined'){
+          if(state.view === 'metaLeads' && typeof renderMetaLeads === 'function') renderMetaLeads();
+          if(state.view === 'indiamart'  && typeof renderIndiamart === 'function') renderIndiamart();
+          if(state.view === 'qualified'  && typeof renderQualified === 'function') renderQualified();
+        }
+        if(typeof refreshBadges === 'function') refreshBadges();
+      }catch(e){}
+      return r;
+    });
+  };
+})();
+
+/* ---------------------------------------------------------------- 4. pending retry */
+function flush(){
+  try{
+    if(typeof AUTH === 'undefined' || !AUTH.session || !AUTH.session()) return;
+    COLLS.forEach(function(c){ sendChanged(c, arrOf(c), false); });
+  }catch(e){}
+}
+window.ocFlushLeadSync = flush;
+[6000, 30000].forEach(function(ms){ setTimeout(flush, ms); });
+setInterval(flush, 2 * 60 * 1000);
+document.addEventListener('visibilitychange', function(){ if(!document.hidden) setTimeout(flush, 1200); });
+
+console.log('[oc v32] lead sync guard active — status ab reset nahi hoga (' + COLLS.join(', ') + ')');
 })();
 </script>
 

@@ -12,11 +12,14 @@
  *     A = Timestamp        B = platform      C = full_name
  *     D = phone_number     E = city_state    F = lead_status   G = assigned_to
  *
- * Duplicate check (dono field par)
- *   Kisi bhi lead ko daalne se pehle uska Timestamp (col A) aur Mobile (col D)
- *   CRM ke maujooda Meta Leads se milaya jaata hai.
- *     -> Mobile YA Timestamp me se koi bhi match ho gaya  =>  SKIP.
- *     -> Sirf tab daalta hai jab dono naye hon.
+ * Duplicate check (teen pehre)
+ *   1. Source sheet ke column H par `Sync_Done_CRM` likha hai  =>  SKIP.
+ *      (Ye sabse pakka pehra hai: pointer khisak jaye ya reset ho jaye tab bhi
+ *      ek lead dobara import nahi hoti. Pehle dobara import hone par usi lead
+ *      ki nayi row ban jaati thi jiska lead_status CREATED hota tha -- user ko
+ *      lagta tha ki uska set kiya hua status apne aap "New" ho gaya.)
+ *   2. Timestamp (col A) ya Mobile (col D) CRM me pehle se hai  =>  SKIP.
+ *   3. Naam + Mobile ka jodaa CRM me pehle se hai  =>  SKIP.
  *   Ek hi run me aayi aapas ki duplicate rows bhi skip hoti hain.
  *
  * Kahan se shuru
@@ -70,6 +73,8 @@ var MAS_STATUS_STAGE = {
   CREATED:'New', NEW:'New', OPEN:'New', FRESH:'New',
   CONTACTED:'Contacted', FOLLOW_UP:'Contacted', FOLLOWUP:'Contacted', CALLED:'Contacted',
   QUALIFIED:'Qualified', INTERESTED:'Qualified',
+  SYSTEM_MASTER:'System Master', SYSTEMMASTER:'System Master',
+  QUOTATION_SENT:'Quotation Sent', QUOTATIONSENT:'Quotation Sent',
   PROPOSAL:'Proposal', QUOTED:'Proposal', QUOTATION:'Proposal',
   WON:'Won', CONVERTED:'Won', CLOSED_WON:'Won',
   LOST:'Lost', CLOSED:'Lost', REJECTED:'Lost', NOT_INTERESTED:'Lost', CLOSED_LOST:'Lost'
@@ -302,10 +307,12 @@ function mas_run_(dryRun){
 
     /* CRM me pehle se kya hai — phone aur timestamp dono ke set */
     var existing = mas_read_(MAS_COLL);
-    var havePhone = {}, haveTs = {};
+    var havePhone = {}, haveTs = {}, haveNamePhone = {};
     existing.forEach(function(l){
-      var p = mas_phone_(l.phone_number); if(p) havePhone[p] = 1;
+      var p = mas_phone_(l.phone_number || l.phone); if(p) havePhone[p] = 1;
       var t = mas_tsKey_(l.created_time_ist); if(t) haveTs[t] = 1;
+      var n = mas_lc_(l.full_name || l.name);
+      if(n && p) haveNamePhone[n + '|' + p] = 1;
     });
 
     var roster = mas_roster_();
@@ -316,9 +323,21 @@ function mas_run_(dryRun){
       if(r.row <= ptr) continue;                                  /* pehle hi ho chuka */
       if(!r.phone && !r.tsKey) continue;                          /* kaam ka nahi */
 
+      /* --- column H par nishaan hai to ye lead CRM me ja chuki hai ---
+         Pointer ek row NUMBER hai. Sheet me row insert/delete ho jaye, pointer
+         reset ho jaye, ya script property gum ho jaye to pointer peeche khisak
+         sakta hai -- aur tab ek hi lead DOBARA import ho jaati thi, nayi id aur
+         lead_status = CREATED ke saath. User ko lagta tha ki uska status khud
+         hi reset ho kar lead wapas "New" me aa gayi. Sync Status (Sync_Done_CRM)
+         row par hamesha likha rehta hai, isliye wahi sabse pakka pehra hai. */
+      if(r.syncStatus){ skipped.push(r.row + ': ' + r.syncStatus + ' — pehle hi CRM me ja chuki hai'); continue; }
+
       /* --- duplicate check: phone YA timestamp match => skip --- */
       if(r.phone && havePhone[r.phone]){ skipped.push(r.row + ': phone ' + r.phone + ' pehle se hai'); continue; }
       if(r.tsKey && haveTs[r.tsKey]){   skipped.push(r.row + ': timestamp ' + r.ts + ' pehle se hai'); continue; }
+      if(r.phone && r.full_name && haveNamePhone[mas_lc_(r.full_name) + '|' + r.phone]){
+        skipped.push(r.row + ': ' + r.full_name + ' / ' + r.phone + ' pehle se hai'); continue;
+      }
 
       var owner = mas_ownerFor_(r.assigned_to, roster);
       if(!owner && r.assigned_to) noOwner.push(r.row + ': "' + r.assigned_to + '" roster me nahi mila');
@@ -344,6 +363,7 @@ function mas_run_(dryRun){
       /* isi run ki aapas ki duplicate rows bhi rok do */
       if(r.phone) havePhone[r.phone] = 1;
       if(r.tsKey) haveTs[r.tsKey] = 1;
+      if(r.phone && r.full_name) haveNamePhone[mas_lc_(r.full_name) + '|' + r.phone] = 1;
 
       if(fresh.length >= MAS_MAX_PER_RUN) break;
     }
