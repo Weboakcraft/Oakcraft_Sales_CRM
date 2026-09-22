@@ -14477,6 +14477,28 @@ try{ if(typeof SECTION_OF_KEY !== 'undefined') SECTION_OF_KEY[KEY] = VIEW; }catc
   };
 })();
 
+/* Activity Log ka section filter v22 ke andar band hai (list wahin likhi hai),
+   isliye render ke baad IndiaMART ka option yahin se jod dete hain -- warna
+   IndiaMART ki history sirf "All sections" me hi dikhti. */
+(function(){
+  var _sv = window.setView;
+  if(typeof _sv !== 'function') return;
+  window.setView = function(v){
+    var r = _sv.apply(this, arguments);
+    try{
+      if(v === 'activity'){
+        var sel = $$('oc-ac-coll');
+        if(sel && !sel.querySelector('option[value="' + KEY + '"]')){
+          var o = document.createElement('option');
+          o.value = KEY; o.textContent = KEY;
+          sel.appendChild(o);
+        }
+      }
+    }catch(e){}
+    return r;
+  };
+})();
+
 /* naya data aaye to khula section apne aap refresh ho jaaye */
 try{
   if(typeof CLOUD !== 'undefined' && typeof CLOUD.pull === 'function'){
