@@ -230,6 +230,14 @@ match karke lead usi ke naam par assign ho jaati hai.
 * Ek run me zyada se zyada `IMS_MAX_PER_RUN` (150) enquiry jaati hain, trigger har
   `IMS_MINUTES` (5) minute chalta hai — purana backlog thode-thode karke apne aap chadh jaata hai.
 
+* **Kisi salesperson ka data CRM me na bhejna ho** to uska naam `IMS_SKIP_ASSIGNED` me likh
+  dijiye (abhi: `Anjali Sharma`). Aisi row na import hoti hai aur na hi uspar `send_to_crm` ka
+  nishaan lagta hai — naam list se hatate hi wo leads normal tareeke se aane lagengi. Jo leads
+  pehle hi CRM me aa chuki hain, unke liye CRM ke andar bhi wahi list hai (`HIDE_ASSIGNED`,
+  IndiaMART module me): aisi leads list, KPI, badge, export aur Qualified section — kahin nahi
+  dikhtin. **Record delete nahi hota**, backend sheet me jaisa hai waisa rehta hai; naam hatate
+  hi wapas dikhne lagta hai.
+
 **Ek baar ka setup** (Apps Script editor, `Code.gs` ke saath): file paste kijiye ->
 `previewIndiaMartAutoSync` (kuch likhta nahi, sirf Logs) -> theek lage to `installIndiaMartAutoSync`
 ek baar. Baaki helpers: `runIndiaMartAutoSyncNow`, `statusIndiaMartAutoSync`,
