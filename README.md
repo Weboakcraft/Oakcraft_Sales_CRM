@@ -301,6 +301,83 @@ Privacy wahi rehti hai: jo user poora data nahi dekh sakta, uske device par sirf
 records hi rakhe jaate hain — wahi rule jo `scope()` UI me lagata hai. Console helpers:
 `ocPullCollection('indiamartLeads')` aur `ocServedKeys()`.
 
+## Lead kis-kis ko assign ho sakti hai
+
+Har IndiaMART lead Ankush Goswami ke naam par chadh rahi thi (558 me se 558,
+"Unassigned 0") — jabki wo Administrator hain, sales me hain hi nahi. Do jagah
+ek hi kism ki galti thi:
+
+`ims_ownerFor_()` (Apps Script) aur `emailOfName()` (app) sheet me likhe naam ko
+CRM user se **character prefix** se milaate the:
+
+```js
+if(keys[i].indexOf(nm) === 0 || nm.indexOf(keys[i]) === 0) return roster.byName[keys[i]];
+```
+
+Isse sheet ka koi bhi aadha-adhoora naam ("A", "An") kisi bhi user ke naam ka
+prefix ban jaata tha, aur loop **pehla** match lauta deta tha. Users list me
+sabse upar Ankush Goswami hain — isliye saari aisi leads unke paas chali gayin.
+Wahi bug pehle `ims_skipAssigned_()` me tha (ek-akshar ka naam "Anjali Sharma"
+se mil jaata tha).
+
+Ab milaan **poore shabd** par hota hai aur **do aadmi par shaq ho to kisi ko
+nahi chunte** — lead unassigned rehti hai. `"Niti"` → Niti Kumari chalega,
+`"Kumari"` (Niti Kumari + Pinki Kumari dono) → unassigned, `"An"` → unassigned.
+Galat aadmi ko de dena unassigned chhodne se kahin zyada nuksaan karta hai.
+
+Uske upar, lead sirf unhe di ja sakti hai **jo sach me leads uthate hain**:
+
+| Kaun chhoot jaata hai | Kyun |
+|---|---|
+| Administrator, Sales Manager | role leads nahi uthata (`ims_takesLeads_` / `ocIsSalesRole`) |
+| status Active nahi | CRM me chalu hi nahi |
+| `IMS_NO_LEADS` / `OC_NO_LEADS` me likhe naam | role bhale sales ka ho, ye log leads par kaam nahi karte |
+
+Ye list dono jagah hai — **ek jaisi rakhiye**:
+
+* `apps-script/IndiaMartAutoSync.gs` → `IMS_NO_LEADS` (abhi: Arun Mourya, Pinki Kumari)
+* `index.html` → `OC_NO_LEADS` (wahi naam)
+
+Kisi ko wapas laana ho to naam list se hata dijiye, ya Users me uska role
+"Sales Executive" kar dijiye — kuch aur badalne ki zarurat nahi.
+
+CRM me "Assigned to" dropdown (IndiaMART aur Meta Leads, dono) ab isi chhoti
+list se bharta hai (`leadRoster()` / `window.ocLeadRoster()`). `roster()` abhi
+bhi saare users lautaata hai — `nameOf()` ko har user chahiye taaki kisi purane
+owner ka naam bhi dikh sake. Jis lead par pehle se koi assign hai wo apni row me
+dikhta rehta hai, chahe wo list me na ho — warna admin ke dobara save karte hi
+kisi ki purani assignment chupke se badal jaati.
+
+### Pehle se galat assign hui leads sudhaarna
+
+Matcher theek ho gaya, par jo leads pehle hi import ho chuki hain unka owner CRM
+me likha hai, sheet me nahi. Apps Script me:
+
+```
+previewIndiaMartOwners()   // kuch nahi badalta — sirf batata hai kya badlega
+fixIndiaMartOwners()       // asli sudhaar
+```
+
+Preview har badlaav ko `purana -> naya  [sheet me likha: "..."]` ki shakal me
+ginti ke saath dikhata hai, isliye chalane se pehle saaf pata chal jaata hai ki
+sheet me asal me likha kya hai. Jis lead par **kaam shuru ho chuka hai** (status
+CREATED se aage) uska owner jaan-boojh kar nahi chheda jaata — ho sakta hai kisi
+ne CRM me khud sahi banda assign kiya ho; log me unki ginti alag dikhti hai.
+
+## Fallback se aayi rows wapas sheet par nahi jaatin
+
+v34 (`getAll` ke bahar se collection maangna) rows seedha `localStorage` me
+likhta tha, aur v32 ke sync guard ko iski khabar nahi hoti thi. Guard ko wo
+rows "local badlaav" lagti thin, to har boot par **poori collection wapas
+sheet par** chali jaati thi — 558 rows ka `saveMany`, bina kisi badlaav ke.
+
+Ab v34 merge ke baad `window.ocLeadNoteServerRows(coll, rows)` bulata hai, jo
+un rows ko guard ke snapshot me darj kar deta hai. Sirf wahi rows jo server se
+**jaisi ki taisi** li gayin — jinpar local copy nayi thi wo darj nahi hotin,
+unka push hona hi chahiye. `seen` list ko haath nahi lagaya jaata: `getAll` in
+rows ko bhejta hi nahi, aur `seen` me daal dene par agla merge inhe "sheet se
+delete ho gayi" maan kar hata deta.
+
 ## Meta Leads — the status no longer resets itself
 
 Users reported that a status set in Meta Leads came back as **New / CREATED** a while later.

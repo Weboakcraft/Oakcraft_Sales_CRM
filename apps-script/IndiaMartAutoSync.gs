@@ -89,6 +89,21 @@ var IMS_MARK_TEXT   = 'send_to_crm';      // CRM me chala gaya -> yahi likha jaa
    hai, taaki kal ko naam yahan se hatate hi wo leads aa sakein. */
 var IMS_SKIP_ASSIGNED = ['Anjali Sharma'];
 
+/* Jinke naam par lead assign NAHI honi chahiye -- ye log leads uthate hi
+   nahi. Inka naam sheet me likha ho to lead CRM me aayegi to sahi, par
+   UNASSIGNED rahegi, taaki koi bhi salesperson use utha sake.
+   (Administrator / Sales Manager waise bhi apne aap chhut jaate hain --
+   neeche ims_takesLeads_ dekhiye. Ye list un naamo ke liye hai jinka role
+   bhale hi sales ka ho, par wo leads par kaam nahi karte.) */
+var IMS_NO_LEADS = ['Arun Mourya', 'Pinki Kumari'];
+
+/* Sirf in roles ke log leads utha sakte hain. */
+function ims_takesLeads_(role){
+  var r = ims_lc_(role).replace(/[\s_\-]+/g, ' ');
+  return r === 'sales executive' || r === 'sales exec' || r === 'salesexecutive'
+      || r === 'sales' || r === 'user';
+}
+
 /* header ka naam -> field. Pehla match jeetta hai, isliye khaas naam upar hain. */
 var IMS_MAP = {
   enquiry_no: ['enquiry_id','enquiry_no','enquiry_number','query_id','lead_id','indiamart_enquiry_id'],
@@ -334,26 +349,93 @@ function ims_note_(r){
 /* ------------------------------------------------------------------ *
  * roster: "Assigned Salesperson" -> user ka email                     *
  * ------------------------------------------------------------------ */
+/**
+ * Lead kis-kis ko di ja sakti hai.
+ *
+ * byName/byEmail me SIRF wahi log aate hain jo sach me leads uthate hain:
+ * role sales ka ho, status Active ho, aur naam IMS_NO_LEADS me na ho.
+ * Administrator (Ankush Goswami, Vishu Mittal) aur Sales Manager is list
+ * me nahi aate -- pehle aate the, isliye sheet ka aadha-adhoora naam unpar
+ * chipak jaata tha.
+ *
+ * `all` me sab users rehte hain -- sirf naam dikhane ke liye (kisi ka
+ * purana owner email padhna ho to).
+ */
 function ims_roster_(){
-  var byName = {}, byEmail = {};
+  var byName = {}, byEmail = {}, all = {}, skipped = [];
   ims_read_('users').forEach(function(u){
     var em = ims_lc_(u.email); if(!em) return;
-    byEmail[em] = ims_tr_(u.name) || em;
     var nm = ims_lc_(u.name);
+    all[em] = ims_tr_(u.name) || em;
+
+    var st = ims_lc_(u.status);
+    if(st && st !== 'active'){ skipped.push(all[em] + ' (inactive)'); return; }
+    if(!ims_takesLeads_(u.role)){ skipped.push(all[em] + ' (' + (ims_tr_(u.role) || 'role nahi') + ')'); return; }
+    if(ims_noLeads_(u.name)){ skipped.push(all[em] + ' (IMS_NO_LEADS)'); return; }
+
+    byEmail[em] = all[em];
     if(nm && !byName[nm]) byName[nm] = em;
   });
-  return { byName: byName, byEmail: byEmail };
+  return { byName: byName, byEmail: byEmail, all: all, skipped: skipped };
 }
+
+/** Kya is naam par lead assign karni hi nahi hai? (poore shabd par milaan) */
+function ims_noLeads_(name){
+  var nm = ims_lc_(name);
+  if(!nm) return false;
+  for(var i = 0; i < IMS_NO_LEADS.length; i++){
+    if(ims_lc_(IMS_NO_LEADS[i]) === nm) return true;
+  }
+  return false;
+}
+/**
+ * Sheet ke "Assigned Salesperson" ko CRM user ke email se milao.
+ *
+ * SAAVDHANI — yahan pehle character-prefix se milaya jaata tha
+ * (`keys[i].indexOf(nm) === 0`). Usse sheet ka koi bhi aadha naam kisi bhi
+ * user ke naam ka hissa ban jaata tha, aur loop PEHLA match lauta deta tha.
+ * Users list me jo sabse upar hai (Ankush Goswami) uske naam par bahut si
+ * leads chali jaati thin, jabki sheet me unka naam tha hi nahi.
+ *
+ * Ab milaan POORE SHABD par hota hai, aur agar do user par shaq ho to kisi
+ * ko nahi chunte -- owner khaali chhod dete hain. Khaali owner theek hai:
+ * lead CRM me aa jaati hai, bas unassigned dikhti hai aur koi bhi utha sakta
+ * hai. Galat aadmi ko de dena usse kahin zyada nuksaan karta hai.
+ *
+ * @return {string} email, ya '' agar pakka pata na chale
+ */
 function ims_ownerFor_(assigned, roster){
   var nm = ims_lc_(assigned);
   if(!nm) return '';
+
+  /* 1. hu-ba-hu naam */
   if(roster.byName[nm]) return roster.byName[nm];
-  if(nm.indexOf('@') > 0 && roster.byEmail[nm]) return nm;
-  var keys = Object.keys(roster.byName), i;
-  for(i = 0; i < keys.length; i++){
-    if(keys[i].indexOf(nm) === 0 || nm.indexOf(keys[i]) === 0) return roster.byName[keys[i]];
-  }
-  return '';
+  /* 2. seedha email -- aur agar email hai par roster me nahi, to aage andaaza
+        lagane ka koi matlab nahi (kisi anjaan email ke tukde jodna khatarnak) */
+  if(nm.indexOf('@') > 0) return roster.byEmail[nm] ? nm : '';
+
+  /* 3. poore shabdo par milaan -- aur sirf tab jab ek hi user mile.
+        "niti" -> "Niti Kumari" chalega; "a" ya "an" kisi se nahi milega. */
+  var want = ims_words_(nm);
+  if(!want.length) return '';
+  var hits = [];
+  Object.keys(roster.byName).forEach(function(k){
+    var have = ims_words_(k);
+    if(!have.length) return;
+    var small = want.length <= have.length ? want : have;
+    var big   = want.length <= have.length ? have : want;
+    for(var i = 0; i < small.length; i++) if(big.indexOf(small[i]) < 0) return;
+    hits.push(roster.byName[k]);
+  });
+  /* do alag user mil gaye to andaaza nahi lagate */
+  var uniq = [];
+  hits.forEach(function(e){ if(uniq.indexOf(e) < 0) uniq.push(e); });
+  return uniq.length === 1 ? uniq[0] : '';
+}
+
+/** naam ko poore shabdo me toro: "Niti  Kumari." -> ['niti','kumari'] */
+function ims_words_(s){
+  return ims_lc_(s).split(/[^a-z0-9]+/).filter(function(w){ return w.length >= 2; });
 }
 
 /* ------------------------------------------------------------------ *
@@ -738,4 +820,114 @@ function statusIndiaMartAutoSync(){
            + '\n  skip-list    : ' + (IMS_SKIP_ASSIGNED.join(', ') || '(koi nahi)')
            + ' -> ' + blocked + ' row CRM me nahi jaayengi'
            + '\n  CRM leads    : ' + ims_read_(IMS_COLL).length);
+}
+
+/* ================================================================== *
+ * PURANI GALAT ASSIGNMENT KA SUDHAAR                                  *
+ *                                                                     *
+ * Pehle owner nikalne wala code character-prefix se milaata tha, aur  *
+ * milte hi PEHLA user chun leta tha. Users list me jo sabse upar hai  *
+ * (Ankush Goswami) uske naam par wo saari leads chali gayin jinka     *
+ * sheet me likha naam kisi se pakka nahi milta tha.                   *
+ *                                                                     *
+ * Upar wala matcher ab theek ho chuka hai, par JO LEADS PEHLE HI      *
+ * import ho chuki hain unka owner sheet me likha hua nahi, CRM me     *
+ * likha hua hai. Ye do function unhe sheet ke hisaab se sudhaar dete  *
+ * hain.                                                               *
+ *                                                                     *
+ * PEHLE  previewIndiaMartOwners()  chalaiye -- kuch badalta nahi,     *
+ * sirf batata hai kya-kya badlega. Theek lage to phir                 *
+ * fixIndiaMartOwners() chalaiye.                                      *
+ *                                                                     *
+ * Jispar kaam shuru ho chuka hai (status CREATED se aage hai) uska    *
+ * owner JAAN-BOOJH KAR nahi chheda jaata -- ho sakta hai kisi ne      *
+ * CRM me khud se sahi banda assign kiya ho. Sirf CREATED leads.       *
+ * ================================================================== */
+
+/** Kuch badalta nahi -- sirf dikhata hai kis lead ka owner badlega. */
+function previewIndiaMartOwners(){ return ims_fixOwners_(true); }
+
+/** Asli sudhaar. Pehle previewIndiaMartOwners() zaroor dekh lijiye. */
+function fixIndiaMartOwners(){ return ims_fixOwners_(false); }
+
+function ims_fixOwners_(dryRun){
+  var out = [];
+  out.push(dryRun ? '=== PREVIEW (kuch nahi badla) ===' : '=== SUDHAAR CHAL RAHA HAI ===');
+
+  var roster = ims_roster_();
+  var src;
+  try{ src = ims_srcRows_(); }
+  catch(e){ Logger.log('Source sheet nahi khuli: ' + e); return; }
+
+  /* sheet me kis enquiry ka kaunsa salesperson likha hai */
+  var byEno = {}, byPhTime = {};
+  src.rows.forEach(function(r){
+    if(r.enquiry_no) byEno[ims_key_(r.enquiry_no)] = r.assigned;
+    var k = ims_phoneKey_(r.mobile) + '|' + ims_tsKey_(r.query_time);
+    if(k !== '|') byPhTime[k] = r.assigned;
+  });
+
+  var leads = ims_read_(IMS_COLL);
+  out.push('CRM me IndiaMART leads: ' + leads.length + ' | sheet me rows: ' + src.rows.length);
+
+  var change = [], noSrc = 0, busy = 0, same = 0;
+  leads.forEach(function(l){
+    var sheetName = byEno[ims_key_(l.enquiry_no)];
+    if(sheetName === undefined){
+      sheetName = byPhTime[ims_phoneKey_(l.sender_mobile) + '|' + ims_tsKey_(l.query_time)];
+    }
+    if(sheetName === undefined){ noSrc++; return; }      /* sheet me ye row mili hi nahi */
+
+    var want = ims_ownerFor_(sheetName, roster);
+    var have = ims_lc_(l.owner);
+    if(want === have){ same++; return; }
+
+    /* jis lead par kaam shuru ho chuka hai use haath nahi lagate */
+    var st = ims_lc_(l.lead_status || l.status);
+    if(st && st !== 'created'){ busy++; return; }
+
+    change.push({ rec: l, from: have, to: want, sheetName: sheetName });
+  });
+
+  out.push('pehle se theek: ' + same + ' | sheet me nahi mili: ' + noSrc
+           + ' | kaam shuru ho chuka (chhod diya): ' + busy + ' | badlegi: ' + change.length);
+
+  if(!change.length){
+    out.push('Koi badlaav zaroori nahi.');
+    Logger.log(out.join('\n'));
+    return;
+  }
+
+  /* kaun se naam par kitni leads badal rahi hain */
+  var tally = {};
+  change.forEach(function(c){
+    var k = (c.from || '(khaali)') + '  ->  ' + (c.to || '(khaali / unassigned)')
+          + '   [sheet me likha: "' + (c.sheetName || '') + '"]';
+    tally[k] = (tally[k] || 0) + 1;
+  });
+  out.push('--- badlaav ---');
+  Object.keys(tally).sort().forEach(function(k){ out.push('  ' + tally[k] + ' lead   ' + k); });
+
+  out.push('--- pehli 15 leads ---');
+  change.slice(0, 15).forEach(function(c){
+    out.push('  ' + (c.rec.sender_name || '?') + ' | ' + (c.rec.sender_mobile || '?')
+             + ' | ' + (c.from || '(khaali)') + ' -> ' + (c.to || '(khaali)'));
+  });
+
+  if(dryRun){
+    out.push('Ye sirf preview tha. Theek lage to fixIndiaMartOwners() chalaiye.');
+    Logger.log(out.join('\n'));
+    return;
+  }
+
+  var recs = change.map(function(c){
+    c.rec.owner = c.to;
+    c.rec.assigned_to = c.to ? (roster.byEmail[c.to] || c.sheetName) : c.sheetName;
+    c.rec.updatedAt = new Date().toISOString();
+    return c.rec;
+  });
+  var n = ims_write_(recs);
+  out.push(n + ' lead ka owner sudhaar diya gaya.');
+  out.push('Ab CRM me Reload & Update dabaiye.');
+  Logger.log(out.join('\n'));
 }

@@ -3080,7 +3080,7 @@ function bindAppEvents(){
       l = l || { stage: cfg.stages[0], platform: 'Facebook' };
       var ownSel = admin
         ? '<div><label>Assign to</label><select id="mlOwner"><option value="">\u2014 Unassigned \u2014</option>'
-          + roster().map(function(u){ return '<option value="' + esc(u.email) + '"' + (_lc(u.email) === _lc(l.owner) ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>'; }).join('')
+          + leadRoster(l.owner).map(function(u){ return '<option value="' + esc(u.email) + '"' + (_lc(u.email) === _lc(l.owner) ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>'; }).join('')
           + '</select></div>'
         : '';
       openModal(
@@ -6150,6 +6150,16 @@ console.log('[oc v7] row-safe save active');
     _memo.roster = (Array.isArray(u) ? u : []).filter(function(x){ return x && x.email; });
     return _memo.roster;
   }
+  /* Assign wale dropdown ke liye: sirf wahi log jo sach me leads uthate hain
+     (Administrator / Sales Manager / inactive / OC_NO_LEADS chhut jaate hain).
+     `keep` wala user hamesha rehta hai taaki purani assignment gum na ho.
+     Asli list IndiaMART module me hai -- dono section ek hi rule par chalein. */
+  function leadRoster(keep){
+    if(typeof window.ocLeadRoster === 'function'){
+      try{ return window.ocLeadRoster(keep); }catch(e){}
+    }
+    return roster();
+  }
   function nameOf(email){
     var e = _lc(email), r = roster();
     for(var i = 0; i < r.length; i++) if(_lc(r[i].email) === e) return r[i].name || email;
@@ -6467,7 +6477,7 @@ console.log('[oc v7] row-safe save active');
             return '<option value="' + esc(s) + '"' + (window.__mlFilt.status === s ? ' selected' : '') + '>' + esc(s) + '</option>';
           }).join('') + '</select>'
       + (admin ? '<select class="mls-f" id="mlFOwn"><option value="">All owners</option><option value="__none__"' + (window.__mlFilt.owner === '__none__' ? ' selected' : '') + '>— Unassigned —</option>'
-          + roster().map(function(u){
+          + leadRoster(window.__mlFilt.owner).map(function(u){
               return '<option value="' + esc(u.email) + '"' + (_lc(window.__mlFilt.owner) === _lc(u.email) ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>';
             }).join('') + '</select>' : '')
       + '<button class="btn primary" onclick="ML.bulkBox()">⬆ Bulk Upload</button>'
@@ -6521,7 +6531,7 @@ console.log('[oc v7] row-safe save active');
       var ownCell = admin
         ? '<select class="inl" onchange="ML.setAssign(\'' + l.id + '\',this.value)">'
             + '<option value="">— Unassigned —</option>'
-            + roster().map(function(u){
+            + leadRoster(l.owner).map(function(u){
                 var on = _lc(u.email) === _lc(l.owner) || _lc(u.name) === _lc(l.assigned_to);
                 return '<option value="' + esc(u.email) + '"' + (on ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>';
               }).join('')
@@ -6713,7 +6723,7 @@ console.log('[oc v7] row-safe save active');
 
     var ownSel = admin
       ? '<div><label>Assign to (assigned_to)</label><select id="mlOwner"><option value="">— Unassigned —</option>'
-        + roster().map(function(u){
+        + leadRoster(l.owner).map(function(u){
             var on = _lc(u.email) === _lc(l.owner) || _lc(u.name) === _lc(l.assigned_to);
             return '<option value="' + esc(u.email) + '"' + (on ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>';
           }).join('') + '</select></div>'
@@ -8006,7 +8016,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.22.6';
+var OC_WEB_BUILD = '2026.09.22.7';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13729,22 +13739,75 @@ function roster(){
   try{ var u = JSON.parse(localStorage.getItem('users') || '[]'); return (Array.isArray(u) ? u : []).filter(function(x){ return x && x.email; }); }
   catch(e){ return []; }
 }
+/* Lead kis-kis ko di ja sakti hai -- assign wale dropdown isi list se bharte
+   hain. roster() (sab users) se alag hai: nameOf() ko har user chahiye taaki
+   kisi purane owner ka naam bhi dikh sake, par assign sirf unhe kar sakte
+   hain jo sach me leads uthate hain.
+
+   Chhoot jaate hain: Administrator / Sales Manager (Ankush Goswami, Vishu
+   Mittal ...), inactive users, aur OC_NO_LEADS me likhe naam. Kisi ko wapas
+   laana ho to uska naam OC_NO_LEADS se hata dijiye, ya Users me uska role
+   "Sales Executive" kar dijiye. Yahi list Apps Script me IMS_NO_LEADS hai --
+   dono jagah ek jaisa rakhiye. */
+var OC_NO_LEADS = ['Arun Mourya', 'Pinki Kumari'];
+window.OC_NO_LEADS = OC_NO_LEADS;
+function takesLeads(u){
+  if(!u || !u.email) return false;
+  var st = LC(u.status);
+  if(st && st !== 'active') return false;
+  var ok = (typeof window.ocIsSalesRole === 'function') ? window.ocIsSalesRole(u.role) : true;
+  if(!ok) return false;
+  var nm = LC(u.name);
+  for(var i = 0; i < OC_NO_LEADS.length; i++) if(LC(OC_NO_LEADS[i]) === nm) return false;
+  return true;
+}
+/* keep: jo pehle se assign hai wo apni row me dikhta rahe, warna admin ke
+   dubara save karte hi kisi ki purani assignment chupke se badal jayegi. */
+function leadRoster(keep){
+  var k = LC(keep), out = [], seen = {};
+  roster().forEach(function(u){
+    var e = LC(u.email);
+    if(!e || seen[e]) return;
+    if(!takesLeads(u) && e !== k) return;
+    seen[e] = 1; out.push(u);
+  });
+  return out;
+}
+window.ocLeadRoster = leadRoster;
 function nameOf(email){
   var e = LC(email); if(!e) return '';
   var r = roster();
   for(var i = 0; i < r.length; i++) if(LC(r[i].email) === e) return TR(r[i].name) || email;
   return email;
 }
+/* Naam se email nikalo. Milaan POORE SHABD par hota hai aur do aadmi par
+   shaq ho to kisi ko nahi chunte -- pehle yahan `n.indexOf(s) === 0` tha,
+   jisse "A" jaisa aadha naam bhi users list ke pehle aadmi se chipak jaata
+   tha. Khaali lautna theek hai: lead unassigned rahegi, galat aadmi ke paas
+   nahi jayegi. */
 function emailOfName(v){
   var s = LC(v); if(!s) return '';
   var r = roster(), i;
   for(i = 0; i < r.length; i++) if(LC(r[i].email) === s) return LC(r[i].email);
+  if(s.indexOf('@') > 0) return '';
   for(i = 0; i < r.length; i++) if(LC(r[i].name) === s) return LC(r[i].email);
+
+  var want = words(s), hits = [];
+  if(!want.length) return '';
   for(i = 0; i < r.length; i++){
-    var n = LC(r[i].name);
-    if(n && (n.split(' ')[0] === s || n.indexOf(s) === 0)) return LC(r[i].email);
+    var have = words(r[i].name);
+    if(!have.length) continue;
+    var small = want.length <= have.length ? want : have;
+    var big   = want.length <= have.length ? have : want;
+    var all = true;
+    for(var j = 0; j < small.length; j++) if(big.indexOf(small[j]) < 0){ all = false; break; }
+    if(all && hits.indexOf(LC(r[i].email)) < 0) hits.push(LC(r[i].email));
   }
-  return '';
+  return hits.length === 1 ? hits[0] : '';
+}
+/** naam ko poore shabdo me toro: "Niti  Kumari." -> ['niti','kumari'] */
+function words(v){
+  return LC(v).split(/[^a-z0-9]+/).filter(function(w){ return w.length >= 2; });
 }
 
 /* ---- query_time : DD-MM-YYYY HH:MM:SS (wahi shakal jo Meta me hai) ---- */
@@ -13941,7 +14004,7 @@ window.renderIndiamart = function(){
     return '<option value="' + A(s) + '"' + (window.__imFilt.status === s ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>';
   }).join('');
   var ownOpts = '<option value="">All owners</option><option value="__none__"' + (window.__imFilt.owner === '__none__' ? ' selected' : '') + '>— Unassigned —</option>'
-    + roster().map(function(u){
+    + leadRoster(window.__imFilt.owner).map(function(u){
         return '<option value="' + A(u.email) + '"' + (LC(window.__imFilt.owner) === LC(u.email) ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>';
       }).join('');
 
@@ -13962,7 +14025,7 @@ window.renderIndiamart = function(){
     var ownCell = admin
       ? '<select class="field" style="padding:4px 8px;font-size:12px" onchange="IM.setAssign(\'' + A(l.id) + '\',this.value)">'
           + '<option value="">— Unassigned —</option>'
-          + roster().map(function(u){
+          + leadRoster(l.owner).map(function(u){
               var on = LC(u.email) === LC(l.owner) || (!l.owner && LC(u.name) === LC(l.assigned_to));
               return '<option value="' + A(u.email) + '"' + (on ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>';
             }).join('')
@@ -14114,7 +14177,7 @@ IM.form = function(id){
 
   var ownSel = admin
     ? '<div><label>Assigned to</label><select id="imOwner"><option value="">— Unassigned —</option>'
-      + roster().map(function(u){
+      + leadRoster(l.owner).map(function(u){
           var on = LC(u.email) === LC(l.owner);
           return '<option value="' + A(u.email) + '"' + (on ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>';
         }).join('') + '</select></div>'
@@ -14376,7 +14439,7 @@ IM.bulkBox = function(){
     +   '<div class="form-row two">'
     +   (admin ? '<div><label>Assign all to</label>'
     +     '<select id="imBuOwn"><option value="">— file ka assigned_to use karo —</option>'
-    +     roster().map(function(u){ return '<option value="' + A(u.email) + '">' + E(u.name || u.email) + '</option>'; }).join('')
+    +     leadRoster().map(function(u){ return '<option value="' + A(u.email) + '">' + E(u.name || u.email) + '</option>'; }).join('')
     +     '</select></div>' : '')
     +   '<div><label>Default status</label>'
     +     '<select id="imBuStat">'
@@ -14485,6 +14548,9 @@ IM.buApply = function(){
       updatedAt: new Date().toISOString()
     };
     var owner = forceOwner || emailOfName(o.assigned_to);
+    /* file me likha naam kisi aise ka ho jo leads uthata hi nahi (admin,
+       manager, inactive) -- to lead unassigned rahegi, uske naam nahi jayegi */
+    if(owner && !leadRoster().some(function(u){ return LC(u.email) === LC(owner); })) owner = '';
     if(!isAdm() && !owner) owner = my;
     rec.owner = LC(owner);
     rec.assigned_to = owner ? nameOf(owner) : TR(o.assigned_to);
@@ -15275,6 +15341,25 @@ function snap(){ var s = J(SNAP, {}); return (s && typeof s === 'object') ? s : 
 function snapFor(coll){ var s = snap(); return s[coll] || {}; }
 function snapPut(coll, map){ var s = snap(); s[coll] = map; P(SNAP, s); }
 
+/* Jo rows SEEDHA server se aayi hain unhe snapshot me darj kar do, taaki guard
+   unhe "local badlaav" na samjhe aur wapas sheet par na bhej de.
+   v34 (collection fallback fetch) getAll ke bahar se rows laata hai; uske baad
+   yahi function bulata hai. Sirf snapshot chhuta hai -- `seen` nahi, kyunki
+   getAll in rows ko bhejta hi nahi, aur seen me daal dene par agla merge inhe
+   "sheet se delete ho gayi" maan kar hata dega. */
+window.ocLeadNoteServerRows = function(coll, rows){
+  if(COLLS.indexOf(coll) < 0 || !Array.isArray(rows) || !rows.length) return 0;
+  var map = snapFor(coll), n = 0;
+  rows.forEach(function(r){
+    if(!r || !r.id) return;
+    var js = JSON.stringify(r);
+    if(map[T(r.id)] === js) return;
+    map[T(r.id)] = js; n++;
+  });
+  if(n) snapPut(coll, map);
+  return n;
+};
+
 function pend(){ var p = J(PEND, {}); return (p && typeof p === 'object') ? p : {}; }
 function pendFor(coll){ var p = pend(); return p[coll] || {}; }
 function pendPut(coll, map){ var p = pend(); p[coll] = map; P(PEND, p); }
@@ -15850,17 +15935,23 @@ function merge(coll, rows){
     return ow === me;                        /* wahi rule jo scope() lagata hai */
   };
 
-  var out = [], seenId = {}, added = 0, updated = 0;
+  var out = [], seenId = {}, added = 0, updated = 0, fromServer = [];
   rows.forEach(function(srv){
     var id = T(srv.id);
     if(!keepable(srv)) return;
     seenId[id] = 1;
     var loc = byId[id];
-    if(!loc){ out.push(srv); added++; return; }
+    if(!loc){ out.push(srv); added++; fromServer.push(srv); return; }
     var ls = stampOf(loc), ss = stampOf(srv);
     if(ls && (!ss || ls > ss)) out.push(loc);              /* local naya hai -> local hi rahe */
-    else { out.push(srv); if(JSON.stringify(loc) !== JSON.stringify(srv)) updated++; }
+    else { out.push(srv); fromServer.push(srv); if(JSON.stringify(loc) !== JSON.stringify(srv)) updated++; }
   });
+
+  /* v32 ke guard ko bata do ki ye rows sheet se hi aayi hain. Warna wo inhe
+     local edit samajh kar poori collection wapas sheet par likh deta hai --
+     har boot par, bina kisi badlaav ke. (Jin rows par local copy nayi thi
+     unhe jaan-boojh kar nahi batate: unka push hona hi chahiye.) */
+  try{ if(window.ocLeadNoteServerRows) window.ocLeadNoteServerRows(coll, fromServer); }catch(e){}
   /* jo local me hai par server ki list me nahi aaya -- use chhodte nahi
      (ho sakta hai abhi push hone waala ho ya scope se bahar ho) */
   local.forEach(function(loc){
