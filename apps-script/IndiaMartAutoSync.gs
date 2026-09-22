@@ -34,6 +34,11 @@
  *      hai -- ek hi customer dobara enquiry kar sakta hai.)
  *   4. Ek hi run me aayi aapas ki duplicate rows bhi skip hoti hain.
  *
+ * Kisi salesperson ka data CRM me na bhejna ho
+ *   `IMS_SKIP_ASSIGNED` me uska naam likh dijiye. Uski rows na import hoti
+ *   hain aur na hi unpar `send_to_crm` ka nishaan lagta hai -- naam list se
+ *   hatate hi wo leads normal tareeke se aane lagengi.
+ *
  * MARK COLUMN ka pehra
  *   Default column L hai (jaisa kaha gaya). Script pehle dekhta hai ki L par
  *   kisi data column ka header to nahi hai. Agar L par koi asli data column
@@ -73,6 +78,13 @@ var IMS_MINUTES     = 5;                  // trigger kitni der me chale
 var IMS_MAX_PER_RUN = 150;                // ek run me itni se zyada nahi (safety)
 var IMS_MARK_COL    = 12;                 // column L
 var IMS_MARK_TEXT   = 'send_to_crm';      // CRM me chala gaya -> yahi likha jaata hai
+
+/* In salesperson ki leads CRM me BILKUL nahi jaani chahiye. Naam yahan likh
+   dijiye (chhota-bada akshar, aage-peeche ki space se farak nahi padta; aadha
+   naam bhi chalega -- "Anjali" likhne par "Anjali Sharma" bhi pakda jayega).
+   Aisi row na import hoti hai aur na hi uspar send_to_crm ka nishaan lagta
+   hai, taaki kal ko naam yahan se hatate hi wo leads aa sakein. */
+var IMS_SKIP_ASSIGNED = ['Anjali Sharma'];
 
 /* header ka naam -> field. Pehla match jeetta hai, isliye khaas naam upar hain. */
 var IMS_MAP = {
@@ -155,6 +167,19 @@ function ims_phoneKey_(v){
   var d = ims_str_(v).replace(/[^0-9]/g, '');
   return d.length > 10 ? d.slice(-10) : d;
 }
+/** Kya is salesperson ki leads CRM me bhejni hi nahi hain? */
+function ims_skipAssigned_(name){
+  var n = ims_lc_(name);
+  if(!n) return false;
+  for(var i = 0; i < IMS_SKIP_ASSIGNED.length; i++){
+    var s = ims_lc_(IMS_SKIP_ASSIGNED[i]);
+    if(!s) continue;
+    if(n === s) return true;
+    if(s.length >= 4 && (n.indexOf(s) === 0 || s.indexOf(n) === 0)) return true;
+  }
+  return false;
+}
+
 /** city + state ko ek hi jagah bana do (khaali aur dohra naam chhod kar). */
 function ims_place_(city, state){
   var out = [], seen = {};
@@ -393,7 +418,7 @@ function ims_run_(dryRun){
     });
 
     var roster = ims_roster_();
-    var fresh = [], skipped = 0, marked = 0, noOwner = [], already = [];
+    var fresh = [], skipped = 0, marked = 0, noOwner = [], already = [], blocked = 0;
 
     for(var i = 0; i < rows.length; i++){
       var r = rows[i];
@@ -401,6 +426,11 @@ function ims_run_(dryRun){
       /* 1. sheet par nishaan hai -> ye enquiry CRM me ja chuki hai */
       if(ims_lc_(r.mark) === ims_lc_(IMS_MARK_TEXT)){ skipped++; marked++; continue; }
       if(!r.mobile && !r.enquiry_no){ skipped++; continue; }
+
+      /* jin salesperson ka data CRM me nahi jaana -- unki row chhod do.
+         Nishaan bhi nahi lagate, taaki naam list se hatate hi ye leads
+         normal tareeke se aa sakein. */
+      if(ims_skipAssigned_(r.assigned)){ skipped++; blocked++; continue; }
 
       /* 2. Enquiry Id pehle se CRM me */
       if(r.enquiry_no && haveEnq[r.enquiry_no]){ skipped++; already.push(r.row); continue; }
@@ -459,6 +489,9 @@ function ims_run_(dryRun){
       if(mk) Logger.log('IndiaMartAutoSync: ' + mk + ' purani row par ' + IMS_MARK_TEXT
                       + ' likha (ye enquiry CRM me pehle se hai).');
     }
+
+    if(blocked) Logger.log('IndiaMartAutoSync: ' + blocked + ' row chhodi gayi kyunki unki '
+      + 'Assigned Salesperson skip-list me hai (' + IMS_SKIP_ASSIGNED.join(', ') + ').');
 
     if(!fresh.length){
       Logger.log('IndiaMartAutoSync: koi nayi enquiry nahi. (' + rows.length + ' rows dekhi, '
@@ -549,6 +582,7 @@ function markIndiaMartSyncedInSource(){
   var todo = [];
   src.rows.forEach(function(r){
     if(ims_lc_(r.mark) === ims_lc_(IMS_MARK_TEXT)) return;
+    if(ims_skipAssigned_(r.assigned)) return;
     var pk = ims_phoneKey_(r.mobile), tk = ims_tsKey_(r.query_time);
     if((r.enquiry_no && haveEnq[r.enquiry_no]) || (pk && tk && havePhoneTime[pk + '|' + tk])) todo.push(r.row);
   });
@@ -573,6 +607,8 @@ function statusIndiaMartAutoSync(){
              : 'NAHI MILA — ye file CRM ke Apps Script project me nahi hai';
   var trig = 0;
   ScriptApp.getProjectTriggers().forEach(function(t){ if(t.getHandlerFunction() === 'indiaMartAutoSyncTick') trig++; });
+  var blocked = 0;
+  src.rows.forEach(function(r){ if(ims_skipAssigned_(r.assigned)) blocked++; });
   Logger.log('IndiaMartAutoSync status:\n  source tab   : ' + IMS_SRC_TAB
            + '\n  source rows  : ' + src.rows.length
            + '\n  ' + IMS_MARK_TEXT + '   : ' + done
@@ -581,5 +617,7 @@ function statusIndiaMartAutoSync(){
            + '\n  header map   : ' + (missing.length ? 'ye field nahi mile -> ' + missing.join(', ') : 'sab mil gaye')
            + '\n  writer       : ' + writer
            + '\n  trigger      : ' + trig
+           + '\n  skip-list    : ' + (IMS_SKIP_ASSIGNED.join(', ') || '(koi nahi)')
+           + ' -> ' + blocked + ' row CRM me nahi jaayengi'
            + '\n  CRM leads    : ' + ims_read_(IMS_COLL).length);
 }

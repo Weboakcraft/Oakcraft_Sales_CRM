@@ -8006,7 +8006,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.22.3';
+var OC_WEB_BUILD = '2026.09.22.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13842,6 +13842,28 @@ window.ocIndiamartAll = imAll;
 window.ocIndiamartSave = imSave;
 window.ocIndiamartNorm = norm;
 
+/* ---------------------------------------------------------------- 3b. chhupi hui leads
+   Jin salesperson ka IndiaMART data CRM me nahi dikhna chahiye, unke naam
+   yahan hain. Aisi leads list, KPI, badge, export aur Qualified section --
+   kahin nahi dikhtin. Record delete nahi hota (backend sheet me jaisa hai
+   waisa rehta hai), sirf CRM me chhupta hai; naam yahan se hatate hi wo
+   dobara dikhne lagti hain. Apps Script (IndiaMartAutoSync.gs) me yahi naam
+   IMS_SKIP_ASSIGNED me hain, isliye aage se aisi lead aati bhi nahi. */
+var HIDE_ASSIGNED = ['Anjali Sharma'];
+function hiddenLead(l){
+  if(!l) return false;
+  var n = LC(l.assigned_to || '');
+  if(!n) return false;
+  for(var i = 0; i < HIDE_ASSIGNED.length; i++){
+    var s = LC(HIDE_ASSIGNED[i]);
+    if(!s) continue;
+    if(n === s) return true;
+    if(s.length >= 4 && (n.indexOf(s) === 0 || s.indexOf(n) === 0)) return true;
+  }
+  return false;
+}
+window.ocImHidden = hiddenLead;
+
 /* ---------------------------------------------------------------- 4. view state */
 window.__imQ    = window.__imQ    || '';
 window.__imFilt = window.__imFilt || { status:'', owner:'' };
@@ -13849,7 +13871,7 @@ window.__imSort = window.__imSort || { k:'query_time', dir:-1 };
 window.__imLim  = window.__imLim  || PAGE;
 
 function mine(){
-  var all = normAll(false);
+  var all = normAll(false).filter(function(l){ return !hiddenLead(l); });
   try{ return (typeof scope === 'function') ? (scope(all, KEY) || []) : all; }catch(e){ return all; }
 }
 function visible(){
@@ -14668,7 +14690,11 @@ var SRC = {
   },
   indiamartLeads: {
     label: 'IndiaMART', key: 'indiamartLeads',
-    all: function(){ return scoped(imArr(), 'indiamartLeads'); },
+    all: function(){
+      var a = scoped(imArr(), 'indiamartLeads');
+      try{ if(typeof window.ocImHidden === 'function') a = a.filter(function(r){ return !window.ocImHidden(r); }); }catch(e){}
+      return a;
+    },
     status: function(r){ return r.lead_status; },
     row: function(r){
       return {
@@ -14711,6 +14737,9 @@ function sweep(){
       var arr = (k === 'enquiries') ? enqArr() : lsArr(k), changed = false;
       arr.forEach(function(r){
         if(!r || r.qualifiedAt) return;
+        if(k === 'indiamartLeads'){
+          try{ if(typeof window.ocImHidden === 'function' && window.ocImHidden(r)) return; }catch(e){}
+        }
         if(!IMPLIES_QUALIFIED[bucketOf(SRC[k].status(r))]) return;
         r.qualifiedAt = T(r.updatedAt) || T(r.stageChangedAt) || nowISO();
         changed = true;
