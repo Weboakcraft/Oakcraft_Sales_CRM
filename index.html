@@ -8016,7 +8016,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.23.6';
+var OC_WEB_BUILD = '2026.09.23.7';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -14193,7 +14193,10 @@ window.renderIndiamart = function(){
               return '<option value="' + A(u.email) + '"' + (on ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>';
             }).join('')
         + '</select>'
-      : E(l.assigned_to || nameOf(l.owner) || '—');
+      : (mineToTake(l)
+          ? '<button class="btn sm primary" style="padding:3px 10px;font-size:11.5px" '
+            + 'onclick="IM.claim(\'' + A(l.id) + '\')" title="Ye lead apne naam kar lijiye">+ Mera</button>'
+          : E(l.assigned_to || nameOf(l.owner) || '—'));
 
     return '<tr>'
       + '<td class="sub tabular" style="white-space:nowrap">' + E(l.query_time || '—')
@@ -14307,6 +14310,45 @@ IM.setStatus = function(id, val){
   tell('Status: ' + statusLabel(to));
   if(state && state.view === VIEW) renderIndiamart();
   else if(state && state.view === 'qualified' && typeof renderQualified === 'function') renderQualified();
+};
+
+/* Kya ye lead current user utha sakta hai?
+   Sirf tab jab lead par kisi ka naam na ho, user khud leads uthata ho
+   (leadRoster) aur usko edit ka haq ho. Admin ko button nahi dikhta --
+   uske paas poora dropdown pehle se hai. */
+function mineToTake(l){
+  if(!l || l.owner || l.assigned_to) return false;
+  if(isAdm()) return false;
+  if(!allow('edit')) return false;
+  var me = meEmail();
+  if(!me) return false;
+  try{ return leadRoster().some(function(u){ return LC(u.email) === LC(me); }); }
+  catch(e){ return false; }
+}
+
+/* "+ Mera" -- bina naam wali lead apne naam kar lena.
+   Jaise hi lead kisi ke naam ho jaati hai, wo baaki team ki list se hat
+   jaati hai (scope ka rule), isliye do log ek hi lead par kaam nahi karte.
+   Jo lead pehle se kisi ki hai use yahan se nahi chheda ja sakta. */
+IM.claim = function(id){
+  if(!allow('edit')) return noPerm('edit');
+  var arr = imAll(), l = find(arr, id);
+  if(!l) return;
+  if(!mineToTake(l)){ tell('Ye lead pehle se kisi ke naam hai.'); return; }
+  var me = meEmail();
+  l.owner       = LC(me);
+  l.assigned_to = nameOf(me) || me;
+  l.updatedAt   = new Date().toISOString();
+  imSave(arr);
+  try{
+    if(typeof ocLogChange === 'function'){
+      ocLogChange({ coll:KEY, recId:id, recName:(l.sender_name || l.sender_mobile), field:'assigned',
+                    from:'', to:l.assigned_to, remark:'Lead khud uthayi', owner:l.owner,
+                    sp:l.assigned_to, createdAt:l.createdAt });
+    }
+  }catch(e){}
+  tell('Ye lead ab aapki hai');
+  renderIndiamart();
 };
 
 IM.setAssign = function(id, email){
@@ -16119,6 +16161,7 @@ function merge(coll, rows){
     if(all) return true;
     if(!me) return false;
     var ow = LC(r.owner || r.ownerEmail || r.createdBy);
+    if(!ow) return true;                     /* bina naam wali lead sabke paas -- koi bhi utha sake */
     return ow === me;                        /* wahi rule jo scope() lagata hai */
   };
 
@@ -16522,6 +16565,135 @@ if(document.readyState === 'loading') document.addEventListener('DOMContentLoade
 else setTimeout(install, 0);
 
 console.log('[oc v36] Qualified par Customer Type + Purchase Quantity poochhi jayengi');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 38. OAKCRAFT v37 — IndiaMART: BINA NAAM WALI LEAD SABKO, TAG LAGTE HI  *
+ *                     SIRF USI KO                                        *
+ *                                                                        *
+ *   Rule bahut seedha hai:                                               *
+ *     - Jis lead par kisi ka naam NAHI hai, wo poori sales team ko        *
+ *       dikhti hai. Koi bhi "+ Mera" dabakar use apne naam kar sakta hai. *
+ *     - Jaise hi kisi ne apna tag laga diya, wo lead baaki sab ki list    *
+ *       se HAT jaati hai -- sirf usi ko dikhti hai (aur admin ko).        *
+ *       Isliye do log kabhi ek hi lead par kaam nahi karte.               *
+ *                                                                        *
+ *   Kyun alag section: window.scope() non-admin ke liye sirf apne owner   *
+ *   wale record rakhta hai (`o === m`) -- bina owner wali row bhi gira    *
+ *   deta hai. Wahi rule saare sections par lagta hai, aur use waise ka    *
+ *   waisa rehna chahiye. Isliye chhoot SIRF `indiamartLeads` ko di gayi   *
+ *   hai; enquiries / orders / quotations / customers / Meta Leads --      *
+ *   sabka behaviour bilkul pehle jaisa hai.                               *
+ *                                                                        *
+ *   Do jagah aur badalni padi:                                           *
+ *     1. v34 ka fetch filter -- warna bina naam wali row non-admin ke     *
+ *        localStorage tak pahunchti hi nahi.                              *
+ *     2. status badalna bhi "tag lagana" hi hai: agar koi salesperson     *
+ *        bina naam wali lead ka status badal de to wo lead usi ki ho      *
+ *        jaati hai. Warna do log usi lead par kaam karte rehte.           *
+ *        Admin ke chhune par lead uske naam NAHI hoti -- admin leads      *
+ *        uthata hi nahi (yahi galti pehle 558 leads unke naam kar chuki   *
+ *        hai). Admin ko dena ho to dropdown hai hi.                      *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocImPool) return; window.__ocImPool = true;
+
+var COLL = 'indiamartleads';                 /* sirf IndiaMART */
+
+function T(v){ return v == null ? '' : String(v); }
+function LC(v){ return T(v).trim().toLowerCase(); }
+function isIM(coll){ return LC(coll) === COLL; }
+function myMail(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function ownerOf(r){ return LC(r && (r.owner || r.ownerEmail || r.createdBy)); }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+
+/* Kya ye user khud leads uthata hai? Wahi list jo assign wale dropdown me
+   dikhti hai -- admin / manager / inactive / OC_NO_LEADS bahar. */
+function takesLeads(email){
+  var e = LC(email);
+  if(!e) return false;
+  try{
+    if(typeof window.ocLeadRoster !== 'function') return false;
+    var r = window.ocLeadRoster() || [];
+    for(var i = 0; i < r.length; i++) if(LC(r[i].email) === e) return true;
+  }catch(err){}
+  return false;
+}
+
+/* ---------------------------------------------------------------- 1. dikhna */
+(function(){
+  if(typeof window.scope !== 'function') return;
+  var _scope = window.scope;
+  window.scope = function(list, coll){
+    var out = _scope.apply(this, arguments);
+    if(!isIM(coll) || !Array.isArray(list) || !Array.isArray(out)) return out;
+    if(out.length === list.length) return out;          /* sab dikh raha hai (admin) */
+
+    var seen = {};
+    out.forEach(function(r){ if(r && r.id) seen[T(r.id)] = 1; });
+    var add = list.filter(function(r){
+      return r && r.id && !seen[T(r.id)] && !ownerOf(r);
+    });
+    return add.length ? out.concat(add) : out;
+  };
+})();
+
+/* ---------------------------------------------------------------- 2. haath lagaya = aapki */
+function nameFor(email){
+  var e = LC(email);
+  if(!e) return '';
+  try{
+    var u = JSON.parse(localStorage.getItem('users') || '[]');
+    if(Array.isArray(u)) for(var i = 0; i < u.length; i++){
+      if(u[i] && LC(u[i].email) === e) return T(u[i].name).trim();
+    }
+  }catch(err){}
+  return '';
+}
+
+/* setStatus ke andar record dhoondhne ka saaf hook nahi hai, isliye call se
+   PEHLE localStorage me hi owner likh dete hain -- setStatus wahin se record
+   uthata hai, to use owner laga hua record milta hai aur uska apna
+   save / push / history sab pehle jaisa chalta hai. */
+function claimBefore(id){
+  try{
+    var arr = JSON.parse(localStorage.getItem('indiamartLeads') || '[]');
+    if(!Array.isArray(arr)) return;
+    for(var i = 0; i < arr.length; i++){
+      var l = arr[i];
+      if(!l || T(l.id) !== T(id)) continue;
+      if(ownerOf(l) || T(l.assigned_to).trim()) return;   /* pehle se kisi ki hai */
+      if(isAdm()) return;                                 /* admin leads nahi uthata */
+      var me = myMail();
+      if(!takesLeads(me)) return;
+      l.owner = me;
+      l.assigned_to = nameFor(me) || me;
+      localStorage.setItem('indiamartLeads', JSON.stringify(arr));
+      console.log('[oc v37] ' + id + ' ab ' + me + ' ki hai (status badalne par)');
+      return;
+    }
+  }catch(e){}
+}
+
+function install(){
+  try{
+    if(!window.IM || typeof IM.setStatus !== 'function') return;
+    var _f = IM.setStatus;
+    IM.setStatus = function(id){
+      try{ claimBefore(id); }catch(e){}
+      return _f.apply(this, arguments);
+    };
+  }catch(e){}
+}
+/* sabse aakhir me lagna chahiye -- IM.setStatus ko baad wale section bhi
+   lapetate hain (Qualified ke do sawaal wala v36) */
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 0); });
+else setTimeout(install, 0);
+
+console.log('[oc v37] IndiaMART: bina naam wali lead sabko, tag lagte hi sirf usi ko');
 })();
 </script>
 
