@@ -5,6 +5,19 @@ var IMS_MINUTES     = 5;
 var IMS_MAX_PER_RUN = 400;                
 var IMS_MARK_COL    = 12;                 
 var IMS_MARK_TEXT   = 'send_to_crm';      
+
+/* LEAD KA STATUS -- COLUMN R
+   ---------------------------------------------------------------------------
+   Status ab column R se padha jaata hai, POSITION se -- header ke naam se
+   nahi. Wajah: "Indiamart_crm" me kaam karte waqt header ka naam badal
+   sakta hai ya do column ek jaise naam ke ho sakte hain; position pakki
+   rehti hai. Column R me abhi "Qualified" / "Not Qualified" likha hota hai.
+
+   Column badalna ho to bas ye number badal dijiye (R = 18, S = 19 ...).
+   0 kar denge to purana tareeka chalu ho jayega -- header me
+   "Qualification Status" dhoondhna. R khaali mile to bhi wahi fallback
+   chalta hai, taaki jin rows me R abhi bhara nahi gaya wo na bigden. */
+var IMS_STATUS_COL  = 18;                 // column R
 var IMS_SKIP_ASSIGNED = ['Anjali Sharma'];
 var IMS_NO_LEADS = ['Arun Mourya', 'Pinki Kumari'];
 /* Poora data (Enquiry Id, Company, Email, Subject, Discussion, Final Remark's)
@@ -213,7 +226,7 @@ function ims_colName_(n){
 /** saari rows padho -> {row, mark, enquiry_no, ...} */
 function ims_srcRows_(){
   var sh = ims_srcSheet_();
-  var lastRow = sh.getLastRow(), lastCol = Math.max(sh.getLastColumn(), IMS_MARK_COL);
+  var lastRow = sh.getLastRow(), lastCol = Math.max(sh.getLastColumn(), IMS_MARK_COL, IMS_STATUS_COL);
   if(lastRow < 2) return { rows: [], markCol: 0, sheet: sh, head: [] };
   var vals = sh.getRange(1, 1, lastRow, lastCol).getValues();
   var head = vals[0] || [];
@@ -243,6 +256,8 @@ function ims_srcRows_(){
       assigned: get(v, 'assigned'),
       quality: get(v, 'quality'),
       qualif: get(v, 'qualif'),
+      /* column R -- position se padha, status ka asli source */
+      status_raw: (IMS_STATUS_COL > 0) ? ims_tr_(v[IMS_STATUS_COL - 1]) : '',
       remark: get(v, 'remark'),
       discussion: get(v, 'discussion'),
       profession: get(v, 'profession'),
@@ -324,7 +339,8 @@ function ims_isQualified_(s){
  * nahi badalti -- wo alag field "lead_quality" me jaati hai.
  */
 function ims_status_(r){
-  var raw = ims_tr_(r.qualif), qs = ims_lc_(raw);
+  /* column R pehli pasand; khaali ho to header wala "Qualification Status" */
+  var raw = ims_tr_(r.status_raw) || ims_tr_(r.qualif), qs = ims_lc_(raw);
   if(!qs) return 'CREATED';
   if(ims_isQualified_(raw)) return 'QUALIFIED';
   if(qs.replace(/[^a-z]/g, '') === 'notqualified' || qs.replace(/[^a-z]/g, '') === 'nonqualified') return 'NOT QUALIFIED';
@@ -346,7 +362,9 @@ function ims_note_(r){
 }
 /** Sheet ke status wale fields ka "fingerprint" -- badle to hi CRM update hota hai. */
 function ims_sig_(r){
-  return [r.quality, r.qualif, r.profession, r.discussion, r.remark].map(ims_lc_).join('|');
+  /* column R (status_raw) bhi isme hai -- warna sheet me status badalne par
+     lead "badli hi nahi" mani jaati aur CRM purana status dikhata rehta. */
+  return [r.status_raw, r.quality, r.qualif, r.profession, r.discussion, r.remark].map(ims_lc_).join('|');
 }
 /**
  * CRM me pehle se maujood lead par sheet ka taaza status aur jaankari chadha do.

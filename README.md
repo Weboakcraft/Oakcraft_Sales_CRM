@@ -306,10 +306,18 @@ match karke lead usi ke naam par assign ho jaati hai.
   (3) wahi mobile **+** wahi enquiry time pehle se (sirf mobile match ho aur time alag ho to wo
   nayi enquiry maani jaati hai — ek hi customer dobara enquiry kar sakta hai), (4) ek hi run ki
   aapas ki duplicate rows.
-* **Status:** sheet ka *Qualification Status* saaf-saaf `Qualified` kahe to lead CRM me bhi
-  `QUALIFIED` jaati hai (aur Qualified section me dikh jaati hai); baaki sab `CREATED` se shuru
-  hoti hain. Sheet ka apna quality / qualification / subject / qty text note me chala jaata hai,
-  kuch chhutta nahi.
+* **Status — column R se:** lead ka final status sheet ke **column R** me likha hota hai
+  (`Qualified` / `Not Qualified`), aur CRM wahi dikhata hai. Ye column **position se** padha
+  jaata hai, header ke naam se nahi (`IMS_STATUS_COL = 18`) — kaam karte waqt header ka naam
+  badal sakta hai ya do column ek jaise naam ke ho sakte hain, position pakki rehti hai.
+  Column badalna ho to bas wo number badal dijiye (R = 18, S = 19 …); `0` karne par purana
+  tareeka chalu ho jayega. **R khaali** mile to bhi purana tareeka chalta hai (header me
+  *Qualification Status* dhoondhna), taaki jin rows me R abhi bhara nahi gaya wo na bigden.
+  `Qualified` → `QUALIFIED`, `Not Qualified` → `NOT QUALIFIED`, khaali → `CREATED`, kuch aur
+  likha ho to wahi text bade aksharo me. Sheet ka apna quality / qualification / subject / qty
+  text note me chala jaata hai, kuch chhutta nahi.
+  Column R `src_sig` me bhi hai, isliye sheet me status badalte hi lead "badli" mani jaati hai
+  aur CRM me update ho jaati hai — warna wo purana status dikhati rehti.
 * Ek run me zyada se zyada `IMS_MAX_PER_RUN` (400) enquiry jaati hain, trigger har
   `IMS_MINUTES` (5) minute chalta hai — purana backlog thode-thode karke apne aap chadh jaata hai.
   Jaldi chahiye to **`backfillIndiaMartAll`** chala dijiye: ye 4.5 minute tak lagataar batch
