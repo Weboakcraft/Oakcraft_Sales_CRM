@@ -261,6 +261,39 @@ alag-alag ho jaatin.
 Ye swap sirf dashboard render ke dauran hota hai (`finally` me wapas). Enquiries
 section, uska badge aur exports pehle jaise hi rehte hain.
 
+## IndiaMART: bina naam wali lead sabko, tag lagte hi sirf usi ko
+
+Rule seedha hai:
+
+* Jis lead par **kisi ka naam nahi** hai, wo **poori sales team** ko dikhti
+  hai. Har aisi row par **“+ Mera”** button hota hai.
+* Jaise hi kisi ne apna tag laga diya, wo lead **baaki sab ki list se hat
+  jaati hai** — sirf usi ko dikhti hai (aur admin ko). Isliye do log kabhi ek
+  hi lead par kaam nahi karte.
+
+**Tag lagne ke do tareeke:**
+
+1. **“+ Mera”** button dabana.
+2. **Status badalna** — bina naam wali lead ka status badalte hi wo badalne
+   wale ki ho jaati hai. Warna do log usi lead par kaam karte rehte.
+
+**Admin aur Sales Manager lead nahi uthate.** Unhe button dikhta hi nahi aur
+unke status badalne par lead unke naam **nahi** hoti — yahi galti pehle 558
+leads Ankush Goswami ke naam kar chuki thi. Admin ko kisi ko dena ho to
+dropdown hai hi. Kaun utha sakta hai, wahi list hai jo assign wale dropdown me
+dikhti hai (`ocLeadRoster`).
+
+### Ye sirf IndiaMART par hai
+
+`window.scope()` non-admin ke liye sirf apne owner wale record rakhta hai
+(`o === m`) — bina owner wali row bhi gira deta hai. Wahi rule saare sections
+par lagta hai aur use waisa hi rehna chahiye, isliye chhoot **sirf
+`indiamartLeads`** ko di gayi hai. Enquiries, Orders, Quotations, Customers
+aur **Meta Leads** — sabka behaviour bilkul pehle jaisa hai.
+
+v34 ka fetch filter bhi saath me badalna pada, warna bina naam wali row
+non-admin ke `localStorage` tak pahunchti hi nahi.
+
 ## IndiaMART ke KPI card hi sub-section hain
 
 Upar ke card (Total leads · New · Contacted · Qualified · … · Unassigned) ab
@@ -450,20 +483,6 @@ ginti ke saath dikhata hai, isliye chalane se pehle saaf pata chal jaata hai ki
 sheet me asal me likha kya hai. Jis lead par **kaam shuru ho chuka hai** (status
 CREATED se aage) uska owner jaan-boojh kar nahi chheda jaata — ho sakta hai kisi
 ne CRM me khud sahi banda assign kiya ho; log me unki ginti alag dikhti hai.
-
-## Lead sirf uske owner ko dikhti hai
-
-Ek baar unassigned leads ko sabke liye khol kar dekha gaya tha, par faisla
-ulta hua: **bina naam wali lead kisi ko nahi dikhti.** Salesperson ko wahi
-leads dikhti hain jo uske naam par assign ki gayi hain; pending leads admin
-ke paas rehti hain aur wahi unhe baant-ta hai.
-
-`window.scope()` ka rule (non-admin ke liye `owner === me`) isliye jaisa tha
-waisa hi hai, aur v34 ka fetch filter bhi. Aage kabhi pool chahiye ho to do
-jagah `!owner` ko chhodna hoga — `window.scope()` aur v34 ka `keepable()`.
-
-Dhyan rahe: `window.canTouch()` abhi bhi `!o || o === m` kehta hai, yaani
-bina owner wale record par edit ki ijazat hai — bas wo record dikhta nahi.
 
 ## Qualified karte hi do sawaal
 
