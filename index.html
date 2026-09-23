@@ -8016,7 +8016,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.23.1';
+var OC_WEB_BUILD = '2026.09.23.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10705,6 +10705,7 @@ function ensureRemarkModal(){
     +     '<label class="lbl" style="font-size:11.5px;font-weight:600">Reason / Remark <span style="color:var(--crit,#d03b3b)">*</span></label>'
     +     '<textarea id="oc-rem-text" rows="3" placeholder="Why is this being changed? (at least 3 characters)" '
     +       'style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border,#dde3ee);border-radius:9px;font:inherit;background:var(--surface-2,#f7f9fc);color:inherit"></textarea>'
+    +     '<div id="oc-rem-qual"></div>'
     +     '<div id="oc-rem-err" style="display:none;color:var(--crit,#d03b3b);font-size:12px;margin-top:6px"></div>'
     +     '<div class="sub" style="font-size:11px;color:var(--muted,#7a869a);margin-top:8px">'
     +       'This reason is saved in the history permanently, with your name and the time.</div>'
@@ -10718,6 +10719,12 @@ function ensureRemarkModal(){
   return w;
 }
 var REM_CB = null;
+/* Lead Qualified ho rahi hai to isi modal me do sawaal aur aate hain
+   (Customer Type + Purchase Quantity). Alag popup nahi kholte -- ek stage
+   change par do modal dekhna bura lagta hai. Fields ka HTML aur unki jaanch
+   OCQ (v36) ke paas hai, taaki IndiaMART wale modal me bhi wahi list aur
+   wahi niyam chale. */
+var REM_QUAL = null;               /* { coll, id } jab sawaal dikhane hain */
 function askRemark(info, cb){
   var w = ensureRemarkModal();
   REM_CB = cb;
@@ -10725,22 +10732,52 @@ function askRemark(info, cb){
   $$('oc-rem-sub').textContent   = info.sub || '';
   var t = $$('oc-rem-text'); t.value = '';
   $$('oc-rem-err').style.display = 'none';
+
+  REM_QUAL = null;
+  var box = $$('oc-rem-qual');
+  if(box){
+    box.innerHTML = '';
+    try{
+      if(info.qual && window.OCQ && OCQ.needs && OCQ.needs(info.qual.coll, info.qual.id)){
+        box.innerHTML = OCQ.fieldsHTML(info.qual.coll, info.qual.id);
+        REM_QUAL = info.qual;
+      }
+    }catch(e){ box.innerHTML = ''; REM_QUAL = null; }
+  }
+
   w.style.display = 'flex';
   setTimeout(function(){ try{ t.focus(); }catch(e){} }, 30);
 }
-function closeRemark(){ var w = $$('oc-rem-wrap'); if(w) w.style.display = 'none'; REM_CB = null; }
+function closeRemark(){
+  var w = $$('oc-rem-wrap'); if(w) w.style.display = 'none';
+  REM_CB = null; REM_QUAL = null;
+  var q = $$('oc-rem-qual'); if(q) q.innerHTML = '';
+}
 document.addEventListener('click', function(ev){
   var t = ev.target;
   if(!t || !t.id) return;
   if(t.id === 'oc-rem-cancel'){ closeRemark(); return; }
   if(t.id === 'oc-rem-ok'){
     var box = $$('oc-rem-text'), v = TR(box && box.value);
+    var er = $$('oc-rem-err');
     if(v.length < 3){
-      var er = $$('oc-rem-err'); er.textContent = 'Please enter a reason of at least 3 characters.'; er.style.display = '';
+      er.textContent = 'Please enter a reason of at least 3 characters.'; er.style.display = '';
       try{ box.focus(); }catch(e){}
       return;
     }
+    /* Qualified ke do sawaal isi modal me hain to pehle wahi jaanch lo */
+    var qual = REM_QUAL, ans = null;
+    if(qual){
+      var r = OCQ.read();
+      if(!r.ok){
+        er.textContent = r.err; er.style.display = '';
+        try{ ($$('ocqType').value ? $$('ocqQty') : $$('ocqType')).focus(); }catch(e){}
+        return;
+      }
+      ans = r.ans;
+    }
     var cb = REM_CB; closeRemark();
+    if(qual && ans){ try{ OCQ.write(qual.coll, qual.id, ans); }catch(e){} }
     if(typeof cb === 'function') cb(v);
   }
 });
@@ -10754,6 +10791,10 @@ document.addEventListener('keydown', function(ev){
 /* ek jaisa wrapper banane wala helper */
 function gate(coll, recId, to, info, proceed){
   if(hasPend(coll, recId, to)) return proceed();
+  /* Qualified ho raha hai? to remark ke saath do sawaal bhi isi modal me */
+  try{
+    if(TR(to).toUpperCase().replace(/[\s\-]+/g, '_') === 'QUALIFIED') info.qual = { coll:coll, id:recId };
+  }catch(e){}
   askRemark(info, function(rem){
     PEND = { key: pendKey(coll, recId, to), remark: rem };
     proceed();
@@ -14867,6 +14908,14 @@ window.__qlTab  = window.__qlTab  || 'ALL';
 window.__qlQ    = window.__qlQ    || '';
 window.__qlSrc  = window.__qlSrc  || '';
 
+/* record par likha customer type ("Other" par salesperson ka likha hua) */
+function custType(rec){
+  if(!rec) return '';
+  var t = T(rec.qualCustType).trim();
+  if(t === 'Other') return T(rec.qualCustTypeOther).trim() || 'Other';
+  return t;
+}
+
 function filtered(rows){
   var q = LC(window.__qlQ), tab = window.__qlTab, src = window.__qlSrc;
   return rows.filter(function(r){
@@ -14933,12 +14982,15 @@ window.renderQualified = function(){
         + '<div class="sub tabular">' + E(r.id) + '</div></td>'
       + '<td class="tabular">' + E(r.contact || '—') + '</td>'
       + '<td>' + E(r.product || '—') + (r.qty ? ' <span class="sub">×' + E(r.qty) + '</span>' : '') + '</td>'
+      + '<td>' + (custType(rec) ? E(custType(rec)) : '<span class="sub" style="color:var(--muted)">—</span>') + '</td>'
+      + '<td class="tabular">' + E(T(rec && rec.qualQty) || '—') + '</td>'
       + '<td class="tabular">' + (r.value ? money(r.value) : '—') + '</td>'
       + '<td>' + E(r.person || '—') + '</td>'
       + '<td>' + sel + '</td>'
       + '<td><div class="row-actions" style="display:flex;gap:4px">'
         + '<button title="Record kholo" onclick="QL.open(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Open</button>'
         + '<button title="Status history" onclick="ocTrackHistory(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">⏱</button>'
+        + (canEdit ? '<button title="Customer type / purchase qty" onclick="OCQ.edit(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Details</button>' : '')
       + '</div></td>'
       + '</tr>';
   }).join('');
@@ -14960,9 +15012,9 @@ window.renderQualified = function(){
     + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Enquiries, IndiaMART aur Meta Leads — jo bhi lead Qualified hui, wo yahan aa jaati hai. '
     +   'Status badalte hi wo upar wale subsection me chali jaati hai.</div>'
     + '<div style="overflow-x:auto"><table><thead><tr>'
-    +   '<th>Source</th><th>Qualified on</th><th>Name</th><th>Contact</th><th>Product</th><th>Value</th><th>Salesperson</th><th>Status</th><th></th>'
+    +   '<th>Source</th><th>Qualified on</th><th>Name</th><th>Contact</th><th>Product</th><th>Customer type</th><th>Purchase qty</th><th>Value</th><th>Salesperson</th><th>Status</th><th></th>'
     + '</tr></thead><tbody id="ql-body">'
-    + (body || '<tr><td colspan="9" class="empty">' + (rows.length ? 'Is filter par koi lead nahi mili.'
+    + (body || '<tr><td colspan="11" class="empty">' + (rows.length ? 'Is filter par koi lead nahi mili.'
         : 'Abhi koi qualified lead nahi hai. Kisi bhi Enquiry, IndiaMART ya Meta lead ka status <b>Qualified</b> karte hi wo yahan aa jaayegi.') + '</td></tr>')
     + '</tbody></table></div></div>';
 
@@ -15027,6 +15079,7 @@ QL.exportXlsx = function(){
         'Source': SRC[r.src].label, 'Record Id': r.id,
         'Qualified On': T(r.qualifiedAt).slice(0, 10), 'Date': r.date,
         'Name': r.name, 'Contact': r.contact, 'Product': r.product,
+        'Customer Type': custType(r.rec), 'Purchase Qty': T(r.rec && r.rec.qualQty),
         'Value': r.value || '', 'Salesperson': r.person, 'Status': bucketLabel(r.bucket)
       };
     });
@@ -15932,7 +15985,6 @@ function merge(coll, rows){
     if(all) return true;
     if(!me) return false;
     var ow = LC(r.owner || r.ownerEmail || r.createdBy);
-    if(!ow) return true;                     /* unassigned lead sabka hai -- pool me rehti hai */
     return ow === me;                        /* wahi rule jo scope() lagata hai */
   };
 
@@ -16030,144 +16082,268 @@ console.log('[oc v34] collection fallback fetch active (' + WATCH.join(', ') + '
 
 <script>
 /* ====================================================================== *
- * 37. OAKCRAFT v35 — UNASSIGNED LEAD KA POOL                             *
+ * 37. OAKCRAFT v36 — QUALIFIED KARTE HI DO SAWAAL                        *
  *                                                                        *
- *   Dikkat: window.scope() non-admin ke liye SIRF wahi record rakhta hai  *
- *   jiska owner wo khud ho --                                            *
+ *   Jab bhi koi lead Qualified hoti hai -- Enquiries, IndiaMART ya Meta   *
+ *   Leads, kahin se bhi -- salesperson se do cheezein poochhi jaati hain: *
  *                                                                        *
- *       return o === m;                                                  *
+ *     1. Customer Type : Architect / Reseller / Individual /              *
+ *                        Office Purchase / Interior Designer / Other      *
+ *                        ("Other" chunne par apna type likh sakte hain)   *
+ *     2. Purchase Quantity                                                *
  *                                                                        *
- *   ...jabki window.canTouch() unassigned record par saaf "haan" kehta    *
- *   hai (`return !o || o === m`). Yaani app aisi lead edit karne deta     *
- *   tha jo wo dikhata hi nahi tha.                                       *
+ *   Ye teeno section ek hi jagah se chalte hain, isliye sawaal ek hi baar *
+ *   likhe gaye hain. Status badalne ke teen raste hain aur teeno yahin    *
+ *   se hokar jaate hain:                                                  *
  *                                                                        *
- *   Ab tak ye chhupa raha kyunki har lead par kisi na kisi ka naam chadh  *
- *   jaata tha. Jab se naam ka milaan sakht hua hai (aur sheet me sirf     *
- *   sales walo ke naam bache hain), pending leads UNASSIGNED aati hain -- *
- *   aur unhe poori sales team me se koi nahi dekh pata tha, sirf admin.   *
+ *     IM.setStatus   -> IndiaMART ka row dropdown                        *
+ *     ML.setStatus   -> Meta Leads ka row dropdown                       *
+ *     ocMoveEnq      -> Enquiries ka pipeline board + Qualified section   *
+ *     saveEnq        -> Enquiry form ka Stage select                     *
  *                                                                        *
- *   Ilaaj (sirf LEAD wali collections par -- orders/quotations/customers  *
- *   ka rule jaisa tha waisa hi rehta hai):                               *
+ *   Pehle teen me sawaal PEHLE aate hain: Cancel dabaya to status badalta *
+ *   hi nahi (dropdown wapas apni jagah aa jaata hai). saveEnq me enquiry  *
+ *   pehle save hoti hai aur sawaal uske TURANT BAAD aate hain -- kyunki   *
+ *   uska apna form usi modal me khula hota hai, aur upar se dusra modal   *
+ *   khol dete to form me bhari hui cheezein mit jaatin.                   *
  *                                                                        *
- *     1. Jis lead par kisi ka naam nahi hai wo SABKO dikhti hai. Ye kisi  *
- *        ka niji data nahi hai -- wo abhi kisi ki hai hi nahi.           *
- *     2. Jaise hi koi salesperson us lead ka status badalta hai, lead     *
- *        USI ki ho jaati hai. Phir wo baaki team ki list se hat jaati     *
- *        hai, isliye do log ek hi lead par kaam nahi karte.              *
- *     3. Admin ke chhune par lead uske naam NAHI hoti -- admin leads      *
- *        uthata hi nahi, aur yahi galti pehle 558 leads unke naam kar     *
- *        chuki hai. Admin ko assign karna ho to dropdown hai hi.         *
+ *   Jawab record par hi likhe jaate hain (qualCustType / qualCustTypeOther*
+ *   / qualQty / qualAskedAt), isliye wo sheet par bhi chale jaate hain    *
+ *   aur Qualified section ki table + Excel dono me dikhte hain. Jis lead  *
+ *   ke jawab pehle se maujood hain usse dobara nahi poochha jaata; badalna*
+ *   ho to Qualified section me row ka "Details" button hai.               *
  * ====================================================================== */
 (function(){
 'use strict';
-if(window.__ocLeadPool) return; window.__ocLeadPool = true;
+if(window.__ocQualAsk) return; window.__ocQualAsk = true;
 
-var LEAD_COLLS = { metaleads:1, indiamartleads:1 };
+var TYPES = ['Architect', 'Reseller', 'Individual', 'Office Purchase', 'Interior Designer', 'Other'];
+window.OC_CUSTOMER_TYPES = TYPES;
 
 function T(v){ return v == null ? '' : String(v); }
-function LC(v){ return T(v).trim().toLowerCase(); }
-function isLead(coll){ return !!LEAD_COLLS[LC(coll)]; }
-function myMail(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
-function ownerOf(r){ return LC(r && (r.owner || r.ownerEmail || r.createdBy)); }
-function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function TR(v){ return T(v).trim(); }
+function E(v){ return TR(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function A(v){ return E(v).replace(/"/g,'&quot;'); }
+function $$(id){ return document.getElementById(id); }
+function tell(m){ try{ toast(m); }catch(e){} }
 
-/* Kya ye user khud leads uthata hai? Sirf aisa user hi kisi unassigned lead
-   ko apne naam kar sakta hai. leadRoster() wahi list hai jo assign wale
-   dropdown me dikhti hai (admin / manager / inactive / OC_NO_LEADS bahar). */
-function takesLeads(email){
-  var e = LC(email);
-  if(!e) return false;
-  try{
-    if(typeof window.ocLeadRoster !== 'function') return false;
-    var r = window.ocLeadRoster() || [];
-    for(var i = 0; i < r.length; i++) if(LC(r[i].email) === e) return true;
-  }catch(err){}
-  return false;
+/* jawab pehle se hain? */
+function hasAnswers(rec){
+  return !!(rec && TR(rec.qualCustType) && TR(rec.qualQty));
 }
+/* dikhane ke liye ek line */
+function label(rec){
+  if(!rec) return '';
+  var t = TR(rec.qualCustType);
+  if(t === 'Other') t = TR(rec.qualCustTypeOther) || 'Other';
+  return t;
+}
+window.ocQualType = label;
 
-/* ---------------------------------------------------------------- 1. dikhna */
-(function(){
-  if(typeof window.scope !== 'function') return;
-  var _scope = window.scope;
-  window.scope = function(list, coll){
-    var out = _scope.apply(this, arguments);
-    if(!isLead(coll) || !Array.isArray(list) || !Array.isArray(out)) return out;
-    if(out.length === list.length) return out;          /* sab dikh raha hai (admin) */
-
-    var seen = {};
-    out.forEach(function(r){ if(r && r.id) seen[T(r.id)] = 1; });
-    var add = list.filter(function(r){
-      return r && r.id && !seen[T(r.id)] && !ownerOf(r);
-    });
-    return add.length ? out.concat(add) : out;
-  };
-})();
-
-/* email -> dikhane wala naam (users list se) */
-function nameFor(email){
-  var e = LC(email);
-  if(!e) return '';
+/* ---------------------------------------------------------------- record padho / likho */
+function listOf(coll){
   try{
-    var u = JSON.parse(localStorage.getItem('users') || '[]');
-    if(Array.isArray(u)) for(var i = 0; i < u.length; i++){
-      if(u[i] && LC(u[i].email) === e) return T(u[i].name).trim();
+    if(coll === 'enquiries') return (typeof DB !== 'undefined' && DB.enquiries) ? (DB.enquiries() || []) : [];
+    var a = JSON.parse(localStorage.getItem(coll) || '[]');
+    return Array.isArray(a) ? a : [];
+  }catch(e){ return []; }
+}
+function findRec(coll, id){
+  var a = listOf(coll);
+  for(var i = 0; i < a.length; i++) if(a[i] && T(a[i].id) === T(id)) return a[i];
+  return null;
+}
+function saveAnswers(coll, id, ans){
+  var arr = listOf(coll), rec = null, i;
+  for(i = 0; i < arr.length; i++) if(arr[i] && T(arr[i].id) === T(id)){ rec = arr[i]; break; }
+  if(!rec) return false;
+  rec.qualCustType      = ans.type;
+  rec.qualCustTypeOther = ans.other;
+  rec.qualQty           = ans.qty;
+  rec.qualAskedAt       = new Date().toISOString();
+  rec.updatedAt         = rec.qualAskedAt;
+  try{
+    if(coll === 'enquiries' && typeof DB !== 'undefined' && DB.save) DB.save('enquiries', arr);
+    else{
+      localStorage.setItem(coll, JSON.stringify(arr));
+      if(typeof CLOUD !== 'undefined' && typeof CLOUD.push === 'function') CLOUD.push(coll, arr);
     }
-  }catch(err){}
-  return '';
-}
-
-/* ---------------------------------------------------------------- 2. haath lagaya = aapki */
-function claim(rec){
-  if(!rec || ownerOf(rec)) return false;              /* pehle se kisi ki hai */
-  if(isAdm()) return false;                           /* admin leads nahi uthata */
-  var me = myMail();
-  if(!takesLeads(me)) return false;
-  rec.owner = me;
-  rec.assigned_to = nameFor(me) || me;
+  }catch(e){ return false; }
   return true;
 }
 
-/* setStatus ke andar record dhoondhne ka koi saaf hook nahi hai, isliye
-   call se PEHLE localStorage me hi owner likh dete hain -- setStatus wahin
-   se record uthata hai, to use apne aap owner mila hua record milta hai
-   aur uska apna save/push/log sab pehle jaisa chalta hai. */
-function claimBefore(coll, id){
+/* ---------------------------------------------------------------- sawaal ka form */
+var pending = null;          /* { coll, id, onOk, onCancel } */
+
+function ask(coll, id, onOk, onCancel){
+  var rec = findRec(coll, id);
+  var name = rec ? TR(rec.sender_name || rec.full_name || rec.customer || rec.name) : '';
+  var curT = rec ? TR(rec.qualCustType) : '';
+  var curO = rec ? TR(rec.qualCustTypeOther) : '';
+  var curQ = rec ? TR(rec.qualQty || rec.qty || rec.quantity) : '';
+  pending = { coll:coll, id:id, onOk:onOk, onCancel:onCancel };
+
+  var opts = '<option value="">— chuniye —</option>' + TYPES.map(function(t){
+    return '<option value="' + A(t) + '"' + (t === curT ? ' selected' : '') + '>' + E(t) + '</option>';
+  }).join('');
+
   try{
-    var arr = JSON.parse(localStorage.getItem(coll) || '[]');
-    if(!Array.isArray(arr)) return;
-    for(var i = 0; i < arr.length; i++){
-      if(arr[i] && T(arr[i].id) === T(id)){
-        if(claim(arr[i])){
-          localStorage.setItem(coll, JSON.stringify(arr));
-          console.log('[oc v35] ' + coll + ' ' + id + ' ab ' + arr[i].owner + ' ki hai');
-        }
-        return;
-      }
-    }
-  }catch(e){}
+    openModal(
+      '<div class="modal-head"><h3>Qualified — do sawaal</h3>'
+      + '<button class="icon-btn" onclick="OCQ.cancel()">✕</button></div>'
+      + '<div class="modal-body">'
+      +   (name ? '<div class="sub" style="margin:-4px 0 12px;color:var(--muted)">' + E(name) + '</div>' : '')
+      +   '<div class="form-row"><label>Customer Type <span style="color:var(--crit)">*</span></label>'
+      +     '<select id="ocqType" onchange="OCQ.typeChanged()">' + opts + '</select></div>'
+      +   '<div class="form-row" id="ocqOtherRow" style="display:' + (curT === 'Other' ? 'block' : 'none') + '">'
+      +     '<label>Type likhiye</label>'
+      +     '<input id="ocqOther" value="' + A(curO) + '" placeholder="jaise Builder, Contractor, Govt…"></div>'
+      +   '<div class="form-row"><label>Purchase Quantity <span style="color:var(--crit)">*</span></label>'
+      +     '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="kitne piece"></div>'
+      +   '<div id="ocqErr" style="display:none;color:var(--crit);font-size:12px;margin-top:-4px"></div>'
+      + '</div>'
+      + '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 20px">'
+      +   '<button class="btn ghost" onclick="OCQ.cancel()">Cancel</button>'
+      +   '<button class="btn primary" onclick="OCQ.save()">Save</button>'
+      + '</div>'
+    );
+    setTimeout(function(){ try{ $$('ocqType').focus(); }catch(e){} }, 60);
+  }catch(e){
+    /* modal hi na khul paye to raasta na roko */
+    pending = null;
+    if(typeof onOk === 'function') onOk();
+  }
 }
 
-function hook(obj, name, coll){
+var OCQ = {};
+window.OCQ = OCQ;
+
+OCQ.typeChanged = function(){
+  var t = $$('ocqType'), row = $$('ocqOtherRow');
+  if(!t || !row) return;
+  row.style.display = (t.value === 'Other') ? 'block' : 'none';
+  if(t.value === 'Other') setTimeout(function(){ try{ $$('ocqOther').focus(); }catch(e){} }, 40);
+};
+
+OCQ.save = function(){
+  if(!pending) return;
+  var type  = TR(($$('ocqType')  || {}).value);
+  var other = TR(($$('ocqOther') || {}).value);
+  var qty   = TR(($$('ocqQty')   || {}).value);
+  var err = '';
+  if(!type) err = 'Customer Type chuniye.';
+  else if(type === 'Other' && !other) err = '"Other" chuna hai to type likhiye.';
+  else if(!qty) err = 'Purchase Quantity daaliye.';
+  else if(!(+qty >= 0)) err = 'Quantity sahi number nahi hai.';
+  if(err){
+    var box = $$('ocqErr');
+    if(box){ box.textContent = err; box.style.display = 'block'; }
+    return;
+  }
+  var p = pending; pending = null;
+  saveAnswers(p.coll, p.id, { type:type, other:(type === 'Other' ? other : ''), qty:qty });
+  try{ closeModal(); }catch(e){}
+  if(typeof p.onOk === 'function') p.onOk();
+  try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
   try{
-    if(!obj || typeof obj[name] !== 'function') return;
-    var _f = obj[name];
-    obj[name] = function(id){
-      try{ claimBefore(coll, id); }catch(e){}
-      return _f.apply(this, arguments);
-    };
+    if(typeof state !== 'undefined' && state.view === 'qualified' && typeof renderQualified === 'function') renderQualified();
   }catch(e){}
+};
+
+OCQ.cancel = function(){
+  var p = pending; pending = null;
+  try{ closeModal(); }catch(e){}
+  if(p && typeof p.onCancel === 'function') p.onCancel();
+};
+
+/* Qualified section ke row se dobara kholne ke liye */
+OCQ.edit = function(coll, id){
+  ask(coll, id, function(){ tell('Details save ho gayin'); }, null);
+};
+
+/* ---------------------------------------------------------------- remark modal ke liye API
+   Enquiries / Meta Leads ka remark modal yahi do sawaal apne andar dikhata
+   hai. Fields ka HTML, unki jaanch aur likhna -- sab yahin se, taaki dono
+   jagah ek hi niyam aur ek hi list chale. */
+
+/* kya is record se abhi poochhna hai? */
+OCQ.needs = function(coll, id){
+  var rec = findRec(coll, id);
+  return !!rec && !hasAnswers(rec);
+};
+
+/* remark modal me daalne ke liye fields (prefill ke saath) */
+OCQ.fieldsHTML = function(coll, id){
+  var rec = findRec(coll, id) || {};
+  var curT = TR(rec.qualCustType), curO = TR(rec.qualCustTypeOther);
+  var curQ = TR(rec.qualQty || rec.qty || rec.quantity);
+  var opts = '<option value="">— chuniye —</option>' + TYPES.map(function(t){
+    return '<option value="' + A(t) + '"' + (t === curT ? ' selected' : '') + '>' + E(t) + '</option>';
+  }).join('');
+  var inp = 'width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border,#dde3ee);'
+          + 'border-radius:9px;font:inherit;background:var(--surface-2,#f7f9fc);color:inherit';
+  var lbl = 'font-size:11.5px;font-weight:600';
+  return ''
+    + '<div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--border,#dde3ee)">'
+    +   '<label class="lbl" style="' + lbl + '">Customer Type <span style="color:var(--crit,#d03b3b)">*</span></label>'
+    +   '<select id="ocqType" style="' + inp + '" onchange="OCQ.typeChanged()">' + opts + '</select>'
+    +   '<div id="ocqOtherRow" style="margin-top:10px;display:' + (curT === 'Other' ? 'block' : 'none') + '">'
+    +     '<label class="lbl" style="' + lbl + '">Type likhiye</label>'
+    +     '<input id="ocqOther" value="' + A(curO) + '" placeholder="jaise Builder, Contractor, Govt…" style="' + inp + '">'
+    +   '</div>'
+    +   '<label class="lbl" style="' + lbl + ';display:block;margin-top:10px">Purchase Quantity <span style="color:var(--crit,#d03b3b)">*</span></label>'
+    +   '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="kitne piece" style="' + inp + '">'
+    + '</div>';
+};
+
+/* fields padho + jaanch. { ok:true, ans:{...} } ya { ok:false, err:'...' } */
+OCQ.read = function(){
+  var type  = TR(($$('ocqType')  || {}).value);
+  var other = TR(($$('ocqOther') || {}).value);
+  var qty   = TR(($$('ocqQty')   || {}).value);
+  if(!type) return { ok:false, err:'Customer Type chuniye.' };
+  if(type === 'Other' && !other) return { ok:false, err:'"Other" chuna hai to type likhiye.' };
+  if(!qty) return { ok:false, err:'Purchase Quantity daaliye.' };
+  if(!(+qty >= 0)) return { ok:false, err:'Quantity sahi number nahi hai.' };
+  return { ok:true, ans:{ type:type, other:(type === 'Other' ? other : ''), qty:qty } };
+};
+
+OCQ.write = function(coll, id, ans){ return saveAnswers(coll, id, ans); };
+
+/* ---------------------------------------------------------------- hooks */
+function isQualStatus(v){
+  return TR(v).toUpperCase().replace(/[\s\-]+/g, '_') === 'QUALIFIED';
 }
 
-/* module load hone ke baad hook lagao (ML.setStatus ko baad wale section
-   dobara lapetate hain, isliye sabse aakhir me lagna chahiye) */
+/* IM / ML ka setStatus: sawaal PEHLE, Cancel par status badalta hi nahi */
+function hookLead(objName, coll, rerender){
+  var obj = window[objName];
+  if(!obj || typeof obj.setStatus !== 'function') return;
+  var _f = obj.setStatus;
+  obj.setStatus = function(id, val){
+    var self = this, args = arguments;
+    if(!isQualStatus(val)) return _f.apply(self, args);
+    var rec = findRec(coll, id);
+    if(!rec || hasAnswers(rec)) return _f.apply(self, args);
+    ask(coll, id,
+      function(){ _f.apply(self, args); },
+      function(){ try{ if(typeof rerender === 'function') rerender(); }catch(e){} });
+  };
+}
+
+/* Enquiries aur Meta Leads ka apna "Reason / Remark" wala modal pehle se hai
+   (gate/askRemark). Unke liye ye do sawaal USI modal me jod diye gaye hain --
+   warna salesperson ko ek ke baad ek do popup dekhne padte. IndiaMART par
+   remark wala gate hai hi nahi, isliye wahan apna modal chalta hai. */
+
 function install(){
-  hook(window.IM, 'setStatus', 'indiamartLeads');
-  hook(window.ML, 'setStatus', 'metaLeads');
+  hookLead('IM', 'indiamartLeads', function(){ try{ if(typeof renderIndiamart === 'function' && state.view === 'indiamart') renderIndiamart(); }catch(e){} });
 }
+/* sabse aakhir me lagna chahiye -- ML.setStatus ko beech ke section dobara lapetate hain */
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 0); });
 else setTimeout(install, 0);
 
-console.log('[oc v35] unassigned lead pool active — bina naam wali lead sabko dikhegi');
+console.log('[oc v36] Qualified par Customer Type + Purchase Quantity poochhi jayengi');
 })();
 </script>
 
