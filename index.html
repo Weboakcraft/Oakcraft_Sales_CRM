@@ -8016,7 +8016,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.22.7';
+var OC_WEB_BUILD = '2026.09.23.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -15932,6 +15932,7 @@ function merge(coll, rows){
     if(all) return true;
     if(!me) return false;
     var ow = LC(r.owner || r.ownerEmail || r.createdBy);
+    if(!ow) return true;                     /* unassigned lead sabka hai -- pool me rehti hai */
     return ow === me;                        /* wahi rule jo scope() lagata hai */
   };
 
@@ -16024,6 +16025,149 @@ try{
 [2500, 12000].forEach(function(ms){ setTimeout(function(){ WATCH.forEach(function(k){ pull(k, false); }); }, ms); });
 
 console.log('[oc v34] collection fallback fetch active (' + WATCH.join(', ') + ')');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 37. OAKCRAFT v35 — UNASSIGNED LEAD KA POOL                             *
+ *                                                                        *
+ *   Dikkat: window.scope() non-admin ke liye SIRF wahi record rakhta hai  *
+ *   jiska owner wo khud ho --                                            *
+ *                                                                        *
+ *       return o === m;                                                  *
+ *                                                                        *
+ *   ...jabki window.canTouch() unassigned record par saaf "haan" kehta    *
+ *   hai (`return !o || o === m`). Yaani app aisi lead edit karne deta     *
+ *   tha jo wo dikhata hi nahi tha.                                       *
+ *                                                                        *
+ *   Ab tak ye chhupa raha kyunki har lead par kisi na kisi ka naam chadh  *
+ *   jaata tha. Jab se naam ka milaan sakht hua hai (aur sheet me sirf     *
+ *   sales walo ke naam bache hain), pending leads UNASSIGNED aati hain -- *
+ *   aur unhe poori sales team me se koi nahi dekh pata tha, sirf admin.   *
+ *                                                                        *
+ *   Ilaaj (sirf LEAD wali collections par -- orders/quotations/customers  *
+ *   ka rule jaisa tha waisa hi rehta hai):                               *
+ *                                                                        *
+ *     1. Jis lead par kisi ka naam nahi hai wo SABKO dikhti hai. Ye kisi  *
+ *        ka niji data nahi hai -- wo abhi kisi ki hai hi nahi.           *
+ *     2. Jaise hi koi salesperson us lead ka status badalta hai, lead     *
+ *        USI ki ho jaati hai. Phir wo baaki team ki list se hat jaati     *
+ *        hai, isliye do log ek hi lead par kaam nahi karte.              *
+ *     3. Admin ke chhune par lead uske naam NAHI hoti -- admin leads      *
+ *        uthata hi nahi, aur yahi galti pehle 558 leads unke naam kar     *
+ *        chuki hai. Admin ko assign karna ho to dropdown hai hi.         *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocLeadPool) return; window.__ocLeadPool = true;
+
+var LEAD_COLLS = { metaleads:1, indiamartleads:1 };
+
+function T(v){ return v == null ? '' : String(v); }
+function LC(v){ return T(v).trim().toLowerCase(); }
+function isLead(coll){ return !!LEAD_COLLS[LC(coll)]; }
+function myMail(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function ownerOf(r){ return LC(r && (r.owner || r.ownerEmail || r.createdBy)); }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+
+/* Kya ye user khud leads uthata hai? Sirf aisa user hi kisi unassigned lead
+   ko apne naam kar sakta hai. leadRoster() wahi list hai jo assign wale
+   dropdown me dikhti hai (admin / manager / inactive / OC_NO_LEADS bahar). */
+function takesLeads(email){
+  var e = LC(email);
+  if(!e) return false;
+  try{
+    if(typeof window.ocLeadRoster !== 'function') return false;
+    var r = window.ocLeadRoster() || [];
+    for(var i = 0; i < r.length; i++) if(LC(r[i].email) === e) return true;
+  }catch(err){}
+  return false;
+}
+
+/* ---------------------------------------------------------------- 1. dikhna */
+(function(){
+  if(typeof window.scope !== 'function') return;
+  var _scope = window.scope;
+  window.scope = function(list, coll){
+    var out = _scope.apply(this, arguments);
+    if(!isLead(coll) || !Array.isArray(list) || !Array.isArray(out)) return out;
+    if(out.length === list.length) return out;          /* sab dikh raha hai (admin) */
+
+    var seen = {};
+    out.forEach(function(r){ if(r && r.id) seen[T(r.id)] = 1; });
+    var add = list.filter(function(r){
+      return r && r.id && !seen[T(r.id)] && !ownerOf(r);
+    });
+    return add.length ? out.concat(add) : out;
+  };
+})();
+
+/* email -> dikhane wala naam (users list se) */
+function nameFor(email){
+  var e = LC(email);
+  if(!e) return '';
+  try{
+    var u = JSON.parse(localStorage.getItem('users') || '[]');
+    if(Array.isArray(u)) for(var i = 0; i < u.length; i++){
+      if(u[i] && LC(u[i].email) === e) return T(u[i].name).trim();
+    }
+  }catch(err){}
+  return '';
+}
+
+/* ---------------------------------------------------------------- 2. haath lagaya = aapki */
+function claim(rec){
+  if(!rec || ownerOf(rec)) return false;              /* pehle se kisi ki hai */
+  if(isAdm()) return false;                           /* admin leads nahi uthata */
+  var me = myMail();
+  if(!takesLeads(me)) return false;
+  rec.owner = me;
+  rec.assigned_to = nameFor(me) || me;
+  return true;
+}
+
+/* setStatus ke andar record dhoondhne ka koi saaf hook nahi hai, isliye
+   call se PEHLE localStorage me hi owner likh dete hain -- setStatus wahin
+   se record uthata hai, to use apne aap owner mila hua record milta hai
+   aur uska apna save/push/log sab pehle jaisa chalta hai. */
+function claimBefore(coll, id){
+  try{
+    var arr = JSON.parse(localStorage.getItem(coll) || '[]');
+    if(!Array.isArray(arr)) return;
+    for(var i = 0; i < arr.length; i++){
+      if(arr[i] && T(arr[i].id) === T(id)){
+        if(claim(arr[i])){
+          localStorage.setItem(coll, JSON.stringify(arr));
+          console.log('[oc v35] ' + coll + ' ' + id + ' ab ' + arr[i].owner + ' ki hai');
+        }
+        return;
+      }
+    }
+  }catch(e){}
+}
+
+function hook(obj, name, coll){
+  try{
+    if(!obj || typeof obj[name] !== 'function') return;
+    var _f = obj[name];
+    obj[name] = function(id){
+      try{ claimBefore(coll, id); }catch(e){}
+      return _f.apply(this, arguments);
+    };
+  }catch(e){}
+}
+
+/* module load hone ke baad hook lagao (ML.setStatus ko baad wale section
+   dobara lapetate hain, isliye sabse aakhir me lagna chahiye) */
+function install(){
+  hook(window.IM, 'setStatus', 'indiamartLeads');
+  hook(window.ML, 'setStatus', 'metaLeads');
+}
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 0); });
+else setTimeout(install, 0);
+
+console.log('[oc v35] unassigned lead pool active — bina naam wali lead sabko dikhegi');
 })();
 </script>
 

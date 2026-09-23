@@ -364,6 +364,39 @@ sheet me asal me likha kya hai. Jis lead par **kaam shuru ho chuka hai** (status
 CREATED se aage) uska owner jaan-boojh kar nahi chheda jaata — ho sakta hai kisi
 ne CRM me khud sahi banda assign kiya ho; log me unki ginti alag dikhti hai.
 
+## Unassigned lead ka pool
+
+Jab sheet me sirf sales walo ke naam bache aur pending leads **unassigned**
+aane lagin, to ek purana bug saamne aaya: `window.scope()` non-admin ke liye
+sirf apne owner wale records rakhta tha —
+
+```js
+return o === m;                 // bina owner wali row bhi gir jaati thi
+```
+
+— jabki `window.canTouch()` unassigned record par saaf "haan" kehta hai
+(`return !o || o === m`). Yaani app aisi lead **edit** karne deta tha jo wo
+**dikhata hi nahi** tha. Ab tak ye chhupa raha kyunki har lead par kisi na
+kisi ka naam chadh jaata tha. Nateeja: poori sales team ko pending leads
+dikhti hi nahi thin, sirf admin ko.
+
+Ab **sirf lead wali collections** (`metaLeads`, `indiamartLeads`) par:
+
+1. **Bina naam wali lead sabko dikhti hai.** Ye kisi ka niji data nahi — wo
+   abhi kisi ki hai hi nahi. Kisi doosre salesperson ke naam wali lead pehle
+   ki tarah nahi dikhti.
+2. **Jo pehle status badle, lead usi ki.** Uske baad wo baaki team ki list se
+   hat jaati hai, isliye do log ek hi lead par kaam nahi karte.
+3. **Admin ke chhune par lead uske naam nahi hoti.** Admin leads uthata hi
+   nahi — aur yahi galti pehle 558 leads unke naam kar chuki thi. Admin ko
+   assign karna ho to dropdown hai hi.
+
+`orders` / `quotations` / `customers` / `enquiries` ka rule jaisa tha waisa hi
+hai — wahan bina owner wala record pehle ki tarah non-admin ko nahi dikhta.
+
+v34 ka apna privacy filter bhi yahi rule lagata tha, wo bhi saath me theek
+kiya gaya — warna rows `localStorage` tak pahunchti hi nahi.
+
 ## Fallback se aayi rows wapas sheet par nahi jaatin
 
 v34 (`getAll` ke bahar se collection maangna) rows seedha `localStorage` me
