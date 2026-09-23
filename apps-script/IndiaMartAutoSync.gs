@@ -14,6 +14,20 @@ var IMS_FULL_TAB = 'Indiamart';
 /* CRM me salesperson ne lead ko inme se kisi status tak pahuncha diya ho to
    sheet ka status use peeche nahi kheenchta (baaki fields phir bhi update). */
 var IMS_KEEP_CRM_STATUS = ['WON','QUOTATION_SENT','PROPOSAL','SYSTEM_MASTER'];
+/* Sirf is waqt (source ka column A "Timestamp") ke BAAD wali leads CRM me jaati
+   hain. Isse pehle ki rows ko script dekhti hi nahi. Format: DD/MM/YYYY HH:MM:SS */
+var IMS_START_AFTER = '31/08/2026 22:38:08';
+/* CRM ke indiamartLeads tab ka column order (resetIndiaMartCrm isi se banata hai). */
+var IMS_COLUMNS = ['id','enquiry_no','query_time','date','sender_name','company','sender_mobile',
+  'sender_email','sender_city_state','product','qty','subject','query_type','lead_status','status',
+  'stage','lead_quality','qualification_status','profession','discussion','final_remarks','note',
+  'assigned_to','owner','source','srcRow','src_sig','statusSyncedAt','qualifiedAt','createdAt',
+  'updatedAt','updatedBy'];
+/** Kisi bhi timestamp ko YYYYMMDDHHMMSS me lao (tulna ke liye); na bane to ''. */
+function ims_sortKey_(v){
+  var m = ims_time_(v).match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+  return m ? (m[3] + m[2] + m[1] + ims_pad_(+m[4]) + m[5] + m[6]) : '';
+}
 function ims_takesLeads_(role){
   var r = ims_lc_(role).replace(/[\s_\-]+/g, ' ');
   return r === 'sales executive' || r === 'sales exec' || r === 'salesexecutive'
@@ -235,6 +249,11 @@ function ims_srcRows_(){
       qty_need: get(v, 'qty_need'),
       delivery: get(v, 'delivery')
     });
+  }
+  /* sirf IMS_START_AFTER ke baad wali rows */
+  var cutKey = ims_sortKey_(IMS_START_AFTER);
+  if(cutKey){
+    rows = rows.filter(function(r){ var k = ims_sortKey_(r.query_time); return !!k && k > cutKey; });
   }
   try{ ims_enrich_(rows, sh); }catch(e){ Logger.log('IndiaMartAutoSync: ' + IMS_FULL_TAB + ' tab se data nahi mila — ' + e); }
   return { rows: rows, markCol: markCol, sheet: sh, head: head, idx: idx };
@@ -707,6 +726,48 @@ function ims_run_(dryRun){
   }finally{
     try{ lock.releaseLock(); }catch(e){}
   }
+}
+
+/**
+ * EK BAAR chalaiye: CRM ka indiamartLeads tab khaali karke naye column order
+ * (IMS_COLUMNS) me dobara banata hai, phir IMS_START_AFTER ke baad wali saari
+ * leads sheet ke status ke saath dobara bhej deta hai.
+ * Purana data mitne se pehle usi spreadsheet me chhupe hue tab
+ * "bak_indiamartLeads_YYYYMMDD_HHMM" me copy ho jaata hai.
+ */
+function resetIndiaMartCrm(){
+  var lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  var info = '';
+  try{
+    var sh = _sheet(IMS_COLL);
+    var old = Math.max(sh.getLastRow() - 2, 0);
+    var bname = 'bak_' + IMS_COLL + '_' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd_HHmm');
+    var cp = sh.copyTo(SS); cp.setName(bname);
+    try{ cp.hideSheet(); }catch(e){}
+    try{ var f = sh.getFilter(); if(f) f.remove(); }catch(e){}
+    _initSheet(sh, IMS_COLL, IMS_COLUMNS);
+    SpreadsheetApp.flush();
+    info = 'resetIndiaMartCrm: ' + old + ' purani rows backup tab "' + bname + '" me copy karke hata di, '
+      + IMS_COLL + ' naye structure (' + IMS_COLUMNS.length + ' columns) me bana diya.';
+
+    /* IMS_START_AFTER ke baad wali rows ka purana send_to_crm nishaan hatao, taaki wo dobara jaayen */
+    var src = ims_srcRows_(), cleared = 0;
+    if(src.markCol){
+      src.rows.forEach(function(r){
+        if(ims_lc_(r.mark) !== ims_lc_(IMS_MARK_TEXT)) return;
+        try{ src.sheet.getRange(r.row, src.markCol).setValue(''); cleared++; }catch(e){}
+      });
+      SpreadsheetApp.flush();
+    }
+    info += ' Source par ' + cleared + ' purane nishaan hataye.';
+  }finally{
+    try{ lock.releaseLock(); }catch(e){}
+  }
+  Logger.log(info);
+  /* ab naya data bhejo */
+  ims_run_(false);
+  Logger.log('resetIndiaMartCrm: CRM me ab ' + ims_read_(IMS_COLL).length + ' IndiaMART leads hain.');
 }
 
 /** Trigger yahi chalata hai. */
