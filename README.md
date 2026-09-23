@@ -364,38 +364,60 @@ sheet me asal me likha kya hai. Jis lead par **kaam shuru ho chuka hai** (status
 CREATED se aage) uska owner jaan-boojh kar nahi chheda jaata — ho sakta hai kisi
 ne CRM me khud sahi banda assign kiya ho; log me unki ginti alag dikhti hai.
 
-## Unassigned lead ka pool
+## Lead sirf uske owner ko dikhti hai
 
-Jab sheet me sirf sales walo ke naam bache aur pending leads **unassigned**
-aane lagin, to ek purana bug saamne aaya: `window.scope()` non-admin ke liye
-sirf apne owner wale records rakhta tha —
+Ek baar unassigned leads ko sabke liye khol kar dekha gaya tha, par faisla
+ulta hua: **bina naam wali lead kisi ko nahi dikhti.** Salesperson ko wahi
+leads dikhti hain jo uske naam par assign ki gayi hain; pending leads admin
+ke paas rehti hain aur wahi unhe baant-ta hai.
 
-```js
-return o === m;                 // bina owner wali row bhi gir jaati thi
+`window.scope()` ka rule (non-admin ke liye `owner === me`) isliye jaisa tha
+waisa hi hai, aur v34 ka fetch filter bhi. Aage kabhi pool chahiye ho to do
+jagah `!owner` ko chhodna hoga — `window.scope()` aur v34 ka `keepable()`.
+
+Dhyan rahe: `window.canTouch()` abhi bhi `!o || o === m` kehta hai, yaani
+bina owner wale record par edit ki ijazat hai — bas wo record dikhta nahi.
+
+## Qualified karte hi do sawaal
+
+Jab bhi koi lead **Qualified** hoti hai — Enquiries, IndiaMART ya Meta Leads,
+kahin se bhi — salesperson se do cheezein poochhi jaati hain:
+
+| Sawaal | Vikalp |
+|---|---|
+| **Customer Type** | Architect · Reseller · Individual · Office Purchase · Interior Designer · Other |
+| **Purchase Quantity** | number |
+
+"Other" chunne par apna type likhne ka box khul jaata hai. Dono zaroori hain —
+bina bhare status badalta hi nahi.
+
+Jawab record par hi likhe jaate hain, isliye wo sheet tak pahunchte hain aur
+Qualified section ki table + Excel dono me dikhte hain:
+
+```
+qualCustType        'Architect' | ... | 'Other'
+qualCustTypeOther   'Other' chuna to salesperson ka likha hua
+qualQty             purchase quantity
+qualAskedAt         kab bhara gaya
 ```
 
-— jabki `window.canTouch()` unassigned record par saaf "haan" kehta hai
-(`return !o || o === m`). Yaani app aisi lead **edit** karne deta tha jo wo
-**dikhata hi nahi** tha. Ab tak ye chhupa raha kyunki har lead par kisi na
-kisi ka naam chadh jaata tha. Nateeja: poori sales team ko pending leads
-dikhti hi nahi thin, sirf admin ko.
+### Ek stage change par ek hi modal
 
-Ab **sirf lead wali collections** (`metaLeads`, `indiamartLeads`) par:
+Enquiries aur Meta Leads me pehle se ek **Reason / Remark** modal hai
+(`gate()` → `askRemark()`), jo history me reason save karta hai. Agar sawaal
+alag popup me aate to salesperson ko ek ke baad ek **do** modal dekhne padte.
+Isliye Qualified par ye do fields usi remark modal ke andar jud jaate hain —
+`gate()` `info.qual` bhejta hai, `askRemark()` fields daal deta hai, aur OK
+par dono cheezein ek saath jaanchi jaati hain.
 
-1. **Bina naam wali lead sabko dikhti hai.** Ye kisi ka niji data nahi — wo
-   abhi kisi ki hai hi nahi. Kisi doosre salesperson ke naam wali lead pehle
-   ki tarah nahi dikhti.
-2. **Jo pehle status badle, lead usi ki.** Uske baad wo baaki team ki list se
-   hat jaati hai, isliye do log ek hi lead par kaam nahi karte.
-3. **Admin ke chhune par lead uske naam nahi hoti.** Admin leads uthata hi
-   nahi — aur yahi galti pehle 558 leads unke naam kar chuki thi. Admin ko
-   assign karna ho to dropdown hai hi.
+IndiaMART par remark wala gate hai hi nahi, isliye wahan v36 ka apna chhota
+modal khulta hai. Fields, unki list aur jaanch dono jagah ek hi jagah se aate
+hain (`OCQ.fieldsHTML()` / `OCQ.read()` / `OCQ.write()`), isliye niyam kabhi
+alag nahi ho sakte.
 
-`orders` / `quotations` / `customers` / `enquiries` ka rule jaisa tha waisa hi
-hai — wahan bina owner wala record pehle ki tarah non-admin ko nahi dikhta.
-
-v34 ka apna privacy filter bhi yahi rule lagata tha, wo bhi saath me theek
-kiya gaya — warna rows `localStorage` tak pahunchti hi nahi.
+Cancel dabane par status **badalta nahi** — dropdown apni jagah wapas aa jaata
+hai. Jis lead ke jawab pehle se maujood hain usse dobara nahi poochha jaata;
+badalna ho to Qualified section me row ka **Details** button hai.
 
 ## Fallback se aayi rows wapas sheet par nahi jaatin
 
