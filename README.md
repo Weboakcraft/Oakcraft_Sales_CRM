@@ -195,6 +195,42 @@ tab in the backend sheet the first time a lead is pushed — nothing has to be p
 hand. Permissions (`indiamart`) and the sidebar badge work like every other section, and the
 same per-user scoping applies: a Sales Executive sees only the leads assigned to them.
 
+## IndiaMART ab Performance & Delay Tracking me bhi
+
+Dashboard ka **Performance & Delay Tracking** card sirf Enquiries aur Orders
+ke khule overdue record ginta tha. Ab IndiaMART bhi ginta hai.
+
+| Jo juda | Kya hua |
+|---|---|
+| `SLA_DEFAULT.indiamartLeads` | CREATED 24h · CONTACTED 48h · QUALIFIED 48h · SYSTEM_MASTER 72h · QUOTATION_SENT 72h · baaki 48h |
+| `CLOSED.indiamartLeads` | WON / LOST band maane jaate hain — inpar SLA nahi chalta |
+| `trackRows()` | ab teen section: enquiries · orders · indiamartLeads |
+| overdue scan | `['enquiries','orders','indiamartLeads']` |
+| SLA editor | IndiaMART ka apna block, har status ka target badla ja sakta hai |
+| Activity Log ka filter | `indiamartLeads` bhi chunne layak |
+| Naya view | **IndiaMART Tracking** (`imTrack`) — nav me aur perf card ke button me |
+
+Har section ka stage alag field me hota hai, isliye wo teen chhote helper me
+aa gaya — `stageOfRec()` / `sinceOfRec()` / `nameOfRec()`:
+
+```
+enquiries       stage            stageChangedAt      customer
+orders          status           statusChangedAt     customer
+indiamartLeads  lead_status      statusUpdatedAt     sender_name
+```
+
+"Moves / avg TAT / on-time %" pehle se hi sahi thay — `IM.setStatus` shuru se
+`ocLogChange({ coll:'indiamartLeads', field:'status', … })` likhta hai, aur
+`perfRows()` activity log se ginta hai chahe collection koi bhi ho. Sirf
+**overdue** wala hissa chhoot gaya tha.
+
+Jo lead section me chhupi hai (skip-list) wo yahan bhi nahi aati — wahi rule
+jo dashboard par lagta hai, warna teen jagah teen ginti dikhtin.
+
+**Meta Leads aur Dispatch ab bhi bahar hain:** dono ka SLA config maujood hai
+par overdue scan me nahi hain. Jodna ho to `perfRows()` ki list me naam aur
+`trackRows()` me unka `stageOfRec` mapping daal dijiye.
+
 ## Dashboard me IndiaMART bhi ginta hai
 
 Dashboard ki "Total Enquiries" me pehle sirf **Enquiries + Meta Leads** ginte
