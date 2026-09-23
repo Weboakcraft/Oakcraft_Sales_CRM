@@ -383,13 +383,27 @@ bina owner wale record par edit ki ijazat hai — bas wo record dikhta nahi.
 Jab bhi koi lead **Qualified** hoti hai — Enquiries, IndiaMART ya Meta Leads,
 kahin se bhi — salesperson se do cheezein poochhi jaati hain:
 
-| Sawaal | Vikalp |
+**Purchase Quantity** ek number hai. **Customer Type** ki poori list groups me
+hai (dropdown me `<optgroup>`):
+
+| Group | Types |
 |---|---|
-| **Customer Type** | Architect · Reseller · Individual · Office Purchase · Interior Designer · Other |
-| **Purchase Quantity** | number |
+| Trade / Channel partner | Architect · Interior Designer · Contractor / Turnkey · Reseller · Distributor · Furniture Retailer · OEM / White Label |
+| Corporate / Office | Office Purchase · Corporate / MNC · Startup / SME · Co-working Space |
+| Institution / Government | Government / PSU · School / College / University · Hospital / Clinic · Bank / Financial Institution |
+| Hospitality / Retail | Hotel / Resort · Restaurant / Cafe / Bar · Banquet / Event / Auditorium · Retail Store / Showroom · Salon / Spa / Gym |
+| Real estate | Builder / Developer |
+| Individual | Individual |
+| — | Other |
 
 "Other" chunne par apna type likhne ka box khul jaata hai. Dono zaroori hain —
 bina bhare status badalta hi nahi.
+
+**Naya type jodna** — `TYPE_GROUPS` me bas ek line aur likh dijiye, aur kuch
+nahi karna. **Purane naam mat badliye**: jo lead pehle bhar chuki hai uska type
+record par usi likhawat me pada hai. Agar kisi lead par aisa type ho jo list me
+na ho (purana ya hataya hua), to `optionsHTML()` use uski apni row me
+"(purana)" likh kar dikha deta hai — chupchaap badalta nahi.
 
 Jawab record par hi likhe jaate hain, isliye wo sheet tak pahunchte hain aur
 Qualified section ki table + Excel dono me dikhte hain:

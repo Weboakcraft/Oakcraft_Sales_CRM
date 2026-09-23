@@ -8016,7 +8016,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.23.2';
+var OC_WEB_BUILD = '2026.09.23.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -16117,8 +16117,56 @@ console.log('[oc v34] collection fallback fetch active (' + WATCH.join(', ') + '
 'use strict';
 if(window.__ocQualAsk) return; window.__ocQualAsk = true;
 
-var TYPES = ['Architect', 'Reseller', 'Individual', 'Office Purchase', 'Interior Designer', 'Other'];
+/* Customer Type ki poori list, groups me -- dropdown lamba hai isliye
+   <optgroup> se baant diya gaya hai.
+
+   NAAM MAT BADLIYE. Jo lead pehle bhar chuki hai uska type record par isi
+   likhawat me pada hai; naam badalne par wo list se match karna band kar
+   dega. Naya type jodna ho to niche wale group me ek line aur likh dijiye --
+   aur kuch nahi karna. Koi lead purane/hatae hue type par padi ho to wo bhi
+   apni row me dikhti rehti hai (niche optionsHTML dekhiye).
+
+   Ye sab ek hi jagah hai, isliye IndiaMART ka modal aur Enquiries/Meta ka
+   remark modal -- dono me hamesha ek jaisi list dikhti hai. */
+var TYPE_GROUPS = [
+  { label: 'Trade / Channel partner', items: [
+      'Architect', 'Interior Designer', 'Contractor / Turnkey', 'Reseller',
+      'Distributor', 'Furniture Retailer', 'OEM / White Label' ] },
+  { label: 'Corporate / Office', items: [
+      'Office Purchase', 'Corporate / MNC', 'Startup / SME', 'Co-working Space' ] },
+  { label: 'Institution / Government', items: [
+      'Government / PSU', 'School / College / University', 'Hospital / Clinic',
+      'Bank / Financial Institution' ] },
+  { label: 'Hospitality / Retail', items: [
+      'Hotel / Resort', 'Restaurant / Cafe / Bar', 'Banquet / Event / Auditorium',
+      'Retail Store / Showroom', 'Salon / Spa / Gym' ] },
+  { label: 'Real estate', items: [
+      'Builder / Developer' ] },
+  { label: 'Individual', items: [
+      'Individual' ] },
+  { label: '', items: [ 'Other' ] }
+];
+var TYPES = [];
+TYPE_GROUPS.forEach(function(g){ g.items.forEach(function(t){ TYPES.push(t); }); });
 window.OC_CUSTOMER_TYPES = TYPES;
+window.OC_CUSTOMER_TYPE_GROUPS = TYPE_GROUPS;
+
+/* select ke <option> -- groups ke saath.
+   `cur` list me na ho (purana ya hataya hua type) to use bhi upar jod dete
+   hain, warna record kholte hi uska type chupchaap badal jaata. */
+function optionsHTML(cur){
+  var c = TR(cur), html = '<option value="">— chuniye —</option>';
+  if(c && TYPES.indexOf(c) < 0){
+    html += '<option value="' + A(c) + '" selected>' + E(c) + ' (purana)</option>';
+  }
+  TYPE_GROUPS.forEach(function(g){
+    var body = g.items.map(function(t){
+      return '<option value="' + A(t) + '"' + (t === c ? ' selected' : '') + '>' + E(t) + '</option>';
+    }).join('');
+    html += g.label ? '<optgroup label="' + A(g.label) + '">' + body + '</optgroup>' : body;
+  });
+  return html;
+}
 
 function T(v){ return v == null ? '' : String(v); }
 function TR(v){ return T(v).trim(); }
@@ -16183,9 +16231,7 @@ function ask(coll, id, onOk, onCancel){
   var curQ = rec ? TR(rec.qualQty || rec.qty || rec.quantity) : '';
   pending = { coll:coll, id:id, onOk:onOk, onCancel:onCancel };
 
-  var opts = '<option value="">— chuniye —</option>' + TYPES.map(function(t){
-    return '<option value="' + A(t) + '"' + (t === curT ? ' selected' : '') + '>' + E(t) + '</option>';
-  }).join('');
+  var opts = optionsHTML(curT);
 
   try{
     openModal(
@@ -16277,9 +16323,7 @@ OCQ.fieldsHTML = function(coll, id){
   var rec = findRec(coll, id) || {};
   var curT = TR(rec.qualCustType), curO = TR(rec.qualCustTypeOther);
   var curQ = TR(rec.qualQty || rec.qty || rec.quantity);
-  var opts = '<option value="">— chuniye —</option>' + TYPES.map(function(t){
-    return '<option value="' + A(t) + '"' + (t === curT ? ' selected' : '') + '>' + E(t) + '</option>';
-  }).join('');
+  var opts = optionsHTML(curT);
   var inp = 'width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border,#dde3ee);'
           + 'border-radius:9px;font:inherit;background:var(--surface-2,#f7f9fc);color:inherit';
   var lbl = 'font-size:11.5px;font-weight:600';
