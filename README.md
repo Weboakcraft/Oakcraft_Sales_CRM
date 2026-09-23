@@ -261,7 +261,7 @@ alag-alag ho jaatin.
 Ye swap sirf dashboard render ke dauran hota hai (`finally` me wapas). Enquiries
 section, uska badge aur exports pehle jaise hi rehte hain.
 
-## IndiaMART: bina naam wali lead sabko, tag lagte hi sirf usi ko
+## Bina naam wali lead sabko, tag lagte hi sirf usi ko
 
 Rule seedha hai:
 
@@ -283,16 +283,28 @@ leads Ankush Goswami ke naam kar chuki thi. Admin ko kisi ko dena ho to
 dropdown hai hi. Kaun utha sakta hai, wahi list hai jo assign wale dropdown me
 dikhti hai (`ocLeadRoster`).
 
-### Ye sirf IndiaMART par hai
+### Ye sirf LEAD wale sections par hai
 
 `window.scope()` non-admin ke liye sirf apne owner wale record rakhta hai
 (`o === m`) — bina owner wali row bhi gira deta hai. Wahi rule saare sections
 par lagta hai aur use waisa hi rehna chahiye, isliye chhoot **sirf
-`indiamartLeads`** ko di gayi hai. Enquiries, Orders, Quotations, Customers
-aur **Meta Leads** — sabka behaviour bilkul pehle jaisa hai.
+`indiamartLeads` aur `metaLeads`** ko di gayi hai — yahi do jagah lead
+"uthayi" jaati hai. **Enquiries, Orders, Quotations, Customers** — sabka
+behaviour bilkul pehle jaisa hai.
 
 v34 ka fetch filter bhi saath me badalna pada, warna bina naam wali row
 non-admin ke `localStorage` tak pahunchti hi nahi.
+
+> **Dhyan rahe:** ye sirf app ka rule hai. Backend (Code.gs) apne hisaab se
+> bhi rows chhaanta hai. Agar wo non-admin ko bina owner wali row bhejta hi
+> nahi, to pool khaali dikhega — us soorat me Code.gs me bhi `!owner ||
+> owner === me` karna padega. Live par ek salesperson ke login se check kar
+> lijiye.
+
+**Column R (IndiaMART ka status) sirf IndiaMART par hai** — `IMS_STATUS_COL`
+aur `status_raw` sirf `IndiaMartAutoSync.gs` me hain, aur wo file sirf
+`indiamartLeads` par likhti hai. Meta ya kisi aur section par uska koi asar
+nahi.
 
 ## IndiaMART ke KPI card hi sub-section hain
 
