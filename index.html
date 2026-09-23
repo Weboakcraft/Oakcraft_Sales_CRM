@@ -8016,7 +8016,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.23.3';
+var OC_WEB_BUILD = '2026.09.23.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -14029,16 +14029,34 @@ window.renderIndiamart = function(){
   var list  = sorted(visible());
   var rows  = list.slice(0, Math.min(window.__imLim, list.length));
 
+  /* Ginti HAMESHA poori list (`all`) se -- `list` par filter lag chuka hai,
+     usse ginte to card par click karte hi baaki saare card 0 ho jaate aur
+     wapas jaane ka koi raasta hi na bachta. */
   var byStatus = {};
-  list.forEach(function(l){ var s = statusOf(l.lead_status); byStatus[s] = (byStatus[s] || 0) + 1; });
-  var unassigned = list.filter(function(l){ return !l.owner && !l.assigned_to; }).length;
+  all.forEach(function(l){ var s = statusOf(l.lead_status); byStatus[s] = (byStatus[s] || 0) + 1; });
+  var unassigned = all.filter(function(l){ return !l.owner && !l.assigned_to; }).length;
+
+  /* har card ek sub-section hai -- click karne par sirf usi ka data.
+     Jo card abhi chuna hua hai us par nishaan lagta hai; usi par dobara
+     click karne se filter hat jaata hai. */
+  var fs = window.__imFilt.status, fo = window.__imFilt.owner;
+  var onAll  = !fs && !fo;
+  var onNone = (fo === '__none__');
+  function card(on, count, label, call, title){
+    return '<div class="kpi" onclick="' + call + '" title="' + A(title) + '" '
+         + 'style="cursor:pointer' + (on ? ';outline:2px solid var(--brand)' : '') + '">'
+         + '<div class="val tabular">' + count + '</div>'
+         + '<div class="lbl">' + E(label) + '</div></div>';
+  }
 
   var kpi = '<div class="kpi-grid" style="margin-bottom:16px">'
-    + '<div class="kpi"><div class="val tabular">' + list.length + '</div><div class="lbl">Total leads</div></div>'
+    + card(onAll, all.length, 'Total leads', "IM.tab('')", 'Saari leads dikhao')
     + STATUSES.filter(function(s){ return byStatus[s]; }).map(function(s){
-        return '<div class="kpi"><div class="val tabular">' + byStatus[s] + '</div><div class="lbl">' + E(STATUS_LABEL[s]) + '</div></div>';
+        return card(fs === s && !fo, byStatus[s], STATUS_LABEL[s],
+                    "IM.tab('" + A(s) + "')", 'Sirf ' + STATUS_LABEL[s] + ' waali leads');
       }).join('')
-    + (admin ? '<div class="kpi"><div class="val tabular">' + unassigned + '</div><div class="lbl">Unassigned</div></div>' : '')
+    + (admin ? card(onNone, unassigned, 'Unassigned', "IM.tab('__none__')",
+                    'Jin par kisi ka naam nahi') : '')
     + '</div>';
 
   var statOpts = '<option value="">All status</option>' + STATUSES.map(function(s){
@@ -14150,6 +14168,18 @@ IM.sort = function(k){
   renderIndiamart();
 };
 IM.more = function(){ window.__imLim += PAGE; renderIndiamart(); };
+
+/* KPI card = sub-section. '' matlab sab, '__none__' matlab unassigned,
+   baaki koi bhi STATUS code. Usi card par dobara click = filter hat gaya,
+   taaki user kabhi phanse nahi. Har baar list upar se shuru hoti hai. */
+IM.tab = function(k){
+  var f = window.__imFilt;
+  if(k === ''){ f.status = ''; f.owner = ''; }
+  else if(k === '__none__'){ f.status = ''; f.owner = (f.owner === '__none__') ? '' : '__none__'; }
+  else { f.owner = ''; f.status = (f.status === k) ? '' : k; }
+  window.__imLim = PAGE;
+  renderIndiamart();
+};
 
 IM.setStatus = function(id, val){
   if(!allow('edit')) return noPerm('edit');

@@ -195,6 +195,23 @@ tab in the backend sheet the first time a lead is pushed — nothing has to be p
 hand. Permissions (`indiamart`) and the sidebar badge work like every other section, and the
 same per-user scoping applies: a Sales Executive sees only the leads assigned to them.
 
+## IndiaMART ke KPI card hi sub-section hain
+
+Upar ke card (Total leads · New · Contacted · Qualified · … · Unassigned) ab
+**click karne par filter** lagate hain — sirf usi card ka data table me rehta
+hai. Chuna hua card outline se dikhta hai; **usi card par dobara click karne se
+filter hat jaata hai**, taaki user kabhi phanse nahi. "Total leads" hamesha sab
+wapas le aata hai.
+
+Ek baat dhyan se ki gayi: **ginti hamesha poori list se hoti hai** (`all`), us
+list se nahi jispar filter lag chuka hai (`list`). Agar filtered list se ginte
+to card par click karte hi baaki saare card `0` ho jaate — aur `STATUSES.filter`
+unhe hata deta, yaani wapas jaane ka koi raasta hi na bachta.
+
+Card aur upar wala "All status" / owner dropdown ek hi state (`window.__imFilt`)
+par chalte hain, isliye dono hamesha ek doosre ke saath rehte hain. Har click
+par list upar se shuru hoti hai (`__imLim` reset).
+
 ## IndiaMART — sheet se apne aap leads (auto sync)
 
 `apps-script/IndiaMartAutoSync.gs` IndiaMART waali Google Sheet ke **`Indiamart_crm`** tab se
