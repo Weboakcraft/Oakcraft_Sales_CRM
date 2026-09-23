@@ -8016,7 +8016,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.23.5';
+var OC_WEB_BUILD = '2026.09.23.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10599,6 +10599,7 @@ var SLA_DEFAULT = {
   enquiries: { 'New': 24, 'Contacted': 48, 'Qualified': 48, 'Quoted': 72, '*': 72 },
   orders:    { 'Confirmed': 24, 'In Production': 168, 'Ready': 48, 'Dispatched': 120, '*': 72 },
   metaLeads: { 'CREATED': 24, 'CONTACTED': 48, '*': 48 },
+  indiamartLeads: { 'CREATED': 24, 'CONTACTED': 48, 'QUALIFIED': 48, 'SYSTEM_MASTER': 72, 'QUOTATION_SENT': 72, '*': 48 },
   dispatch:  { 'Pending': 24, 'Packed': 24, 'Shipped': 120, 'Out for Delivery': 24, '*': 72 }
 };
 var SLA_KEY = 'slacfg';
@@ -11138,7 +11139,11 @@ function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.i
 /* ================================================================ *
  * 5. TRACKING DATA — har record ka current status + SLA hisaab      *
  * ================================================================ */
-var CLOSED = { enquiries: { 'Won':1, 'Lost':1 }, orders: { 'Delivered':1, 'Cancelled':1 } };
+var CLOSED = {
+  enquiries: { 'Won':1, 'Lost':1 },
+  orders:    { 'Delivered':1, 'Cancelled':1 },
+  indiamartLeads: { 'WON':1, 'LOST':1 }
+};
 
 function scopeX(list, section){
   try{ if(typeof scope === 'function') return scope(list, section) || []; }catch(e){}
@@ -11157,16 +11162,50 @@ function actIndex(coll){
   return m;
 }
 
+/* IndiaMART leads -- dashboard ki tarah yahan bhi ginte hain. Jo lead section
+   me chhupi hai (skip-list) wo yahan bhi nahi aati. */
+function imArrX(){
+  try{
+    var a = JSON.parse(localStorage.getItem('indiamartLeads') || '[]');
+    if(!Array.isArray(a)) return [];
+    return a.filter(function(l){
+      if(!l || !l.id) return false;
+      try{ if(window.ocImHidden && window.ocImHidden(l)) return false; }catch(e){}
+      return true;
+    });
+  }catch(e){ return []; }
+}
+
+/* is section ka record kis field me stage/status rakhta hai */
+function stageOfRec(coll, r){
+  if(coll === 'enquiries') return TR(r.stage);
+  if(coll === 'indiamartLeads') return TR(r.lead_status || r.status);
+  return TR(r.status);
+}
+function sinceOfRec(coll, r){
+  if(coll === 'enquiries') return T(r.stageChangedAt);
+  if(coll === 'indiamartLeads') return T(r.statusUpdatedAt) || T(r.statusChangedAt);
+  return T(r.statusChangedAt);
+}
+function nameOfRec(coll, r){
+  if(coll === 'indiamartLeads') return TR(r.sender_name) || TR(r.company) || TR(r.sender_mobile);
+  return TR(r.customer);
+}
+
 /* ek section ki poori tracking list */
 function trackRows(coll){
-  var recs = (coll === 'enquiries') ? scopeX(enqArrX(), 'enquiries') : scopeX(ordersArrX(), 'orders');
+  var recs;
+  if(coll === 'enquiries') recs = scopeX(enqArrX(), 'enquiries');
+  else if(coll === 'indiamartLeads') recs = scopeX(imArrX(), 'indiamartLeads');
+  else recs = scopeX(ordersArrX(), 'orders');
+
   var idx  = actIndex(coll), now = nowISO();
   return recs.map(function(r){
-    var stage = TR(coll === 'enquiries' ? r.stage : r.status);
+    var stage = stageOfRec(coll, r);
     var hist  = idx[T(r.id)] || [];
     var last  = hist[0] || null;
     var since = (last && T(last.ts))
-             || T(coll === 'enquiries' ? r.stageChangedAt : r.statusChangedAt)
+             || sinceOfRec(coll, r)
              || recCreatedAt(r);
     var created  = recCreatedAt(r);
     var inStage  = since ? hoursBetween(since, now) : null;
@@ -11175,7 +11214,7 @@ function trackRows(coll){
     var sla      = closed ? null : slaFor(coll, stage);
     var overdue  = (!closed && sla != null && inStage != null && inStage > sla);
     return {
-      id: r.id, name: TR(r.customer) || '—', stage: stage,
+      id: r.id, name: nameOfRec(coll, r) || '—', stage: stage,
       owner: LCx(r.owner || r.ownerEmail), ownerName: nameOfEmail(r.owner || r.ownerEmail),
       sp: TR(r.salesperson), amount: (+r.amount || +r.value || 0),
       created: created, since: since, inStage: inStage, age: age,
@@ -11218,7 +11257,7 @@ function perfRows(){
     if(+a.late === 1){ s.late++; s.delay += (+a.delayHrs || 0); }
   });
   /* abhi khule pade overdue records bhi ginne hain */
-  ['enquiries', 'orders'].forEach(function(coll){
+  ['enquiries', 'orders', 'indiamartLeads'].forEach(function(coll){
     trackRows(coll).forEach(function(t){
       if(!t.overdue) return;
       var s = slot(t.owner); s.openOverdue = (s.openOverdue || 0) + 1;
@@ -11292,7 +11331,8 @@ function trackTable(coll){
 window.ocTrackPaint = trackTable;
 
 function renderTrack(coll){
-  var title = coll === 'enquiries' ? 'Enquiry Tracking' : 'Order Tracking';
+  var title = coll === 'enquiries' ? 'Enquiry Tracking'
+            : (coll === 'indiamartLeads' ? 'IndiaMART Tracking' : 'Order Tracking');
   var note  = seesTeam() ? 'Showing the whole team.' : 'Showing only your own records.';
   content.innerHTML =
       '<div class="card"><div class="card-head"><h3>' + E(title) + ' <span id="oc-tr-sum"></span></h3>'
@@ -11346,7 +11386,9 @@ window.ocTrackHistory = function(coll, id){
      confusing hai. Ab hamesha ek line dikhti hai: abhi status kya hai, kab
      se hai, aur saaf likha ki purana record kyun nahi hai. */
   var rec = recFor(coll, id);
-  var curStage = rec ? TR(coll === 'enquiries' ? rec.stage : (coll === 'metaLeads' ? rec.lead_status : rec.status)) : '';
+  var curStage = rec ? TR(coll === 'enquiries' ? rec.stage
+                        : ((coll === 'metaLeads' || coll === 'indiamartLeads') ? (rec.lead_status || rec.status)
+                        : rec.status)) : '';
   var sinceTs  = rec ? (T(rec.stageChangedAt) || T(rec.statusChangedAt) || T(rec.updatedAt) || recCreatedAt(rec)) : '';
   var base = '<div style="display:flex;gap:10px;padding:10px 0' + (rows ? ';border-bottom:1px solid var(--border,#e7ecf4)' : '') + '">'
     + '<div style="flex:0 0 8px;padding-top:5px"><div style="width:8px;height:8px;border-radius:50%;background:var(--muted,#9aa5b8)"></div></div>'
@@ -11426,7 +11468,7 @@ function renderActivity(){
     +   '<div class="tools">'
     +     '<input class="field" id="oc-ac-q" placeholder="Search…" oninput="ocActPaint()" style="min-width:170px">'
     +     '<select class="field" id="oc-ac-coll" onchange="ocActPaint()"><option value="">All sections</option>'
-    +       ['enquiries','orders','dispatch','metaLeads'].map(function(c){ return '<option value="' + A(c) + '">' + E(c) + '</option>'; }).join('')
+    +       ['enquiries','orders','dispatch','metaLeads','indiamartLeads'].map(function(c){ return '<option value="' + A(c) + '">' + E(c) + '</option>'; }).join('')
     +     '</select>'
     +     '<select class="field" id="oc-ac-user" onchange="ocActPaint()"><option value="">All users</option>'
     +       Object.keys(us).map(function(k){ return '<option value="' + A(k) + '">' + E(us[k]) + '</option>'; }).join('')
@@ -11480,7 +11522,8 @@ function perfCardHTML(){
        +   chip(rows.length + (seesTeam() ? ' users' : ' (you)')) + '</h3>'
        +   '<div class="tools"><button class="btn sm" onclick="setView(\'activity\')">Activity Log</button>'
        +     '<button class="btn sm" onclick="setView(\'enqTrack\')">Enquiry Tracking</button>'
-       +     '<button class="btn sm" onclick="setView(\'ordTrack\')">Order Tracking</button></div></div>'
+       +     '<button class="btn sm" onclick="setView(\'ordTrack\')">Order Tracking</button>'
+       +     '<button class="btn sm" onclick="setView(\'imTrack\')">IndiaMART Tracking</button></div></div>'
        + '<div style="padding:0 20px 8px;font-size:12px;color:var(--muted,#7a869a)">'
        +   (window.__ocDashRange
              ? 'Covering <b>' + E(window.__ocDashRange.from) + ' to ' + E(window.__ocDashRange.to) + '</b>. '
@@ -11517,7 +11560,8 @@ function perfCardHTML(){
  * ================================================================ */
 function slaEditorHTML(){
   var cfg = slaCfg();
-  var sec = [['enquiries','Enquiries'], ['orders','Orders'], ['dispatch','Dispatch'], ['metaLeads','Meta Leads']];
+  var sec = [['enquiries','Enquiries'], ['orders','Orders'], ['dispatch','Dispatch'],
+             ['metaLeads','Meta Leads'], ['indiamartLeads','IndiaMART']];
   var blocks = sec.map(function(p){
     var k = p[0], stages = Object.keys(cfg[k] || {});
     return '<div style="margin-bottom:14px">'
@@ -11615,6 +11659,7 @@ try{
 try{
   PAGE_META.enqTrack = ['Enquiry Tracking', 'Stage timing, SLA and pending delays'];
   PAGE_META.ordTrack = ['Order Tracking', 'Order stage timing, SLA and pending delays'];
+  PAGE_META.imTrack  = ['IndiaMART Tracking', 'IndiaMART lead timing, SLA and pending delays'];
   PAGE_META.activity = ['Activity Log', 'Full audit history — when, who, what and why'];
 }catch(e){}
 /* SECTION_OF_VIEW ek IIFE ke andar hai, isliye usme entry nahi jodi ja sakti.
@@ -11625,7 +11670,7 @@ try{
 try{
   var _canTrk = window.can;
   if(typeof _canTrk === 'function'){
-    var TRK_SECTION = { enqTrack:'enquiries', ordTrack:'orders', activity:'enquiries' };
+    var TRK_SECTION = { enqTrack:'enquiries', ordTrack:'orders', imTrack:'indiamart', activity:'enquiries' };
     window.can = function(section, action){
       var m = TRK_SECTION[section];
       if(m) return _canTrk.call(this, m, action);
@@ -11633,11 +11678,11 @@ try{
     };
   }
 }catch(e){}
-try{ if(typeof SECTION_OF_VIEW !== 'undefined'){ SECTION_OF_VIEW.enqTrack = 'enquiries'; SECTION_OF_VIEW.ordTrack = 'orders'; SECTION_OF_VIEW.activity = 'enquiries'; } }catch(e){}
+try{ if(typeof SECTION_OF_VIEW !== 'undefined'){ SECTION_OF_VIEW.enqTrack = 'enquiries'; SECTION_OF_VIEW.ordTrack = 'orders'; SECTION_OF_VIEW.imTrack = 'indiamart'; SECTION_OF_VIEW.activity = 'enquiries'; } }catch(e){}
 (function(){
   var _setView = window.setView;
   if(typeof _setView !== 'function') return;
-  var MINE = { enqTrack:1, ordTrack:1, activity:1 };
+  var MINE = { enqTrack:1, ordTrack:1, imTrack:1, activity:1 };
   window.setView = function(v){
     if(!MINE[v]) return _setView.apply(this, arguments);
     try{
@@ -11649,7 +11694,8 @@ try{ if(typeof SECTION_OF_VIEW !== 'undefined'){ SECTION_OF_VIEW.enqTrack = 'enq
       var sb = $$('searchBox'); if(sb) sb.style.display = 'none';
       var qa = $$('quickAdd'); if(qa) qa.style.display = 'none';
       try{ Object.values(state.charts || {}).forEach(function(c){ try{ c.destroy(); }catch(e){} }); state.charts = {}; }catch(e){}
-      if(v === 'activity') renderActivity(); else renderTrack(v === 'enqTrack' ? 'enquiries' : 'orders');
+      if(v === 'activity') renderActivity();
+      else renderTrack(v === 'enqTrack' ? 'enquiries' : (v === 'imTrack' ? 'indiamartLeads' : 'orders'));
       content.scrollTop = 0;
       try{ if(typeof applyViewPerms === 'function') applyViewPerms(); }catch(e){}
     }catch(e){ console.warn('[oc v22] setView', e); }
@@ -11660,13 +11706,22 @@ try{ if(typeof SECTION_OF_VIEW !== 'undefined'){ SECTION_OF_VIEW.enqTrack = 'enq
 function addNav(){
   try{
     var nav = document.getElementById('nav'); if(!nav) return;
-    if(nav.querySelector('a[data-view="enqTrack"]')) return;
+    if(nav.querySelector('a[data-view="imTrack"]')) return;
+    /* anchor PEHLE dekh lo -- na mile to kuch hataana bhi nahi hai, warna
+       purane Tracking item hat jaate aur wapas nahi aate. */
     var anchor = nav.querySelector('a[data-view="dispatch"]'); if(!anchor) return;
+    /* Purane build ne Tracking group pehle hi laga rakha ho to use hata kar
+       poora group dobara banate hain -- isse IndiaMART Tracking apni sahi
+       jagah par aata hai, list ke aakhir me chipka hua nahi. */
+    nav.querySelectorAll('a[data-view="enqTrack"], a[data-view="ordTrack"], a[data-view="activity"]')
+       .forEach(function(a){ if(a.parentNode) a.parentNode.removeChild(a); });
+    nav.querySelectorAll('.nav-label').forEach(function(l){ if(l.textContent === 'Tracking' && l.parentNode) l.parentNode.removeChild(l); });
     var label = document.createElement('div');
     label.className = 'nav-label'; label.textContent = 'Tracking';
     var items = [
       ['enqTrack', 'Enquiry Tracking'],
       ['ordTrack', 'Order Tracking'],
+      ['imTrack', 'IndiaMART Tracking'],
       ['activity', 'Activity Log']
     ];
     var after = anchor;
