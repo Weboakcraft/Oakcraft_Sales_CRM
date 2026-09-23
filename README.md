@@ -195,6 +195,36 @@ tab in the backend sheet the first time a lead is pushed — nothing has to be p
 hand. Permissions (`indiamart`) and the sidebar badge work like every other section, and the
 same per-user scoping applies: a Sales Executive sees only the leads assigned to them.
 
+## Dashboard me IndiaMART bhi ginta hai
+
+Dashboard ki "Total Enquiries" me pehle sirf **Enquiries + Meta Leads** ginte
+the — IndiaMART chhoot gaya tha.
+
+Section 22 (v20) pehle se ye kaam karta hai: dashboard render ke **dauran**
+`DB.enquiries()` ko lapet kar usme Meta leads bhi daal deta hai (enquiry ki
+shakal me). Ab usi bridge me IndiaMART bhi jud gaya —
+`window.ocIndiamartAsEnq()`. Ek hi jagah se poora dashboard cover ho jaata
+hai: KPI, month-over-month delta, conversion rate, Sales Funnel, Enquiry
+Sources chart aur salesperson/state wale chart — sab wahi list padhte hain.
+
+| IndiaMART status | Enquiry stage |
+|---|---|
+| CREATED | New |
+| CONTACTED | Contacted |
+| QUALIFIED | Qualified |
+| SYSTEM_MASTER | System Master |
+| QUOTATION_SENT | Quoted |
+| WON / LOST | Won / Lost |
+
+`source` par **IndiaMART** likha jaata hai, isliye Enquiry Sources chart me wo
+alag dikhta hai. `owner` waisa ka waisa rehta hai, isliye `scope()` khud tay
+karta hai kis user ko kya dikhega. Jo lead section me chhupi hai (skip-list,
+jaise Anjali Sharma) wo **dashboard me bhi nahi ginti** — warna ginti aur list
+alag-alag ho jaatin.
+
+Ye swap sirf dashboard render ke dauran hota hai (`finally` me wapas). Enquiries
+section, uska badge aur exports pehle jaise hi rehte hain.
+
 ## IndiaMART ke KPI card hi sub-section hain
 
 Upar ke card (Total leads · New · Contacted · Qualified · … · Unassigned) ab
