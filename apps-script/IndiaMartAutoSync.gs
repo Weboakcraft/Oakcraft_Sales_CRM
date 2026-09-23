@@ -1,110 +1,24 @@
-/**
- * Indiamart_crm  ->  CRM IndiaMART section  (auto sync)
- * ----------------------------------------------------------------------------
- * Ye file ADDITIVE hai — Code.gs ko bilkul nahi chhua gaya.
- *
- * Kya karta hai
- *   IndiaMART waali sheet ke `Indiamart_crm` tab me jo bhi enquiry hai, use CRM
- *   ke IndiaMART section (collection `indiamartLeads`) me daal deta hai aur us
- *   user ke naam par assign kar deta hai jo "Assigned Salesperson" column me
- *   likha hai.
- *
- * Column kaise padhe jaate hain
- *   Column ke NUMBER par nahi, HEADER ke NAAM par. Pehli row ke naam dekh kar
- *   field map hoti hai, isliye column aage-peeche ho jaayein ya beech me naya
- *   column jud jaaye — kuch nahi bigadta. Ye naam pehchane jaate hain:
- *     Enquiry Id · Enquiry Time · Buyer Name · Company Name · Mobile Number ·
- *     Email · Product / Requirement · Quantity · City/ Location · Subject ·
- *     Assigned Salesperson · Lead's Quality · Qualification Status · Discussion
- *   (inke aam-fehm doosre naam bhi chalte hain — neeche IMS_MAP dekh lijiye)
- *
- * Mobile number
- *   Sheet me number `+91-9176016345` ki shakal me aata hai. CRM me sirf asli
- *   10 ank jaate hain: `9176016345`. Country code, dash aur space hat jaate
- *   hain. Jo number samajh na aaye (landline, ya ek hi cell me do number) wo
- *   jaisa hai waisa chala jaata hai -- kuch gum nahi hota.
- *
- * Duplicate kabhi nahi (chaar pehre)
- *   1. Source row ke MARK COLUMN (default: column L) me `send_to_crm` likha
- *      hai  =>  wo row dobara kabhi import nahi hoti. CRM me lead pahunchte hi
- *      yahi nishaan lag jaata hai.
- *   2. Us row ka Enquiry Id CRM me pehle se hai  =>  SKIP.
- *   3. Mobile (aakhri 10 ank) + Enquiry Time CRM me pehle se hai  =>  SKIP.
- *      (Sirf mobile match ho aur time alag ho to ye NAYI enquiry maani jaati
- *      hai -- ek hi customer dobara enquiry kar sakta hai.)
- *   4. Ek hi run me aayi aapas ki duplicate rows bhi skip hoti hain.
- *
- * Kisi salesperson ka data CRM me na bhejna ho
- *   `IMS_SKIP_ASSIGNED` me uska naam likh dijiye. Uski rows na import hoti
- *   hain aur na hi unpar `send_to_crm` ka nishaan lagta hai -- naam list se
- *   hatate hi wo leads normal tareeke se aane lagengi.
- *
- * MARK COLUMN ka pehra
- *   Default column L hai (jaisa kaha gaya). Script pehle dekhta hai ki L par
- *   kisi data column ka header to nahi hai. Agar L par koi asli data column
- *   (jaise "Assigned Salesperson") mila, to wo us column me KUCH NAHI likhta
- *   aur log me saaf bata deta hai -- taaki aapka data kabhi overwrite na ho.
- *   Aisi soorat me IMS_MARK_COL badal kar koi khaali column de dijiye.
- *   Header row me `CRM Status` / `Sync Status` / `send_to_crm` naam ka column
- *   ho to script khud usi ko mark column bana leta hai.
- *
- * Ek baar ka setup (Apps Script editor me)
- *   1. Ye file paste kijiye (Code.gs ke saath, alag file).
- *   2. `previewIndiaMartAutoSync` chalaiye — kuch likhta nahi, sirf Logs me
- *      dikhata hai ki kaun si enquiry jaayegi aur kaun si skip hogi.
- *   3. Theek lage to `installIndiaMartAutoSync` EK BAAR chalaiye — har
- *      IMS_MINUTES minute ka trigger lag jayega.
- *
- *   Band karna ho     : `removeIndiaMartAutoSync`
- *   Abhi chalana ho   : `runIndiaMartAutoSyncNow`  (ek run = IMS_MAX_PER_RUN tak)
- *   Poora backlog jaldi: `backfillIndiaMartAll`  (4.5 minute tak lagataar)
- *   Haalat dekhni ho  : `statusIndiaMartAutoSync`
- *   Purani rows par nishaan lagana ho (jo CRM me pehle se hain):
- *                       `markIndiaMartSyncedInSource`
- *   Jhootha nishaan hatana ho (nishaan hai par CRM me lead nahi):
- *                       `clearIndiaMartMarks`
- *
- * SAFETY
- *   - Sirf indiamartLeads collection me NAYI rows add karta hai. Kisi maujooda
- *     lead ko na badalta hai na hataata hai -- yaani CRM me kiya hua status
- *     kabhi reset nahi hota.
- *   - Likhne ke liye Code.gs ka apna _upsertMany() istemal hota hai, isliye
- *     schema / Drive / merge sab wahi rehta hai jo CRM khud karta hai. Wo na
- *     mile to kuch nahi likhta, sirf error log (fail-safe).
- *   - LockService se do run kabhi ek saath nahi chalte.
- */
-
 var IMS_SRC_ID      = '1TWlFg1dflWOTnKtaE9sqOSMS_YcCcCDpQ8J-Ka3-qpA';
 var IMS_SRC_TAB     = 'Indiamart_crm';
 var IMS_COLL        = 'indiamartLeads';
-var IMS_MINUTES     = 5;                  // trigger kitni der me chale
-var IMS_MAX_PER_RUN = 400;                // ek run me itni se zyada nahi (safety)
-var IMS_MARK_COL    = 12;                 // column L
-var IMS_MARK_TEXT   = 'send_to_crm';      // CRM me chala gaya -> yahi likha jaata hai
-
-/* In salesperson ki leads CRM me BILKUL nahi jaani chahiye. Naam yahan likh
-   dijiye (chhota-bada akshar, aage-peeche ki space se farak nahi padta; aadha
-   naam bhi chalega -- "Anjali" likhne par "Anjali Sharma" bhi pakda jayega).
-   Aisi row na import hoti hai aur na hi uspar send_to_crm ka nishaan lagta
-   hai, taaki kal ko naam yahan se hatate hi wo leads aa sakein. */
+var IMS_MINUTES     = 5;                  
+var IMS_MAX_PER_RUN = 400;                
+var IMS_MARK_COL    = 12;                 
+var IMS_MARK_TEXT   = 'send_to_crm';      
 var IMS_SKIP_ASSIGNED = ['Anjali Sharma'];
-
-/* Jinke naam par lead assign NAHI honi chahiye -- ye log leads uthate hi
-   nahi. Inka naam sheet me likha ho to lead CRM me aayegi to sahi, par
-   UNASSIGNED rahegi, taaki koi bhi salesperson use utha sake.
-   (Administrator / Sales Manager waise bhi apne aap chhut jaate hain --
-   neeche ims_takesLeads_ dekhiye. Ye list un naamo ke liye hai jinka role
-   bhale hi sales ka ho, par wo leads par kaam nahi karte.) */
 var IMS_NO_LEADS = ['Arun Mourya', 'Pinki Kumari'];
-
-/* Sirf in roles ke log leads utha sakte hain. */
+/* Poora data (Enquiry Id, Company, Email, Subject, Discussion, Final Remark's)
+   "Indiamart_crm" tab me nahi aata -- wo "Indiamart" tab se, mobile + time
+   milaa kar, le liya jaata hai. Sirf padha jaata hai, kuch likha nahi jaata. */
+var IMS_FULL_TAB = 'Indiamart';
+/* CRM me salesperson ne lead ko inme se kisi status tak pahuncha diya ho to
+   sheet ka status use peeche nahi kheenchta (baaki fields phir bhi update). */
+var IMS_KEEP_CRM_STATUS = ['WON','QUOTATION_SENT','PROPOSAL','SYSTEM_MASTER'];
 function ims_takesLeads_(role){
   var r = ims_lc_(role).replace(/[\s_\-]+/g, ' ');
   return r === 'sales executive' || r === 'sales exec' || r === 'salesexecutive'
       || r === 'sales' || r === 'user';
 }
-
-/* header ka naam -> field. Pehla match jeetta hai, isliye khaas naam upar hain. */
 var IMS_MAP = {
   enquiry_no: ['enquiry_id','enquiry_no','enquiry_number','query_id','lead_id','indiamart_enquiry_id'],
   query_time: ['enquiry_time','query_time','enquiry_date_time','enquiry_date','lead_time','date_time','datetime','timestamp','date'],
@@ -121,14 +35,13 @@ var IMS_MAP = {
   assigned:   ['assigned_salesperson','assigned_to','assigned','salesperson','sales_person','sales_executive','executive','assignee','owner'],
   quality:    ['leads_quality','lead_quality','quality'],
   qualif:     ['qualification_status','qualification','qualified'],
-  remark:     ['final_remarks','final_remark_s','final_remark','discussion','remarks','remark','note','notes','comments']
+  remark:     ['final_remarks','final_remark_s','final_remark','remarks','remark','note','notes','comments'],
+  discussion: ['discussion','discussion_notes'],
+  profession: ['profession_verification','profession'],
+  qty_need:   ['qty_need','required_qty'],
+  delivery:   ['delivery_with_in_days','delivery_within_days','delivery_days']
 };
-/* mark column ka header in naamo me se ho to wahi use hota hai */
 var IMS_MARK_HEADERS = ['crm_status','sync_status','send_to_crm','crm','sent_to_crm','crm_sync'];
-
-/* ------------------------------------------------------------------ *
- * chhote helpers                                                      *
- * ------------------------------------------------------------------ */
 function ims_str_(v){ return v == null ? '' : String(v); }
 function ims_tr_(v){ return ims_str_(v).trim(); }
 function ims_lc_(v){ return ims_tr_(v).toLowerCase(); }
@@ -316,10 +229,57 @@ function ims_srcRows_(){
       assigned: get(v, 'assigned'),
       quality: get(v, 'quality'),
       qualif: get(v, 'qualif'),
-      remark: get(v, 'remark')
+      remark: get(v, 'remark'),
+      discussion: get(v, 'discussion'),
+      profession: get(v, 'profession'),
+      qty_need: get(v, 'qty_need'),
+      delivery: get(v, 'delivery')
     });
   }
+  try{ ims_enrich_(rows, sh); }catch(e){ Logger.log('IndiaMartAutoSync: ' + IMS_FULL_TAB + ' tab se data nahi mila — ' + e); }
   return { rows: rows, markCol: markCol, sheet: sh, head: head, idx: idx };
+}
+
+/**
+ * "Indiamart_crm" me sirf 11 column aate hain. Baaki (Enquiry Id, Company,
+ * Email, Subject, Discussion, Final Remark's, Profession ...) "Indiamart" tab
+ * se mobile + enquiry time milaa kar bhar dete hain. Jo field pehle se bhara
+ * hai use nahi chhedte. Status wale column (Lead's Quality / Qualification
+ * Status) khaali hon to wahan se bhi le lete hain.
+ */
+function ims_enrich_(rows, crmSheet){
+  if(!IMS_FULL_TAB || !rows.length) return 0;
+  var sh = crmSheet.getParent().getSheetByName(IMS_FULL_TAB);
+  if(!sh || sh.getLastRow() < 2) return 0;
+  var vals = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+  var head = vals[0], keys = head.map(ims_key_), idx = ims_mapHeader_(head);
+  if(idx.mobile == null) return 0;
+  var tsCols = [];
+  if(idx.query_time != null) tsCols.push(idx.query_time);
+  var tsc = keys.indexOf('timestamp'); if(tsc >= 0 && tsCols.indexOf(tsc) < 0) tsCols.push(tsc);
+  var F = ['enquiry_no','company','email','product','qty','city','state','subject','assigned',
+           'quality','qualif','remark','discussion','profession','qty_need','delivery'];
+  var byPT = {}, byPhone = {}, phoneCnt = {}, i;
+  for(i = 1; i < vals.length; i++){
+    var v = vals[i], ph = ims_phoneKey_(v[idx.mobile]);
+    if(!ph) continue;
+    var rec = {};
+    F.forEach(function(f){ rec[f] = (idx[f] == null) ? '' : ims_tr_(v[idx[f]]); });
+    tsCols.forEach(function(c){ var t = ims_tsKey_(v[c]); if(t) byPT[ph + '|' + t] = rec; });
+    phoneCnt[ph] = (phoneCnt[ph] || 0) + 1;
+    byPhone[ph] = rec;
+  }
+  var n = 0;
+  rows.forEach(function(r){
+    var ph = ims_phoneKey_(r.mobile);
+    if(!ph) return;
+    var f = byPT[ph + '|' + ims_tsKey_(r.query_time)];
+    if(!f && phoneCnt[ph] === 1) f = byPhone[ph];   /* time na mile to sirf tab jab number ek hi baar ho */
+    if(!f) return;
+    F.forEach(function(k){ if(!r[k] && f[k]) r[k] = f[k]; });
+    n++;
+  });
+  return n;
 }
 
 /* ------------------------------------------------------------------ *
@@ -331,19 +291,75 @@ function ims_srcRows_(){
  * CREATED se shuru hoti hain -- sheet ka apna quality / qualification text
  * note me chala jaata hai, kuch chhutta nahi.
  */
-function ims_status_(r){
-  var q = ims_lc_(r.qualif);
-  if(q && q.indexOf('not') < 0 && q.indexOf('non') < 0 && q.indexOf('qualified') >= 0) return 'QUALIFIED';
-  return 'CREATED';
+function ims_isQualified_(s){
+  var q = ims_lc_(s);
+  return !!q && q.indexOf('not') < 0 && q.indexOf('non') < 0 && q.indexOf('qualified') >= 0;
 }
+/**
+ * CRM ka lead_status = source sheet ka "Qualification Status" -- hu-ba-hu.
+ *   Qualified       -> QUALIFIED
+ *   Not Qualified   -> NOT QUALIFIED
+ *   khaali          -> CREATED   (abhi tak kisi ne qualify/not-qualify nahi kiya)
+ *   kuch aur likha  -> wahi text (bade aksharo me)
+ * Lead's Quality (Hot / Cold / Not Interested / Don't pick call) status ko
+ * nahi badalti -- wo alag field "lead_quality" me jaati hai.
+ */
+function ims_status_(r){
+  var raw = ims_tr_(r.qualif), qs = ims_lc_(raw);
+  if(!qs) return 'CREATED';
+  if(ims_isQualified_(raw)) return 'QUALIFIED';
+  if(qs.replace(/[^a-z]/g, '') === 'notqualified' || qs.replace(/[^a-z]/g, '') === 'nonqualified') return 'NOT QUALIFIED';
+  return raw.toUpperCase();
+}
+var IMS_STAGE = { CREATED:'New', CONTACTED:'Contacted', QUALIFIED:'Qualified', 'NOT QUALIFIED':'Not Qualified',
+                  SYSTEM_MASTER:'System Master', QUOTATION_SENT:'Quotation Sent', PROPOSAL:'Proposal', WON:'Won', LOST:'Lost' };
+function ims_stage_(code){ var c = ims_tr_(code).toUpperCase(); return IMS_STAGE[c] || (c ? ims_tr_(code) : 'New'); }
+
 function ims_note_(r){
   var bits = [];
   if(r.subject) bits.push('Subject: ' + r.subject);
-  if(r.qty)     bits.push('Qty: ' + r.qty);
+  if(r.qty) bits.push('Qty: ' + r.qty);
   if(r.quality) bits.push("Lead's Quality: " + r.quality);
-  if(r.qualif)  bits.push('Qualification: ' + r.qualif);
-  if(r.remark)  bits.push(r.remark);
+  if(r.qualif) bits.push('Qualification: ' + r.qualif);
+  if(r.discussion) bits.push('Discussion: ' + r.discussion);
+  if(r.remark) bits.push('Final Remark: ' + r.remark);
   return bits.join(' | ');
+}
+/** Sheet ke status wale fields ka "fingerprint" -- badle to hi CRM update hota hai. */
+function ims_sig_(r){
+  return [r.quality, r.qualif, r.profession, r.discussion, r.remark].map(ims_lc_).join('|');
+}
+/**
+ * CRM me pehle se maujood lead par sheet ka taaza status aur jaankari chadha do.
+ * Status wale fields sheet jaisa hi kar diye jaate hain; company/email jaise
+ * fields sirf khaali hon tab bhare jaate hain.
+ * @return {Array<string>} kaun-kaun se field badle
+ */
+function ims_applySrc_(l, r, now){
+  var ch = [];
+  function set(k, val){ val = ims_tr_(val); if(ims_tr_(l[k]) !== val){ l[k] = val; ch.push(k); } }
+  function fill(k, val){ val = ims_tr_(val); if(val && !ims_tr_(l[k])){ l[k] = val; ch.push(k); } }
+  set('lead_quality', r.quality);
+  set('qualification_status', r.qualif);
+  set('profession', r.profession);
+  set('discussion', r.discussion);
+  set('final_remarks', r.remark);
+  fill('enquiry_no', r.enquiry_no);
+  fill('company', r.company);
+  fill('sender_email', r.email);
+  fill('subject', r.subject);
+  fill('qty', r.qty);
+  fill('note', ims_note_(r));
+  var want = ims_status_(r);
+  var cur = ims_tr_(l.lead_status || l.status).toUpperCase();
+  if(cur !== want && IMS_KEEP_CRM_STATUS.indexOf(cur) < 0){
+    l.lead_status = want; l.status = want; l.stage = ims_stage_(want);
+    if(want === 'QUALIFIED' && !l.qualifiedAt) l.qualifiedAt = now;
+    ch.push('lead_status');
+  } else if(ims_tr_(l.stage) !== ims_stage_(cur || want)){
+    l.stage = ims_stage_(cur || want); ch.push('stage');
+  }
+  return ch;
 }
 
 /* ------------------------------------------------------------------ *
@@ -510,42 +526,58 @@ function ims_run_(dryRun){
     var rows = src.rows;
     if(!rows.length){ Logger.log('IndiaMartAutoSync: ' + IMS_SRC_TAB + ' khaali hai.'); return; }
 
-    /* CRM me pehle se kya hai */
+    /* CRM me pehle se kya hai -- enquiry no aur mobile+time dono se pehchaan */
     var existing = ims_read_(IMS_COLL);
-    var haveEnq = {}, havePhoneTime = {};
+    var byEnq = {}, byPT = {};
     existing.forEach(function(l){
-      var e = ims_tr_(l.enquiry_no); if(e) haveEnq[e] = 1;
+      var e = ims_tr_(l.enquiry_no); if(e && !byEnq[e]) byEnq[e] = l;
       var p = ims_phoneKey_(l.sender_mobile || l.mobile || l.phone);
       var t = ims_tsKey_(l.query_time);
-      if(p && t) havePhoneTime[p + '|' + t] = 1;
+      if(p && t && !byPT[p + '|' + t]) byPT[p + '|' + t] = l;
     });
 
     var roster = ims_roster_();
-    var fresh = [], skipped = 0, marked = 0, noOwner = [], already = [], blocked = 0;
+    var nowIso = new Date().toISOString();
+    var fresh = [], upd = [], updSeen = {}, skipped = 0, marked = 0, noOwner = [], already = [],
+        blocked = 0, markedMissing = [], capped = 0;
 
     for(var i = 0; i < rows.length; i++){
       var r = rows[i];
-
-      /* 1. sheet par nishaan hai -> ye enquiry CRM me ja chuki hai */
-      if(ims_lc_(r.mark) === ims_lc_(IMS_MARK_TEXT)){ skipped++; marked++; continue; }
       if(!r.mobile && !r.enquiry_no){ skipped++; continue; }
 
-      /* jin salesperson ka data CRM me nahi jaana -- unki row chhod do.
-         Nishaan bhi nahi lagate, taaki naam list se hatate hi ye leads
-         normal tareeke se aa sakein. */
+      /* jin salesperson ka data CRM me nahi jaana -- unki row chhod do */
       if(ims_skipAssigned_(r.assigned)){ skipped++; blocked++; continue; }
 
-      /* 2. Enquiry Id pehle se CRM me */
-      if(r.enquiry_no && haveEnq[r.enquiry_no]){ skipped++; already.push(r.row); continue; }
-
-      /* 3. mobile + enquiry time pehle se CRM me */
       var pk = ims_phoneKey_(r.mobile), tk = ims_tsKey_(r.query_time);
-      if(pk && tk && havePhoneTime[pk + '|' + tk]){ skipped++; already.push(r.row); continue; }
+      var hit = (r.enquiry_no && byEnq[r.enquiry_no]) || (pk && tk && byPT[pk + '|' + tk]) || null;
+      var isMarked = ims_lc_(r.mark) === ims_lc_(IMS_MARK_TEXT);
+
+      /* ---- 1. lead CRM me pehle se hai -> sheet ka status CRM me utaaro ---- */
+      if(hit){
+        if(isMarked) marked++; else already.push(r.row);
+        var hid = String(hit.id == null ? '' : hit.id);
+        if(!hid || updSeen[hid]) continue;
+        var sig = ims_sig_(r);
+        if(ims_str_(hit.src_sig) === sig) continue;       /* sheet me kuch nahi badla */
+        var copy = JSON.parse(JSON.stringify(hit));
+        var ch = ims_applySrc_(copy, r, nowIso);
+        copy.src_sig = sig;
+        copy.statusSyncedAt = nowIso;
+        updSeen[hid] = 1;
+        upd.push({ row: r.row, rec: copy, ch: ch,
+                   from: ims_tr_(hit.lead_status || hit.status), to: ims_tr_(copy.lead_status) });
+        continue;
+      }
+
+      /* ---- 2. sheet par nishaan hai par CRM me nahi mili ---- */
+      if(isMarked){ skipped++; marked++; markedMissing.push(r.row); continue; }
+
+      /* ---- 3. nayi lead ---- */
+      if(fresh.length >= IMS_MAX_PER_RUN){ capped++; continue; }
 
       var owner = ims_ownerFor_(r.assigned, roster);
       if(!owner && r.assigned) noOwner.push(r.row + ': "' + r.assigned + '" roster me nahi mila');
 
-      var now = new Date().toISOString();
       var status = ims_status_(r);
       var rec = {
         id: ims_id_(),
@@ -563,97 +595,115 @@ function ims_run_(dryRun){
         query_type: r.source || 'IndiaMART',
         lead_status: status,
         status: status,
+        stage: ims_stage_(status),
+        lead_quality: r.quality,
+        qualification_status: r.qualif,
+        profession: r.profession,
+        discussion: r.discussion,
+        final_remarks: r.remark,
         note: ims_note_(r),
         assigned_to: r.assigned,
         owner: owner,
         source: 'IndiaMART',
         srcRow: r.row,
-        createdAt: now,
-        updatedAt: now
+        src_sig: ims_sig_(r),
+        statusSyncedAt: nowIso,
+        createdAt: nowIso,
+        updatedAt: nowIso
       };
-      if(status === 'QUALIFIED') rec.qualifiedAt = now;
-
+      if(status === 'QUALIFIED') rec.qualifiedAt = nowIso;
       fresh.push({ row: r.row, rec: rec });
 
       /* isi run ki aapas ki duplicate rows bhi rok do */
-      if(r.enquiry_no) haveEnq[r.enquiry_no] = 1;
-      if(pk && tk) havePhoneTime[pk + '|' + tk] = 1;
-
-      if(fresh.length >= IMS_MAX_PER_RUN) break;
+      if(r.enquiry_no) byEnq[r.enquiry_no] = rec;
+      if(pk && tk) byPT[pk + '|' + tk] = rec;
     }
 
     if(noOwner.length) Logger.log('IndiaMartAutoSync: owner resolve nahi hua —\n  ' + noOwner.join('\n  '));
-
-    /* jo enquiry CRM me pehle se hai par sheet par unmarked reh gayi (purana data,
-       ya bulk upload se aayi thi) -- uspar bhi nishaan laga do, taaki har run me
-       bekaar dobara na dekhi jaaye. Kuch import nahi hota, sirf mark lagta hai. */
-    if(!dryRun && already.length){
-      var mk = ims_mark_(src.sheet, src.markCol, already);
-      if(mk) Logger.log('IndiaMartAutoSync: ' + mk + ' purani row par ' + IMS_MARK_TEXT
-                      + ' likha (ye enquiry CRM me pehle se hai).');
-    }
-
     if(blocked) Logger.log('IndiaMartAutoSync: ' + blocked + ' row chhodi gayi kyunki unki '
       + 'Assigned Salesperson skip-list me hai (' + IMS_SKIP_ASSIGNED.join(', ') + ').');
+    if(markedMissing.length) Logger.log('IndiaMartAutoSync: WARNING — ' + markedMissing.length + ' row par "'
+      + IMS_MARK_TEXT + '" likha hai par wo lead CRM me nahi mili (rows: ' + markedMissing.slice(0, 10).join(', ')
+      + (markedMissing.length > 10 ? ' …' : '') + '). Dobara import karni ho to clearIndiaMartMarks() chalaiye.');
+    if(capped) Logger.log('IndiaMartAutoSync: ' + capped + ' nayi lead agle run me jaayengi (ek run me max ' + IMS_MAX_PER_RUN + ').');
 
-    if(!fresh.length){
-      Logger.log('IndiaMartAutoSync: koi nayi enquiry nahi. (' + rows.length + ' rows dekhi, '
-        + marked + ' par pehle se ' + IMS_MARK_TEXT + ' hai, ' + skipped + ' skip hui.)');
+    var tally = {};
+    upd.forEach(function(u){ if(u.from !== u.to){ var k = (u.from || '-') + ' -> ' + u.to; tally[k] = (tally[k] || 0) + 1; } });
+    var tallyTxt = Object.keys(tally).sort().map(function(k){ return '  ' + tally[k] + ' lead: ' + k; }).join('\n');
+
+    if(dryRun){
+      Logger.log('IndiaMartAutoSync (PREVIEW) — kuch likha nahi gaya.\n'
+        + 'Nayi lead: ' + fresh.length + '\n  '
+        + fresh.slice(0, 30).map(function(f){
+            return 'row ' + f.row + ': ' + f.rec.sender_name + ' | ' + f.rec.sender_mobile
+              + ' | ' + f.rec.query_time + ' | ' + f.rec.lead_status + ' (' + (f.rec.lead_quality || '-') + ' / '
+              + (f.rec.qualification_status || '-') + ') -> ' + (f.rec.owner || '(owner nahi mila)');
+          }).join('\n  ')
+        + '\nStatus/details update: ' + upd.length + ' lead\n' + (tallyTxt || '  (status wahi, sirf details)') + '\n  '
+        + upd.slice(0, 30).map(function(u){
+            return 'row ' + u.row + ': ' + (u.rec.sender_name || '?') + ' | ' + (u.from || '-') + ' -> ' + u.to
+              + ' [' + u.ch.join(', ') + ']';
+          }).join('\n  ')
+        + '\n(mark column: ' + (src.markCol ? ims_colName_(src.markCol) : 'NAHI MILA') + ', CRM me pehle se: '
+        + (marked + already.length) + ', skip: ' + skipped + ')');
       return;
     }
 
-    if(dryRun){
-      Logger.log('IndiaMartAutoSync (PREVIEW): ' + fresh.length + ' enquiry jaati —\n  '
-        + fresh.map(function(f){
-            return 'row ' + f.row + ': ' + f.rec.sender_name + ' | ' + f.rec.sender_mobile
-                 + ' | ' + f.rec.query_time + ' | ' + f.rec.lead_status
-                 + ' -> ' + (f.rec.owner || '(owner nahi mila)');
-          }).join('\n  ')
-        + '\n(mark column: ' + (src.markCol ? ims_colName_(src.markCol) : 'NAHI MILA — kuch mark nahi hoga')
-        + ', baaki ' + skipped + ' rows skip, jinme ' + already.length + ' CRM me pehle se hain)');
+    /* jo enquiry CRM me pehle se hai par sheet par unmarked reh gayi -- nishaan laga do */
+    if(already.length){
+      var mk = ims_mark_(src.sheet, src.markCol, already);
+      if(mk) Logger.log('IndiaMartAutoSync: ' + mk + ' purani row par ' + IMS_MARK_TEXT
+        + ' likha (ye enquiry CRM me pehle se hai).');
+    }
+
+    if(!fresh.length && !upd.length){
+      Logger.log('IndiaMartAutoSync: koi nayi enquiry ya status badlaav nahi. (' + rows.length + ' rows dekhi, '
+        + marked + ' par ' + IMS_MARK_TEXT + ' hai, ' + skipped + ' skip hui.)');
       return;
     }
 
     if(!ims_writerReady_()){
       Logger.log('IndiaMartAutoSync ERROR: _upsertMany/_upsert nahi mila. Ye file CRM ke Apps Script '
-               + 'project (Code.gs ke saath) me honi chahiye. Kuch nahi likha gaya.');
+        + 'project (Code.gs ke saath) me honi chahiye. Kuch nahi likha gaya.');
       return;
     }
 
-    var wrote = ims_write_(fresh.map(function(f){ return f.rec; }));
+    /* nayi + update dono ek hi baar me likho */
+    var all = fresh.map(function(f){ return f.rec; }).concat(upd.map(function(u){ return u.rec; }));
+    var wrote = ims_write_(all);
     SpreadsheetApp.flush();
 
-    /* ---- TASDEEQ: sach me CRM me pahunchi ya nahi? ----------------------
-       _upsertMany bina error diye bhi kuch na likhe (naya collection, schema
-       na bana ho) to source row par nishaan lagana sabse bada nuksaan hai --
-       wo lead phir kabhi import nahi hogi. Isliye likhne ke BAAD collection
-       dobara padhte hain aur sirf UNHI rows par nishaan lagate hain jinki id
-       sach me CRM me mil gayi. */
+    if(upd.length) Logger.log('IndiaMartAutoSync: ' + upd.length + ' purani lead ka status/details sheet ke hisaab se '
+      + 'update hua.' + (tallyTxt ? '\n' + tallyTxt : ''));
+
+    if(!fresh.length) return;
+
+    /* ---- TASDEEQ: nayi lead sach me CRM me pahunchi ya nahi? ----
+       Sirf UNHI rows par nishaan lagate hain jinki id CRM me mil gayi. */
     var landedMap = {};
     ims_read_(IMS_COLL).forEach(function(l){ if(l && l.id) landedMap[String(l.id)] = 1; });
     var landed = fresh.filter(function(f){ return landedMap[String(f.rec.id)]; });
-    var lost   = fresh.length - landed.length;
+    var lost = fresh.length - landed.length;
 
     if(!landed.length){
       Logger.log('IndiaMartAutoSync ERROR: ' + fresh.length + ' enquiry bheji par CRM ke "'
-        + IMS_COLL + '" collection me ek bhi nahi pahunchi (_upsertMany ne bina error diye kuch '
-        + 'nahi likha). Source sheet par KOI nishaan nahi lagaya gaya, isliye ye leads baad me '
-        + 'dobara koshish karengi. Backend (Code.gs) is collection ko nahi jaanta lagta hai.');
+        + IMS_COLL + '" collection me ek bhi nahi pahunchi. Source sheet par KOI nishaan nahi lagaya gaya, '
+        + 'isliye ye leads baad me dobara koshish karengi.');
       return;
     }
     if(lost) Logger.log('IndiaMartAutoSync: WARNING — ' + lost + ' enquiry CRM me nahi pahunchi, '
       + 'unpar nishaan nahi lagaya (agli baar dobara koshish hogi).');
 
-    /* CRM me pahunch gaya -> source row par send_to_crm likh do */
     var markedNow = ims_mark_(src.sheet, src.markCol, landed.map(function(f){ return f.row; }));
 
     Logger.log('IndiaMartAutoSync: ' + landed.length + ' nayi enquiry CRM me gayi (' + markedNow + ' row par '
-      + IMS_MARK_TEXT + ' likha, bheji thi ' + wrote + ') —\n  '
+      + IMS_MARK_TEXT + ' likha, kul likhe ' + wrote + ') —\n  '
       + landed.map(function(f){
-          return f.rec.sender_name + ' | ' + f.rec.sender_mobile + ' -> ' + (f.rec.owner || '(owner nahi mila)');
+          return f.rec.sender_name + ' | ' + f.rec.sender_mobile + ' | ' + f.rec.lead_status
+            + ' -> ' + (f.rec.owner || '(owner nahi mila)');
         }).join('\n  '));
   }catch(err){
-    Logger.log('IndiaMartAutoSync ERROR: ' + err);
+    Logger.log('IndiaMartAutoSync ERROR: ' + err + (err && err.stack ? '\n' + err.stack : ''));
   }finally{
     try{ lock.releaseLock(); }catch(e){}
   }
