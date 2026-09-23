@@ -415,6 +415,30 @@ qualQty             purchase quantity
 qualAskedAt         kab bhara gaya
 ```
 
+### Qualified ka database kahan hai
+
+**Qualified ka apna koi tab nahi hai — aur hona bhi nahi chahiye.** Wo ek
+*view* hai, alag database nahi. Wo teen jagah se padhta hai —
+
+```
+enquiries  +  indiamartLeads  +  metaLeads
+```
+
+— aur jis record ka status Qualified / System Master / Quotation Sent / Won /
+Lost hota hai, wahi Qualified section me dikh jaata hai. Agar uska apna tab
+hota to ek hi lead ki **do copy** ban jaatin (ek lead wale tab me, ek Qualified
+tab me) aur status badalte hi dono alag-alag ho jaatin — wahi purani "status
+reset" wali bimari, nayi shakal me.
+
+Isliye Qualified ke do sawaal ke jawab bhi **usi lead ke record par** likhe
+jaate hain (`qualCustType`, `qualCustTypeOther`, `qualQty`, `qualAskedAt`).
+Unka ghar wahi teen tab hain.
+
+Ye sach me pahunche ya nahi, `apps-script/QualifiedFieldsCheck.gs` bata deta
+hai — `checkQualifiedFields()` chalaiye. Wo kuch likhta nahi, sirf batata hai:
+har collection me kitne record hain, kitno par jawab bhare hain, aur sheet ke
+tab me `qual*` column bane ya nahi.
+
 ### Ek stage change par ek hi modal
 
 Enquiries aur Meta Leads me pehle se ek **Reason / Remark** modal hai
