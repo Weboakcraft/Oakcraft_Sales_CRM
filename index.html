@@ -8016,7 +8016,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.23.4';
+var OC_WEB_BUILD = '2026.09.23.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10307,16 +10307,18 @@ console.log('[oc v19] assignment alerts active');
 <script>
 /* ====================================================================== *
  * 22. OAKCRAFT v20 — DASHBOARD                                            *
- *   a) Meta Leads bhi enquiry hain. Dashboard ke har enquiry wale         *
- *      number me ab wo bhi ginte hain:                                    *
+ *   a) Meta Leads AUR IndiaMART leads bhi enquiry hain. Dashboard ke har  *
+ *      enquiry wale number me ab wo bhi ginte hain:                       *
  *        - Total Enquiries KPI aur uska month-over-month delta            *
  *        - Conversion Rate (Won / total) aur uska delta                   *
  *        - Sales Funnel ka pehla stage                                    *
  *        - Enquiry Sources chart (Meta · Facebook / Meta · Instagram)     *
  *        - Sales by Person / State-wise / Salesperson pie                 *
- *      Meta lead ko enquiry ki shakal me badal kar jodte hain, sirf       *
- *      dashboard render ke dauran -- Enquiries section, uska badge aur    *
- *      exports pehle jaise hi rehte hain.                                 *
+ *      Lead ko enquiry ki shakal me badal kar jodte hain, sirf dashboard  *
+ *      render ke dauran -- Enquiries section, uska badge aur exports      *
+ *      pehle jaise hi rehte hain.                                         *
+ *      (IndiaMART pehle chhoot gaya tha: dashboard ki "Total Enquiries"   *
+ *      me sirf Enquiries + Meta ginte the.)                               *
  *   b) Incentive dashboard ab informative dashboard ke NEECHE aata hai.   *
  * ====================================================================== */
 (function(){
@@ -10374,7 +10376,52 @@ window.ocMetaAsEnq = function(){
   return out;
 };
 
-/* Sirf dashboard render ke dauran DB.enquiries() dono deta hai. Ek hi jagah
+function imRaw(){
+  try{ var a = JSON.parse(localStorage.getItem('indiamartLeads') || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+
+/* IndiaMART ka status -> enquiry ka stage. Dashboard ka funnel aur
+   conversion rate isi stage par chalte hain, isliye naam wahi rakhe hain jo
+   PIPE_STAGES me hain. */
+var IM_STAGE = {
+  CREATED: 'New', CONTACTED: 'Contacted', QUALIFIED: 'Qualified',
+  SYSTEM_MASTER: 'System Master', QUOTATION_SENT: 'Quoted',
+  WON: 'Won', LOST: 'Lost'
+};
+
+/* IndiaMART lead -> enquiry jaisa record. owner waisa hi rehta hai, isliye
+   scope() khud tay kar leta hai ki kis user ko kya dikhega. Jo lead section
+   me chhupi hai (skip-list) wo dashboard me bhi nahi ginti -- warna ginti
+   aur list alag-alag ho jaatin. */
+window.ocIndiamartAsEnq = function(){
+  var out = [];
+  imRaw().forEach(function(l){
+    if(!l || !l.id) return;
+    try{ if(window.ocImHidden && window.ocImHidden(l)) return; }catch(e){}
+    var st = S(l.lead_status || l.status).toUpperCase().replace(/[\s\-]+/g, '_');
+    out.push({
+      id: S(l.id),
+      date: /^\d{4}-\d{2}-\d{2}$/.test(S(l.date)) ? S(l.date) : isoDate(l.query_time),
+      customer: S(l.sender_name) || S(l.company),
+      product: S(l.product),
+      qty: (+l.qty > 0) ? +l.qty : 1,
+      source: 'IndiaMART',
+      salesperson: S(l.assigned_to),
+      value: 0,
+      priority: '',
+      stage: IM_STAGE[st] || 'New',
+      note: S(l.sender_city_state),
+      owner: S(l.owner),
+      ownerEmail: S(l.owner),
+      custId: '',
+      __indiamart: true
+    });
+  });
+  return out;
+};
+
+/* Sirf dashboard render ke dauran DB.enquiries() teeno deta hai. Ek hi jagah
    se poora dashboard cover ho jaata hai -- KPI, delta, funnel aur saare
    charts wahi list padhte hain. Baaki app par koi asar nahi. */
 var _dbEnqD = DB.enquiries;
@@ -10385,14 +10432,16 @@ if(typeof _renderDashD === 'function'){
     DB.enquiries = function(){
       var base = [];
       try{ base = _dbEnqD.call(DB) || []; }catch(e){ base = []; }
-      try{ return base.concat(window.ocMetaAsEnq()); }catch(e){ return base; }
+      try{ base = base.concat(window.ocMetaAsEnq()); }catch(e){}
+      try{ base = base.concat(window.ocIndiamartAsEnq()); }catch(e){}
+      return base;
     };
     try{ return _renderDashD.apply(this, arguments); }
     finally{ DB.enquiries = restore; }
   };
 }
 
-console.log('[oc v20] dashboard: meta leads counted as enquiries; incentive moved below');
+console.log('[oc v20] dashboard: meta + indiamart leads counted as enquiries; incentive moved below');
 })();
 </script>
 
