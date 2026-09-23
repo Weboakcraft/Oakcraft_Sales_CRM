@@ -279,10 +279,6 @@ leta hai, jo bilkul theek hai. `checkIndiaMartCollection()` unhe sirf report kar
 * List agar kisi function ke andar chhupi ho to patch imaandari se bata deta hai — us soorat me
   Code.gs me `bad_collection` search karke aas-paas waali list me naam haath se jod dijiye.
 
-`apps-script/CrmBackendProbe.gs` (sirf jaanch, kuch likhta nahi) backend ka poora naksha dikhata
-hai: kaun se function maujood hain, har collection me kitni rows hain, sheet ke tabs, aur
-`list` / `getAll` ka asli jawab.
-
 ## Jo collection `getAll` nahi bhejta, CRM khud maang leta hai
 
 `CLOUD.pull()` sirf `?action=getAll` maarta hai aur backend apni jaani-pehchani collections hi
