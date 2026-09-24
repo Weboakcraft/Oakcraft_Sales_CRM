@@ -261,6 +261,36 @@ alag-alag ho jaatin.
 Ye swap sirf dashboard render ke dauran hota hai (`finally` me wapas). Enquiries
 section, uska badge aur exports pehle jaise hi rehte hain.
 
+## Status ka rang — ek hi jagah se
+
+Traffic light: **green = kaam ban gaya**, **red = band ho gaya**,
+**yellow = chal raha hai / dhyan chahiye**.
+
+| Status | Rang |
+|---|---|
+| Qualified · Won | 🟢 green |
+| Not Qualified · Lost | 🔴 red |
+| Quotation Sent · Unassigned · Contacted | 🟡 yellow |
+| System Master | 🟣 purple |
+| New | 🔵 blue |
+
+Rang ka faisla **ek hi function** karta hai — `ocToneOf()` / `ocToneClass()` /
+`ocToneInk()` (`stageChip` ke upar). **IndiaMART, Enquiries, Meta Leads aur
+Qualified — chaaron wahi se rang lete hain**, isliye ek jaisa status kabhi
+alag-alag rang ka nahi dikh sakta. Pehle chaaron ki apni alag list thi aur
+`Qualified` IndiaMART me teal, Meta me teal, Enquiries me purple dikhta tha.
+
+Naya status aaye to `ocToneOf()` me bas ek `case` jodiye — baaki sab jagah
+apne aap lag jayega.
+
+Rang lagta kahan hai:
+
+* **status chip** (read-only row) — chip class
+* **status dropdown** (editable row) — text ka rang, `ocToneInk()`
+* **KPI card / box** — left border + number ka rang (IndiaMART aur Qualified
+  dono me). "Total leads" jaan-boojh kar bina rang ka hai — wo koi status
+  nahi hai.
+
 ## "Not Qualified" ek poora status hai
 
 Sheet ka column R `Qualified` / `Not Qualified` likhta hai aur
