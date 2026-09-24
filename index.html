@@ -3067,7 +3067,6 @@ function bindAppEvents(){
           + (si > 0 ? '<button title="Peeche" onclick="ML.move(\'' + l.id + '\',-1)">\u25c0</button>' : '')
           + (si < cfg.stages.length - 1 ? '<button title="Aage" onclick="ML.move(\'' + l.id + '\',1)">\u25b6</button>' : '')
           + '<button onclick="ML.form(\'' + l.id + '\')">Edit</button>'
-          + '<button onclick="ML.convert(\'' + l.id + '\')">\u2192 Enquiry</button>'
           + '</div></div>';
       }).join('');
       return '<div class="stage-col"><h4>' + esc(st) + ' <span>' + items.length + '</span></h4>'
@@ -6560,7 +6559,6 @@ console.log('[oc v7] row-safe save active');
         + (admin ? '<select class="mls-f" id="mlSelOwn"><option value="">Assign to…</option><option value="__none__">— Unassign —</option>'
             + roster().map(function(u){ return '<option value="' + esc(u.email) + '">' + esc(u.name || u.email) + '</option>'; }).join('')
             + '</select>' : '')
-        + '<button class="btn sm" onclick="ML.selConvert()">→ Enquiry</button>'
         + '<button class="btn sm" onclick="ML.selDelete()">Delete</button>'
         + '<button class="btn sm" onclick="ML.selClear()">Clear</button>'
         + '</div>';
@@ -6617,7 +6615,6 @@ console.log('[oc v7] row-safe save active');
         + '<td>' + ownCell + '</td>'
         + '<td><div class="rowact">'
             + '<button onclick="ML.form(\'' + l.id + '\')">Edit</button>'
-            + '<button onclick="ML.convert(\'' + l.id + '\')" title="Enquiry banao">→ Enq</button>'
             /* v22: is lead ki status history -- baaki sections me tracking view hai,
                Meta Leads me yahi seedha raasta hai */
             + '<button onclick="ocTrackHistory(\'metaLeads\',\'' + l.id + '\')" title="Status history">⏱</button>'
@@ -8115,7 +8112,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.24.6';
+var OC_WEB_BUILD = '2026.09.24.7';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10871,6 +10868,7 @@ function ensureRemarkModal(){
   return w;
 }
 var REM_CB = null;
+var REM_CANCEL = null;             /* Cancel dabane par bulane wala callback */
 /* Lead Qualified ho rahi hai to isi modal me do sawaal aur aate hain
    (Customer Type + Purchase Quantity). Alag popup nahi kholte -- ek stage
    change par do modal dekhna bura lagta hai. Fields ka HTML aur unki jaanch
@@ -10880,6 +10878,7 @@ var REM_QUAL = null;               /* { coll, id } jab sawaal dikhane hain */
 function askRemark(info, cb){
   var w = ensureRemarkModal();
   REM_CB = cb;
+  REM_CANCEL = (typeof info.onCancel === 'function') ? info.onCancel : null;
   $$('oc-rem-title').textContent = info.title || 'Stage change';
   $$('oc-rem-sub').textContent   = info.sub || '';
   var t = $$('oc-rem-text'); t.value = '';
@@ -10902,8 +10901,12 @@ function askRemark(info, cb){
 }
 function closeRemark(){
   var w = $$('oc-rem-wrap'); if(w) w.style.display = 'none';
-  REM_CB = null; REM_QUAL = null;
+  var onC = REM_CANCEL;
+  REM_CB = null; REM_QUAL = null; REM_CANCEL = null;
   var q = $$('oc-rem-qual'); if(q) q.innerHTML = '';
+  /* Save wale raaste par ye pehle hi null kar diya jaata hai, isliye yahan
+     sirf Cancel / Escape par chalta hai. */
+  if(onC){ try{ onC(); }catch(e){} }
 }
 document.addEventListener('click', function(ev){
   var t = ev.target;
@@ -10928,7 +10931,7 @@ document.addEventListener('click', function(ev){
       }
       ans = r.ans;
     }
-    var cb = REM_CB; closeRemark();
+    var cb = REM_CB; REM_CANCEL = null; closeRemark();
     if(qual && ans){ try{ OCQ.write(qual.coll, qual.id, ans); }catch(e){} }
     if(typeof cb === 'function') cb(v);
   }
@@ -10953,6 +10956,12 @@ function gate(coll, recId, to, info, proceed){
   });
   return undefined;
 }
+
+/* Ye teen baahar bhi chahiye: IndiaMART ka IM.setStatus is script block ke
+   BAAD bana hai, isliye wo `gate` ko seedha nahi dekh sakta. */
+window.ocGate     = gate;
+window.ocTakePend = takePend;
+window.ocHasPend  = hasPend;
 
 /* ================================================================ *
  * 4. WRAPPERS — har stage/status change par remark + history        *
@@ -14333,7 +14342,8 @@ window.renderIndiamart = function(){
       + '<td>' + ownCell + '</td>'
       + '<td><div class="row-actions" style="display:flex;gap:4px">'
         + '<button title="Edit" onclick="IM.form(\'' + A(l.id) + '\')">Edit</button>'
-        + '<button title="Enquiry banao" onclick="IM.convert(\'' + A(l.id) + '\')">→ Enq</button>'
+        /* v38: is lead ki status history -- Meta Leads jaisa hi seedha raasta */
+        + '<button title="Status history" onclick="ocTrackHistory(\'' + A(KEY) + '\',\'' + A(l.id) + '\')">⏱</button>'
         + (edit && allow('delete') ? '<button title="Delete" onclick="IM.del(\'' + A(l.id) + '\')">✕</button>' : '')
       + '</div></td>'
       + '</tr>';
@@ -14424,8 +14434,11 @@ IM.setStatus = function(id, val){
   imSave(arr);
   try{
     if(typeof ocLogChange === 'function'){
+      /* remark wale modal ne jo likhwaya hai wahi history me jaata hai (v38) */
+      var rem = '';
+      try{ if(typeof window.ocTakePend === 'function') rem = window.ocTakePend(KEY, id, to) || ''; }catch(e){}
       ocLogChange({ coll:KEY, recId:id, recName:(l.sender_name || l.sender_mobile), field:'status',
-                    from:from, to:to, remark:'', owner:l.owner, sp:l.assigned_to, createdAt:l.createdAt });
+                    from:from, to:to, remark:rem, owner:l.owner, sp:l.assigned_to, createdAt:l.createdAt });
     }
   }catch(e){}
   tell('Status: ' + statusLabel(to));
@@ -16901,6 +16914,101 @@ if(document.readyState === 'loading') document.addEventListener('DOMContentLoade
 else setTimeout(install, 0);
 
 console.log('[oc v37] IndiaMART + Meta: bina naam wali lead sabko, tag lagte hi sirf usi ko');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 39. OAKCRAFT v38 — INDIAMART: STATUS BADALNE PAR REMARK ZAROORI        *
+ *                    + HAR LEAD KI STATUS HISTORY                        *
+ *                                                                        *
+ *   Enquiries aur Meta Leads me rule pehle se hai: status badlo to       *
+ *   "Reason / Remark" likhna padta hai, aur wo remark naam aur time ke   *
+ *   saath history me hamesha ke liye ruk jaata hai. IndiaMART is rule    *
+ *   se chhoot gaya tha -- kyunki IM ka poora code us remark wale script  *
+ *   block ke BAAD aata hai, section 4 ne IM ko dekha hi nahi tha.        *
+ *                                                                        *
+ *   Ab wahi shared gate (window.ocGate) IM.setStatus par bhi lag gaya:   *
+ *     - status badla   -> wahi modal khulta hai; remark likhe bina       *
+ *                         status badalta hi nahi                         *
+ *     - Cancel dabaya  -> kuch nahi badla, dropdown wapas purane par     *
+ *     - Qualified hai  -> USI modal me Customer Type + Purchase Quantity *
+ *                         bhi aa jaate hain (v36 wale fields), alag      *
+ *                         popup nahi                                     *
+ *     - history        -> row ke ⏱ button se dikh jaati hai, Meta jaisi  *
+ *                                                                        *
+ *   Remark history tak kaise pahunchta hai: modal PEND me remark rakh    *
+ *   deta hai, aur asli IM.setStatus ocLogChange se pehle ocTakePend()    *
+ *   se wahi uthata hai. Isliye yahan dobara history nahi likhi jaati --  *
+ *   warna har change do baar dikhta.                                     *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocImRemark) return; window.__ocImRemark = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+
+function imArr(){
+  try{ var a = JSON.parse(localStorage.getItem('indiamartLeads') || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function byId(arr, id){
+  for(var i = 0; i < arr.length; i++) if(arr[i] && T(arr[i].id) === T(id)) return arr[i];
+  return null;
+}
+/* wahi normalization jo IM khud karta hai -- warna PEND ki chaabi na mile */
+function codeOf(v){
+  try{ if(typeof window.ocLeadStatusCode === 'function') return window.ocLeadStatusCode(v); }catch(e){}
+  return TR(v).toUpperCase().replace(/[\s\-]+/g, '_');
+}
+function labelOf(c){
+  try{ var m = window.OC_LEAD_STATUS_LABEL || {}; return m[c] || T(c).replace(/_/g, ' '); }catch(e){}
+  return T(c);
+}
+function redraw(){
+  try{ if(typeof renderIndiamart === 'function' && state && state.view === 'indiamart') renderIndiamart(); }catch(e){}
+  try{ if(typeof renderQualified === 'function' && state && state.view === 'qualified') renderQualified(); }catch(e){}
+}
+
+function install(){
+  var IM = window.IM;
+  if(!IM || typeof IM.setStatus !== 'function') return;
+  if(IM.setStatus.__ocRem) return;
+  if(typeof window.ocGate !== 'function') return;
+
+  var _orig = IM.setStatus;
+  var wrapped = function(id, val){
+    var self = this, args = arguments;
+    var l = byId(imArr(), id);
+    if(!l) return _orig.apply(self, args);
+    var from = codeOf(l.lead_status), to = codeOf(val);
+    if(!to || from === to) return _orig.apply(self, args);
+    /* jis lead par haath hi nahi laga sakte uske liye modal kholna bekaar hai
+       -- purana function khud mana kar dega. Bina naam wali lead par canTouch
+       true deta hai, isliye pool wali leads yahan se nahi rukti. */
+    try{ if(typeof window.canTouch === 'function' && !window.canTouch(l)) return _orig.apply(self, args); }catch(e){}
+    return window.ocGate('indiamartLeads', id, to, {
+      title: 'IndiaMART lead status: ' + labelOf(from) + ' → ' + labelOf(to),
+      sub  : (TR(l.sender_name) || TR(l.company) || TR(l.sender_mobile) || '—') + '  ·  ' + T(id),
+      onCancel: redraw
+    }, function(){ return _orig.apply(self, args); });
+  };
+  wrapped.__ocRem = true;
+  IM.setStatus = wrapped;
+  console.log('[oc v38] IndiaMART: status badalne par remark zaroori');
+}
+
+/* Sabse BAAHAR lagna zaroori hai. IM.setStatus ko v36 (Qualified ke do
+   sawaal) aur v37 (bina naam wali lead khud claim) dono lapetate hain, aur
+   wo dono setTimeout(...,0) par lagte hain. Isliye ye thoda baad me chalta
+   hai -- tab kram ye rehta hai: pehle remark modal, phir claim, phir sawaal
+   (jo modal me hi bhar chuke), phir asli kaam. Dobara try isliye ki koi
+   section IM.setStatus ko baad me badle to gate phir se sabse bahar aa jaye
+   (guard ki wajah se ek hi baar lagta hai). */
+function boot(){ setTimeout(install, 60); setTimeout(install, 600); setTimeout(install, 2500); }
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
 })();
 </script>
 
