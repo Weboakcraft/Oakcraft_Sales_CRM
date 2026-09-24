@@ -594,7 +594,7 @@ function ims_run_(dryRun){
     var roster = ims_roster_();
     var nowIso = new Date().toISOString();
     var fresh = [], upd = [], updSeen = {}, skipped = 0, marked = 0, noOwner = [], already = [],
-        blocked = 0, markedMissing = [], capped = 0;
+        blocked = 0, markedMissing = [], capped = 0, ownerFilled = [], clash = [];
 
     for(var i = 0; i < rows.length; i++){
       var r = rows[i];
@@ -613,9 +613,28 @@ function ims_run_(dryRun){
         var hid = String(hit.id == null ? '' : hit.id);
         if(!hid || updSeen[hid]) continue;
         var sig = ims_sig_(r);
-        if(ims_str_(hit.src_sig) === sig) continue;       /* sheet me kuch nahi badla */
+        /* OWNER (v39): sheet me naam baad me bhara gaya ho to --
+             CRM me owner khaali  -> sheet wala naam owner ban jaata hai
+             CRM me owner hai     -> CRM wala hi rehta hai (jisne pehle
+                                     uthaya uski lead); alag ho to sirf
+                                     Logs me takraav likha jaata hai,
+                                     admin khud theek kare. */
+        var hitOwn = ims_lc_(hit.owner), hitSp = ims_tr_(hit.assigned_to);
+        var sheetOwn = r.assigned ? ims_ownerFor_(r.assigned, roster) : '';
+        var fillOwner = !hitOwn && !!sheetOwn && (!hitSp || ims_lc_(hitSp) === ims_lc_(r.assigned));
+        if(hitOwn && sheetOwn && hitOwn !== sheetOwn){
+          clash.push('row ' + r.row + ': ' + (hit.sender_name || hit.sender_mobile || hid) + ' | sheet: "'
+            + r.assigned + '" | CRM: ' + (roster.all[hitOwn] || hitOwn));
+        }
+        if(ims_str_(hit.src_sig) === sig && !fillOwner) continue;   /* sheet me kuch nahi badla */
         var copy = JSON.parse(JSON.stringify(hit));
         var ch = ims_applySrc_(copy, r, nowIso);
+        if(fillOwner){
+          copy.owner = sheetOwn;
+          copy.assigned_to = roster.all[sheetOwn] || r.assigned;
+          ch.push('owner');
+          ownerFilled.push((hit.sender_name || hit.sender_mobile || hid) + ' -> ' + copy.assigned_to);
+        }
         copy.src_sig = sig;
         copy.statusSyncedAt = nowIso;
         updSeen[hid] = 1;
@@ -657,7 +676,10 @@ function ims_run_(dryRun){
         discussion: r.discussion,
         final_remarks: r.remark,
         note: ims_note_(r),
-        assigned_to: r.assigned,
+        /* naam sirf tab jab CRM user pakka mila -- warna lead Unassigned
+           (khaali) rehti hai, taaki pool me aaye aur admin/anjaan naam
+           kabhi owner jaisa na dikhe. Sheet ka likha naam Logs me hai. */
+        assigned_to: owner ? (roster.all[owner] || r.assigned) : '',
         owner: owner,
         source: 'IndiaMART',
         srcRow: r.row,
@@ -681,6 +703,11 @@ function ims_run_(dryRun){
       + IMS_MARK_TEXT + '" likha hai par wo lead CRM me nahi mili (rows: ' + markedMissing.slice(0, 10).join(', ')
       + (markedMissing.length > 10 ? ' …' : '') + '). Dobara import karni ho to clearIndiaMartMarks() chalaiye.');
     if(capped) Logger.log('IndiaMartAutoSync: ' + capped + ' nayi lead agle run me jaayengi (ek run me max ' + IMS_MAX_PER_RUN + ').');
+    if(ownerFilled.length) Logger.log('IndiaMartAutoSync: ' + ownerFilled.length + ' bina naam wali lead par sheet ka naam laga'
+      + (dryRun ? ' (PREVIEW)' : '') + ' —\n  ' + ownerFilled.join('\n  '));
+    if(clash.length) Logger.log('IndiaMartAutoSync: TAKRAAV — ' + clash.length + ' lead me sheet ka naam aur CRM ka owner alag hai. '
+      + 'CRM wala owner rakha gaya (jisne pehle uthayi). Galat ho to admin CRM me "Assigned to" badal de —\n  '
+      + clash.join('\n  '));
 
     var tally = {};
     upd.forEach(function(u){ if(u.from !== u.to){ var k = (u.from || '-') + ' -> ' + u.to; tally[k] = (tally[k] || 0) + 1; } });
