@@ -8112,7 +8112,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.24.7';
+var OC_WEB_BUILD = '2026.09.24.8';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10943,9 +10943,36 @@ document.addEventListener('keydown', function(ev){
   else if(ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)){ var b = $$('oc-rem-ok'); if(b) b.click(); }
 });
 
+/* v39: non-admin ke liye -- ye lead abhi kisi ki nahi hai? */
+function ownerFirst(coll, recId){
+  if(coll !== 'indiamartLeads' && coll !== 'metaLeads') return false;
+  if(isAdm()) return false;
+  try{
+    var arr = JSON.parse(localStorage.getItem(coll) || '[]') || [];
+    for(var i = 0; i < arr.length; i++){
+      var l = arr[i];
+      if(l && T(l.id) === T(recId)) return !TR(l.owner) && !TR(l.assigned_to);
+    }
+  }catch(e){}
+  return false;
+}
+
 /* ek jaisa wrapper banane wala helper */
 function gate(coll, recId, to, info, proceed){
   if(hasPend(coll, recId, to)) return proceed();
+  /* v39: bina naam wali IndiaMART / Meta lead ka status sirf naam lagne ke
+     baad badalta hai. Lead tabhi kisi ki hoti hai jab wo "Assigned to" me
+     apna naam chune -- status badalne se nahi. Admin par ye rok nahi. */
+  if(ownerFirst(coll, recId)){
+    tell('Pehle "Assigned to" me apna naam lagaiye, phir status badaliye.');
+    try{ if(info && typeof info.onCancel === 'function') info.onCancel(); }catch(e){}
+    try{
+      if(state && state.view === 'metaLeads' && typeof renderMetaLeads === 'function') renderMetaLeads();
+      else if(state && state.view === 'indiamart' && typeof renderIndiamart === 'function') renderIndiamart();
+      else if(state && state.view === 'qualified' && typeof renderQualified === 'function') renderQualified();
+    }catch(e){}
+    return undefined;
+  }
   /* Qualified ho raha hai? to remark ke saath do sawaal bhi isi modal me */
   try{
     if(TR(to).toUpperCase().replace(/[\s\-]+/g, '_') === 'QUALIFIED') info.qual = { coll:coll, id:recId };
@@ -16875,6 +16902,10 @@ function nameFor(email){
    uthata hai, to use owner laga hua record milta hai aur uska apna
    save / push / history sab pehle jaisa chalta hai. */
 function claimBefore(key, id){
+  /* v39: BAND. Status badalne se lead ab kisi ki nahi hoti -- sirf "Assigned
+     to" me apna naam lagane se (IM.setAssign / ML.setAssign). Bina naam wali
+     lead ka status badalne se pehle hi remark gate (ownerFirst) rok deta hai. */
+  if(!window.OC_CLAIM_ON_STATUS) return;
   try{
     var arr = JSON.parse(localStorage.getItem(key) || '[]');
     if(!Array.isArray(arr)) return;

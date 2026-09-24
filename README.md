@@ -333,11 +333,47 @@ Rule seedha hai:
   jaati hai** — sirf usi ko dikhti hai (aur admin ko). Isliye do log kabhi ek
   hi lead par kaam nahi karte.
 
-**Tag lagne ke do tareeke:**
+**Tag lagne ka ek hi tareeka (v39):** owner wale **dropdown** me apna naam
+chunna. Status badalne se lead ab kisi ki **nahi** hoti — bina naam wali lead
+ka status badalne ki koshish par *Pehle "Assigned to" me apna naam lagaiye*
+toast aata hai aur kuch nahi badalta (`ownerFirst()` remark gate me; v37 ka
+`claimBefore` band hai, `window.OC_CLAIM_ON_STATUS = true` se wapas chalu).
+Admin par ye rok nahi.
 
-1. Owner wale **dropdown** me apna naam chunna.
-2. **Status badalna** — bina naam wali lead ka status badalte hi wo badalne
-   wale ki ho jaati hai. Warna do log usi lead par kaam karte rehte.
+### Lead ka owner — sheet se CRM tak (v39)
+
+| Soorat | CRM me owner |
+|---|---|
+| Source sheet (`Indiamart_crm` col H) me naam khaali | khaali → **Unassigned**, poori team ke pool me |
+| Sheet me naam jo CRM ka Active sales user hai | wahi user |
+| Sheet me naam jo CRM user nahi / admin / Sales Manager | khaali → Unassigned (`Assigned to` bhi khaali, sheet ka naam Logs me) |
+| Lead Unassigned aayi, baad me sheet me naam bhara | agle sync (5 min) me wahi naam owner ban jaata hai — **sirf agar tab tak kisi ne CRM me lead nahi uthayi** |
+| Kisi ne CRM me pehle utha li, sheet me baad me doosra naam | CRM wala owner rehta hai; Apps Script Logs me `TAKRAAV` line — admin CRM me "Assigned to" badal kar theek kare |
+| Admin kisi ko assign kare | owner = **jisko assign kiya** (admin ki id kabhi nahi) |
+| Admin Unassigned lead ka status badle / "— Unassigned —" chune | owner khaali hi rehta hai |
+
+Backend (`Code.gs`, deployment **version 40**) bhi yahi lagata hai —
+`indiamartLeads` / `metaLeads` par write ke waqt:
+
+```js
+var _leadColl = (coll === 'indiamartLeads' || coll === 'metaLeads');
+if (_leadColl){
+  var _curOwn = cur ? String(_body(cur).owner || '').trim().toLowerCase() : '';
+  var _want = String(ob.owner == null ? '' : ob.owner).trim().toLowerCase();
+  if (scoped){                       // non-admin
+    if (cur) ob.owner = _curOwn || (_want === u.email ? u.email : '');
+    else ob.owner = _want || u.email;
+    if (!ob.owner) ob.assigned_to = '';
+  } else if (ob.owner == null){      // admin: jo bheja wahi, khaali = Unassigned
+    ob.owner = _curOwn;
+  }
+}
+else if (scoped) ... // baaki collections pehle jaisi
+```
+
+Pehle admin ke save par khaali owner me **admin ki apni id** chali jaati thi
+(`ob.owner || u.email`), aur salesperson ke kisi bhi save par khaali lead
+uski ho jaati thi. Ab dono nahi hota.
 
 ### Owner dropdown — kaun kya dekhta hai
 
