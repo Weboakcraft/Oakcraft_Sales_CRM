@@ -374,7 +374,32 @@ statuses ka jod** (jaise `63 = 2 New + 21 Qualified + 40 Not Qualified`) aur
 admin ko `Unassigned` me 98 dikh rahe hain, to unme se **ek bhi** us
 salesperson tak nahi pahunchi — yaani backend rok raha hai.
 
-### Backend rok raha ho to — `apps-script/OwnerFilterProbe.gs`
+### Backend ka patch — `apps-script/CodeGs_PoolUnassigned.gs`
+
+`OwnerFilterProbe` ne asli wajah nikal di. `Code.gs` ke `_scope()` ka aakhri
+hissa:
+
+```js
+for(var i=0;i<rows.length;i++){ if(_ownerOf(rows[i]) === u.email) out.push(rows[i]); }
+```
+
+`_ownerOf()` bina naam wali row par **khaali string** lautaata hai, aur `''`
+kisi ke email ke barabar nahi hota — isliye aisi **har** row chhant jaati hai.
+Wo kisi ki nahi hai, phir bhi kisi ko nahi milti.
+
+Patch `_scope()` ko lapet deta hai: **sirf `POOL_COLLS`** (`indiamartLeads`,
+`metaLeads`) par, aur sirf jab user ko poora data nahi milta, wo un rows ko
+wapas jod deta hai jinpar **kisi ka bhi naam nahi**. Jis row par kisi aur ka
+naam hai wo pehle ki tarah nahi dikhti — yaani sirf itna badla ki *"jo kisi ki
+nahi, wo sabki hai"*.
+
+Lagane ke baad **Deploy → Manage deployments → pencil → Version: "New version"
+→ Deploy** zaroori hai (`_scope()` web app ke `doPost` me chalta hai).
+Wapas hatana ho to `var POOL_COLLS = [];` kar dijiye.
+
+`checkPoolScope()` naqli data par chala kar dikha deta hai kisko kya milega.
+
+### Backend ki chhantai dhoondhne ke liye — `apps-script/OwnerFilterProbe.gs`
 
 Chhantai `Code.gs` me hoti hai, isliye patch bhi wahin lagega. Ye file
 (`probeOwnerFilter()`) har global function ka source padh kar wahi function
