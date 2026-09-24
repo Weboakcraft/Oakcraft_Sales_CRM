@@ -394,8 +394,9 @@ salesperson tak nahi pahunchi — yaani backend rok raha hai.
 
 ### Backend ka patch — `apps-script/CodeGs_PoolUnassigned.gs`
 
-`OwnerFilterProbe` ne asli wajah nikal di. `Code.gs` ke `_scope()` ka aakhri
-hissa:
+Asli wajah ek read-only probe se nikli thi, jo `Code.gs` ke har global
+function ka source padh kar `owner` wala filter dhoondh laayi (file ka kaam ho
+chuka, isliye hata di gayi). `Code.gs` ke `_scope()` ka aakhri hissa:
 
 ```js
 for(var i=0;i<rows.length;i++){ if(_ownerOf(rows[i]) === u.email) out.push(rows[i]); }
@@ -416,17 +417,6 @@ Lagane ke baad **Deploy → Manage deployments → pencil → Version: "New vers
 Wapas hatana ho to `var POOL_COLLS = [];` kar dijiye.
 
 `checkPoolScope()` naqli data par chala kar dikha deta hai kisko kya milega.
-
-### Backend ki chhantai dhoondhne ke liye — `apps-script/OwnerFilterProbe.gs`
-
-Chhantai `Code.gs` me hoti hai, isliye patch bhi wahin lagega. Ye file
-(`probeOwnerFilter()`) har global function ka source padh kar wahi function
-dhoondh kar chhaap deti hai jisme `owner` ka zikr ho — yaani asli filter.
-
-Kuch likhti nahi. `password` / `token` / `secret` / `key` jaise naam wale
-function **jaan-boojh kar nahi chhapte** (sirf naam aata hai), aur code me jo
-lamba random text (signing key jaisa) mile wo `[HATAYA GAYA]` ho jaata hai.
-Phir bhi log bhejne se pehle ek nazar daal lena chahiye.
 
 ### Tag lagte hi doosre ke CRM se sach me hat jaati hai
 
