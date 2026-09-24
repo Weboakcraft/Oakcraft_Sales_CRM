@@ -327,21 +327,39 @@ kyunki ye haari hui deal nahi, qualify hi nahi hui.
 Rule seedha hai:
 
 * Jis lead par **kisi ka naam nahi** hai, wo **poori sales team** ko dikhti
-  hai. Har aisi row par **“+ Mera”** button hota hai.
+  hai. Har aisi row ke owner column me **dropdown** hota hai — bilkul admin
+  jaisa, bas usme **sirf us user ka apna naam** hota hai.
 * Jaise hi kisi ne apna tag laga diya, wo lead **baaki sab ki list se hat
   jaati hai** — sirf usi ko dikhti hai (aur admin ko). Isliye do log kabhi ek
   hi lead par kaam nahi karte.
 
 **Tag lagne ke do tareeke:**
 
-1. **“+ Mera”** button dabana.
+1. Owner wale **dropdown** me apna naam chunna.
 2. **Status badalna** — bina naam wali lead ka status badalte hi wo badalne
    wale ki ho jaati hai. Warna do log usi lead par kaam karte rehte.
 
-**Admin aur Sales Manager lead nahi uthate.** Unhe button dikhta hi nahi aur
-unke status badalne par lead unke naam **nahi** hoti — yahi galti pehle 558
-leads Ankush Goswami ke naam kar chuki thi. Admin ko kisi ko dena ho to
-dropdown hai hi. Kaun utha sakta hai, wahi list hai jo assign wale dropdown me
+### Owner dropdown — kaun kya dekhta hai
+
+| Kaun | Dropdown me |
+|---|---|
+| **Admin** | `— Unassigned —` + poora `ocLeadRoster()` — har lead par |
+| **Sales person** | `— Unassigned —` + **sirf apna naam** — sirf bina naam wali lead par |
+| **Sales person**, doosre ki lead | dropdown nahi, sirf naam likha hua |
+
+`IM.setAssign()` / `ML.setAssign()` server-side jaisa hi check dobara karte
+hain: non-admin sirf **apna** email bhej sakta hai aur sirf **khaali** lead
+par. Doosre ka email bhejne par kuch nahi badalta aur `Aap sirf apna naam laga
+sakte hain.` toast aata hai — yaani dropdown chhed-chhaad se bhi surakshit hai.
+History me ye entry `Lead khud uthayi` remark ke saath jaati hai (admin ke
+reassign par `Lead reassigned`).
+
+Bulk assign (checkbox wala toolbar dropdown, `selAssign`) pehle jaisa
+**sirf admin** ke liye hai.
+
+**Admin aur Sales Manager lead nahi uthate.** Unke status badalne par lead
+unke naam **nahi** hoti — yahi galti pehle 558 leads Ankush Goswami ke naam
+kar chuki thi. Kaun utha sakta hai, wahi list hai jo assign wale dropdown me
 dikhti hai (`ocLeadRoster`).
 
 ### Kaun lead utha sakta hai
@@ -352,8 +370,8 @@ user jinka role lead uthata ho aur naam `OC_NO_LEADS` me na ho.
 Role ki list `ocIsSalesRole()` me hai aur usme **`User` bhi shaamil hai** —
 `user · sales executive · sales exec · salesexecutive · sales`. Isliye jis
 salesperson ka role CRM me `User` likha hai (jaise Mayank) wo bhi pool
-dekhta hai, "+ Mera" daba sakta hai aur assign wale dropdown me aata hai.
-Administrator aur Sales Manager nahi aate.
+dekhta hai, owner dropdown me apna naam laga sakta hai aur assign wale
+dropdown me aata hai. Administrator aur Sales Manager nahi aate.
 
 ### Pool khaali dikhe to — `ocPoolCheck()`
 
