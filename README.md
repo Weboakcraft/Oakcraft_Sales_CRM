@@ -748,14 +748,75 @@ Isliye Qualified par ye do fields usi remark modal ke andar jud jaate hain —
 `gate()` `info.qual` bhejta hai, `askRemark()` fields daal deta hai, aur OK
 par dono cheezein ek saath jaanchi jaati hain.
 
-IndiaMART par remark wala gate hai hi nahi, isliye wahan v36 ka apna chhota
-modal khulta hai. Fields, unki list aur jaanch dono jagah ek hi jagah se aate
-hain (`OCQ.fieldsHTML()` / `OCQ.read()` / `OCQ.write()`), isliye niyam kabhi
-alag nahi ho sakte.
+**v38 se IndiaMART bhi isi raaste par hai** (neeche dekhiye), isliye ab teeno
+section me ek hi modal khulta hai. Fields, unki list aur jaanch ek hi jagah se
+aate hain (`OCQ.fieldsHTML()` / `OCQ.read()` / `OCQ.write()`), isliye niyam
+kabhi alag nahi ho sakte.
 
 Cancel dabane par status **badalta nahi** — dropdown apni jagah wapas aa jaata
 hai. Jis lead ke jawab pehle se maujood hain usse dobara nahi poochha jaata;
 badalna ho to Qualified section me row ka **Details** button hai.
+
+## IndiaMART me bhi remark zaroori, aur har lead ki history
+
+Enquiries aur Meta Leads me rule pehle se tha: **status badlo to Reason /
+Remark likhna padega**, aur wo remark naam aur time ke saath history me
+hamesha ke liye ruk jaata hai. IndiaMART is rule se chhoot gaya tha.
+
+**Wajah:** remark ka poora system (`gate()` / `askRemark()` / `PEND`) section 4
+ke script block me hai, aur IndiaMART ka `IM` object us block ke **baad** bana
+hai. Section 4 ne `window.IM` dekha hi nahi — jab wo chala, IM tha hi nahi.
+Isliye Meta wrapper laga aur IndiaMART chhoot gaya.
+
+**Ab (v38, section 39):**
+
+* Section 4 teen cheezein export karta hai — `window.ocGate`,
+  `window.ocTakePend`, `window.ocHasPend`.
+* Section 39 `IM.setStatus` ko usi `ocGate` se lapet deta hai.
+* Asli `IM.setStatus` history likhne se pehle `ocTakePend()` se remark utha
+  leta hai, isliye **history ek hi baar likhi jaati hai** — wrapper dobara
+  nahi likhta.
+
+| Kya kiya | Kya hota hai |
+|---|---|
+| Status badla | Wahi "Reason / Remark" modal khulta hai; likhe bina status badalta hi nahi |
+| 3 se kam akshar | `Please enter a reason of at least 3 characters.` — ruk jaata hai |
+| **Cancel** | Kuch nahi badla, history me kuch nahi gaya, dropdown wapas purane status par |
+| **Qualified** | USI modal me Customer Type + Purchase Quantity bhi aa jaate hain — alag popup **nahi** |
+| Bina naam wali lead | Pehle remark, phir lead apne aap uthane wale ki (v37), phir status |
+
+### Wrapper ka kram
+
+`IM.setStatus` par teen wrapper hain. Sabse bahar gate hona zaroori hai,
+warna Qualified par do popup dikh jayenge:
+
+```
+v38 remark gate  →  v37 claimBefore  →  v36 Qualified sawaal  →  asli IM.setStatus
+```
+
+v36 aur v37 apne hook `setTimeout(..., 0)` par lagate hain, isliye v38
+thoda baad me (`60ms`) lagta hai aur `600ms` / `2500ms` par dobara koshish
+karta hai — guard (`__ocRem`) ki wajah se lagta ek hi baar hai. Qualified par
+sawaal remark modal me hi bhar jaate hain, isliye jab v36 ka hook chalta hai
+tab uske paas jawab already hote hain aur wo chupchaap aage nikal jaata hai.
+
+### History — row ka ⏱ button
+
+IndiaMART row me ab wahi **⏱** button hai jo Meta Leads aur Qualified section
+me hai. `ocTrackHistory('indiamartLeads', id)` pehle se `indiamartLeads` ko
+samajhta tha, bas button nahi tha. Har entry me status ka badlaav, remark,
+kisne kiya, kab kiya, kitni der us stage me rahi aur target se late tha ya
+nahi — sab dikhta hai.
+
+## `→ Enq` button hata diya
+
+IndiaMART aur Meta Leads ki har row me ek `→ Enq` button tha jo lead ko
+Enquiry me convert kar deta tha. Wo **hata diya** gaya hai. Saath me Meta ka
+bulk toolbar wala `→ Enquiry` aur purane pipeline card ka button bhi gaya.
+
+`ML.convert()` / `ML.selConvert()` / `IM.convert()` functions **rakhe gaye
+hain** — koi purana raasta ya console se chalane wala kaam na toote. Sirf
+button hata hai.
 
 ## Fallback se aayi rows wapas sheet par nahi jaatin
 
