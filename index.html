@@ -8122,7 +8122,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.24.3';
+var OC_WEB_BUILD = '2026.09.24.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -16296,10 +16296,25 @@ function merge(coll, rows){
     return ow === me;                        /* wahi rule jo scope() lagata hai */
   };
 
-  var out = [], seenId = {}, added = 0, updated = 0, fromServer = [];
+  /* jo row abhi server par pahunchi hi nahi (push baaki hai) use nahi chhedte */
+  var pend = {};
+  try{
+    var pl = (typeof window.ocLeadPending === 'function') ? (window.ocLeadPending()[coll] || []) : [];
+    pl.forEach(function(id){ pend[T(id)] = 1; });
+  }catch(e){}
+  /* abhi-abhi bani row (2 minute ke andar) bhi nahi hatate -- ho sakta hai
+     uska push raaste me ho aur server ki list me abhi na aayi ho */
+  function tooFresh(r){
+    var t = Date.parse(stampOf(r) || '');
+    return isFinite(t) && (Date.now() - t) < 120000;
+  }
+  function ownLoc(r){ return LC(r && (r.owner || r.ownerEmail || r.createdBy)); }
+
+  var out = [], seenId = {}, srvSaw = {}, added = 0, updated = 0, removed = 0, fromServer = [];
   rows.forEach(function(srv){
     var id = T(srv.id);
-    if(!keepable(srv)) return;
+    srvSaw[id] = 1;                    /* server ne is row ke baare me bataya */
+    if(!keepable(srv)) return;         /* ab kisi aur ki hai -- niche hat jayegi */
     seenId[id] = 1;
     var loc = byId[id];
     if(!loc){ out.push(srv); added++; fromServer.push(srv); return; }
@@ -16313,17 +16328,36 @@ function merge(coll, rows){
      har boot par, bina kisi badlaav ke. (Jin rows par local copy nayi thi
      unhe jaan-boojh kar nahi batate: unka push hona hi chahiye.) */
   try{ if(window.ocLeadNoteServerRows) window.ocLeadNoteServerRows(coll, fromServer); }catch(e){}
-  /* jo local me hai par server ki list me nahi aaya -- use chhodte nahi
-     (ho sakta hai abhi push hone waala ho ya scope se bahar ho) */
+  /* LEAD AB HAMARI NAHI RAHI -- local copy bhi hatani padegi.
+     Do soorat:
+       (a) server ne row bheji par uspar KISI AUR ka naam hai, ya
+       (b) bina naam wali lead server ki list me hai hi NAHI -- matlab kisi
+           ne utha li (ya hata di gayi).
+     Pehle ye rows local me padi reh jaati thin, isliye jo lead kisi ne apne
+     naam kar li thi wo baaki sab ko pool me dikhti rehti thi -- aur do log
+     ek hi lead par kaam karte rehte. Ab hat jaati hai.
+
+     Nahi hataate jab: row push hone ka intezaar kar rahi ho, ya abhi-abhi
+     bani ho, ya hamare apne naam par ho aur hamari copy server se nayi ho
+     (yaani hamara claim abhi raaste me hai). */
+  var me2 = myMail();
   local.forEach(function(loc){
     var id = T(loc && loc.id);
-    if(id && !seenId[id]) out.push(loc);
+    if(!id || seenId[id]) return;
+    if(pend[id] || tooFresh(loc)){ out.push(loc); return; }
+    if(srvSaw[id]){
+      if(ownLoc(loc) && ownLoc(loc) === me2){ out.push(loc); return; }   /* apna claim, abhi push hona baaki */
+      removed++; return;                                                /* (a) */
+    }
+    if(!ownLoc(loc)){ removed++; return; }                              /* (b) */
+    out.push(loc);
   });
 
-  if(!added && !updated) return 0;
+  if(!added && !updated && !removed) return 0;
   try{ localStorage.setItem(coll, JSON.stringify(out)); }catch(e){ return 0; }
-  console.log('[oc v34] ' + coll + ': ' + added + ' nayi + ' + updated + ' updated row server se aayin');
-  return added + updated;
+  console.log('[oc v34] ' + coll + ': ' + added + ' nayi + ' + updated + ' updated'
+            + (removed ? ' + ' + removed + ' hatayi (ab kisi aur ki hain)' : '') + ' row server se aayin');
+  return added + updated + removed;
 }
 
 /* ---------------------------------------------------------------- 4. chalao */
