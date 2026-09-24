@@ -545,6 +545,20 @@ match karke lead usi ke naam par assign ho jaati hai.
   text note me chala jaata hai, kuch chhutta nahi.
   Column R `src_sig` me bhi hai, isliye sheet me status badalte hi lead "badli" mani jaati hai
   aur CRM me update ho jaati hai — warna wo purana status dikhati rehti.
+* **Column R sirf NAYI lead par** (`IMS_STATUS_SOURCE = 'new'`). Lead ek baar CRM me aa gayi,
+  uske baad uska status **sirf salesperson** badalta hai — sheet use kabhi peeche nahi
+  kheenchti. Baaki fields (quality, qualification, profession, discussion, final remark)
+  phir bhi har sync me update hote rehte hain, sirf **status** surakshit hai.
+
+  **Pehle kya hota tha:** salesperson CRM me `CONTACTED` ya `QUALIFIED` karta tha, aur agle
+  sync me sheet ka column R (jo aksar khaali hota hai) us lead ko wapas `CREATED` bana deta
+  tha — salesperson ki mehnat mit jaati thi. Sirf `WON`, `QUOTATION_SENT`, `PROPOSAL` aur
+  `SYSTEM_MASTER` bache rehte the.
+
+  Purana behaviour wapas chahiye to `IMS_STATUS_SOURCE = 'all'` kar dijiye — tab sheet ka
+  status CRM par chadhta hai aur `IMS_KEEP_CRM_STATUS` wali list hi uska bachav hai.
+  Jis lead ka CRM status kisi wajah se **khaali** hai, uspar dono mode me sheet chadhti hai —
+  warna wo lead bina status ke padi reh jaati.
 * Ek run me zyada se zyada `IMS_MAX_PER_RUN` (400) enquiry jaati hain, trigger har
   `IMS_MINUTES` (5) minute chalta hai — purana backlog thode-thode karke apne aap chadh jaata hai.
   Jaldi chahiye to **`backfillIndiaMartAll`** chala dijiye: ye 4.5 minute tak lagataar batch

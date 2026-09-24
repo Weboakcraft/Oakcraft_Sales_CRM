@@ -24,8 +24,21 @@ var IMS_NO_LEADS = ['Arun Mourya', 'Pinki Kumari'];
    "Indiamart_crm" tab me nahi aata -- wo "Indiamart" tab se, mobile + time
    milaa kar, le liya jaata hai. Sirf padha jaata hai, kuch likha nahi jaata. */
 var IMS_FULL_TAB = 'Indiamart';
-/* CRM me salesperson ne lead ko inme se kisi status tak pahuncha diya ho to
-   sheet ka status use peeche nahi kheenchta (baaki fields phir bhi update). */
+/* Sheet ka status (column R) CRM ke status ko kab tak chhoo sakta hai?
+
+     'new'  -- Sirf NAYI lead par. Lead ek baar CRM me aa gayi, uske baad uska
+               status sirf salesperson badalta hai; sheet use kabhi nahi
+               badalti. Baaki fields (quality, discussion, remark, profession)
+               phir bhi har sync me update hote rehte hain.
+     'all'  -- Lead CRM me aane ke baad bhi sheet ka status uspar chadh jaata
+               hai, sirf IMS_KEEP_CRM_STATUS wale status bache rehte hain.
+               (Ye purana behaviour tha.)
+
+   'new' isliye rakha hai ki salesperson CRM me CONTACTED / QUALIFIED kare aur
+   agle sync me wo mehnat mit na jaye. */
+var IMS_STATUS_SOURCE = 'new';
+/* Sirf 'all' mode me kaam ka: CRM me lead inme se kisi status tak pahunch gayi
+   ho to sheet ka status use peeche nahi kheenchta. */
 var IMS_KEEP_CRM_STATUS = ['WON','QUOTATION_SENT','PROPOSAL','SYSTEM_MASTER'];
 /* Sirf is waqt (source ka column A "Timestamp") ke BAAD wali leads CRM me jaati
    hain. Isse pehle ki rows ko script dekhti hi nahi. Format: DD/MM/YYYY HH:MM:SS */
@@ -389,7 +402,12 @@ function ims_applySrc_(l, r, now){
   fill('note', ims_note_(r));
   var want = ims_status_(r);
   var cur = ims_tr_(l.lead_status || l.status).toUpperCase();
-  if(cur !== want && IMS_KEEP_CRM_STATUS.indexOf(cur) < 0){
+  /* Status kab badle -- upar IMS_STATUS_SOURCE dekhiye. Jis lead ka status
+     kisi wajah se khaali hai uspar sheet hamesha chadh sakti hai, warna wo
+     lead bina status ke padi reh jaati. */
+  var mayOverwrite = !cur
+    || (IMS_STATUS_SOURCE !== 'new' && IMS_KEEP_CRM_STATUS.indexOf(cur) < 0);
+  if(cur !== want && mayOverwrite){
     l.lead_status = want; l.status = want; l.stage = ims_stage_(want);
     if(want === 'QUALIFIED' && !l.qualifiedAt) l.qualifiedAt = now;
     ch.push('lead_status');
