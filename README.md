@@ -369,6 +369,22 @@ Ye seedha server se poochh kar batata hai: kitni rows aayin, unme **bina naam
 ki kitni**, aapke naam ki kitni, doosro ki kitni — aur seedha faisla likh deta
 hai ki pool theek hai ya backend rok raha hai. Kuch likhta ya badalta nahi.
 
+Ginti se bhi pakda ja sakta hai: agar salesperson ka **Total = uske apne
+statuses ka jod** (jaise `63 = 2 New + 21 Qualified + 40 Not Qualified`) aur
+admin ko `Unassigned` me 98 dikh rahe hain, to unme se **ek bhi** us
+salesperson tak nahi pahunchi — yaani backend rok raha hai.
+
+### Backend rok raha ho to — `apps-script/OwnerFilterProbe.gs`
+
+Chhantai `Code.gs` me hoti hai, isliye patch bhi wahin lagega. Ye file
+(`probeOwnerFilter()`) har global function ka source padh kar wahi function
+dhoondh kar chhaap deti hai jisme `owner` ka zikr ho — yaani asli filter.
+
+Kuch likhti nahi. `password` / `token` / `secret` / `key` jaise naam wale
+function **jaan-boojh kar nahi chhapte** (sirf naam aata hai), aur code me jo
+lamba random text (signing key jaisa) mile wo `[HATAYA GAYA]` ho jaata hai.
+Phir bhi log bhejne se pehle ek nazar daal lena chahiye.
+
 ### Tag lagte hi doosre ke CRM se sach me hat jaati hai
 
 Ye sirf dikhne ka rule nahi — **doosre user ke device se lead hatni bhi
