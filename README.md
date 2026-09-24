@@ -261,6 +261,37 @@ alag-alag ho jaatin.
 Ye swap sirf dashboard render ke dauran hota hai (`finally` me wapas). Enquiries
 section, uska badge aur exports pehle jaise hi rehte hain.
 
+## "Not Qualified" ek poora status hai
+
+Sheet ka column R `Qualified` / `Not Qualified` likhta hai aur
+`IndiaMartAutoSync` usi ko `lead_status` bana deta hai (`NOT QUALIFIED`).
+Par app ki `STATUSES` list me wo naam tha hi nahi, isliye:
+
+* uska **KPI card banta hi nahi tha** (`STATUSES.filter(...)` me naam nahi),
+* row ke status dropdown me wo **option hi nahi** thi, to select galat
+  dikhta tha,
+* aur ginti mel nahi khaati thi — 287 total, par card sirf 120 New + 65
+  Qualified. **102 leads kahin gini hi nahi ja rahi thin.**
+
+Ab `NOT_QUALIFIED` poora status hai — `STATUSES`, `STATUS_LABEL`,
+`STATUS_ALIAS` (`NOT QUALIFIED` · `not qualified` · `Unqualified` ·
+`Disqualified` sab isi par aate hain) aur uska apna KPI card + filter.
+
+Do jagah khaas dhyan diya:
+
+* **Qualified section me nahi jaati.** `bucketOf()` exact naam milaata hai,
+  isliye `NOT_QUALIFIED` khaali lautaata hai — `QUALIFIED` ka substring hone
+  ke bawajood wo Qualified me nahi ginti.
+* **Dashboard funnel me `Lost` ginti hai, `New` nahi.** `IM_STAGE` me
+  `NOT_QUALIFIED → 'Lost'` hai; warna 100+ mari hui leads dashboard me "abhi
+  kaam baaki hai" dikhtin.
+* **SLA nahi chalta** — `CLOSED.indiamartLeads` me dono shakal (`NOT QUALIFIED`
+  space wali, jo sheet likhti hai, aur `NOT_QUALIFIED`) daali hain, kyunki
+  `trackRows()` raw `lead_status` padhta hai.
+
+Chip ka rang `c-neutral` rakha hai — `Lost` (laal) se alag dikhna chahiye,
+kyunki ye haari hui deal nahi, qualify hi nahi hui.
+
 ## Bina naam wali lead sabko, tag lagte hi sirf usi ko
 
 Rule seedha hai:

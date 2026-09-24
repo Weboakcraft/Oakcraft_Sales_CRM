@@ -8050,7 +8050,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.23.8';
+var OC_WEB_BUILD = '2026.09.24.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10420,6 +10420,9 @@ function imRaw(){
    PIPE_STAGES me hain. */
 var IM_STAGE = {
   CREATED: 'New', CONTACTED: 'Contacted', QUALIFIED: 'Qualified',
+  /* Not Qualified ek band ho chuki lead hai. Ise 'New' ginte to dashboard ke
+     funnel me 100+ mari hui leads "abhi kaam baaki hai" dikhtin. */
+  NOT_QUALIFIED: 'Lost',
   SYSTEM_MASTER: 'System Master', QUOTATION_SENT: 'Quoted',
   WON: 'Won', LOST: 'Lost'
 };
@@ -11176,7 +11179,9 @@ function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.i
 var CLOSED = {
   enquiries: { 'Won':1, 'Lost':1 },
   orders:    { 'Delivered':1, 'Cancelled':1 },
-  indiamartLeads: { 'WON':1, 'LOST':1 }
+  /* trackRows raw lead_status padhta hai, isliye dono shakal rakhi hain --
+     sheet 'NOT QUALIFIED' (space) likhti hai, CRM 'NOT_QUALIFIED'. */
+  indiamartLeads: { 'WON':1, 'LOST':1, 'NOT QUALIFIED':1, 'NOT_QUALIFIED':1 }
 };
 
 function scopeX(list, section){
@@ -13866,9 +13871,15 @@ function noPerm(action){ try{ if(typeof permToast === 'function') return permToa
 /* ---------------------------------------------------------------- 1. status vocabulary
    Ye list poore CRM me ek hi hai — Meta Leads, IndiaMART aur Qualified
    section teeno isi ko maante hain. */
-var STATUSES = ['CREATED','CONTACTED','QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
+/* Sheet ka column R "Qualified" ya "Not Qualified" likhta hai, aur
+   IndiaMartAutoSync usi ko lead_status bana deta hai. NOT_QUALIFIED yahan
+   list me nahi tha, isliye uska KPI card banta hi nahi tha aur row ke
+   dropdown me wo option hi nahi hoti thi -- 287 me se 102 leads kisi bhi
+   card me gini hi nahi ja rahi thin. Ab wo poora status hai. */
+var STATUSES = ['CREATED','CONTACTED','QUALIFIED','NOT_QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
 var STATUS_LABEL = {
   CREATED:'New', CONTACTED:'Contacted', QUALIFIED:'Qualified',
+  NOT_QUALIFIED:'Not Qualified',
   SYSTEM_MASTER:'System Master', QUOTATION_SENT:'Quotation Sent',
   WON:'Won', LOST:'Lost'
 };
@@ -13876,6 +13887,11 @@ var STATUS_ALIAS = {
   NEW:'CREATED', OPEN:'CREATED', FRESH:'CREATED', CREATED:'CREATED',
   FOLLOW_UP:'CONTACTED', FOLLOWUP:'CONTACTED', CALLED:'CONTACTED', CONTACTED:'CONTACTED',
   INTERESTED:'QUALIFIED', QUALIFIED:'QUALIFIED',
+  /* "Not Qualified" alag status hai -- "Lost" nahi. Isse pehle ye kahin
+     match hi nahi hota tha aur lead kisi card me nahi dikhti thi. */
+  NOT_QUALIFIED:'NOT_QUALIFIED', NOTQUALIFIED:'NOT_QUALIFIED',
+  NON_QUALIFIED:'NOT_QUALIFIED', NONQUALIFIED:'NOT_QUALIFIED',
+  UNQUALIFIED:'NOT_QUALIFIED', DISQUALIFIED:'NOT_QUALIFIED',
   SYSTEM_MASTER:'SYSTEM_MASTER', SYSTEMMASTER:'SYSTEM_MASTER', SYSTEM:'SYSTEM_MASTER',
   QUOTATION_SENT:'QUOTATION_SENT', QUOTATIONSENT:'QUOTATION_SENT', QUOTED:'QUOTATION_SENT',
   QUOTATION:'QUOTATION_SENT', PROPOSAL:'QUOTATION_SENT', QUOTE_SENT:'QUOTATION_SENT',
@@ -13892,6 +13908,7 @@ function statusLabel(v){ var c = statusOf(v); return STATUS_LABEL[c] || c.replac
 function statusChipClass(v){
   var c = statusOf(v);
   return c === 'WON' ? 'c-won' : c === 'LOST' ? 'c-lost'
+       : c === 'NOT_QUALIFIED' ? 'c-neutral'      /* Lost se alag dikhna chahiye */
        : c === 'QUALIFIED' ? 'c-ship' : c === 'QUOTATION_SENT' ? 'c-quo'
        : c === 'SYSTEM_MASTER' ? 'c-quo' : c === 'CONTACTED' ? 'c-prog' : 'c-new';
 }
