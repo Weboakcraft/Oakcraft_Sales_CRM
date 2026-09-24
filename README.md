@@ -367,11 +367,11 @@ aur `status_raw` sirf `IndiaMartAutoSync.gs` me hain, aur wo file sirf
 `indiamartLeads` par likhti hai. Meta ya kisi aur section par uska koi asar
 nahi.
 
-## IndiaMART ke KPI card hi sub-section hain
+## KPI card hi sub-section hain (IndiaMART aur Meta Leads)
 
 Upar ke card (Total leads · New · Contacted · Qualified · … · Unassigned) ab
 **click karne par filter** lagate hain — sirf usi card ka data table me rehta
-hai. Chuna hua card outline se dikhta hai; **usi card par dobara click karne se
+hai. **IndiaMART aur Meta Leads, dono me.** Chuna hua card outline se dikhta hai; **usi card par dobara click karne se
 filter hat jaata hai**, taaki user kabhi phanse nahi. "Total leads" hamesha sab
 wapas le aata hai.
 
@@ -380,9 +380,23 @@ list se nahi jispar filter lag chuka hai (`list`). Agar filtered list se ginte
 to card par click karte hi baaki saare card `0` ho jaate — aur `STATUSES.filter`
 unhe hata deta, yaani wapas jaane ka koi raasta hi na bachta.
 
-Card aur upar wala "All status" / owner dropdown ek hi state (`window.__imFilt`)
-par chalte hain, isliye dono hamesha ek doosre ke saath rehte hain. Har click
-par list upar se shuru hoti hai (`__imLim` reset).
+Card aur upar wala "All status" / owner dropdown ek hi state par chalte hain
+(`window.__imFilt` / `window.__mlFilt`), isliye dono hamesha ek doosre ke saath
+rehte hain. Har click par list upar se shuru hoti hai.
+
+**Meta Leads me do aur cheezein badlin:**
+
+* Card ab plain `<div>` nahi, wahi `.kpi` card hain jo IndiaMART me hain —
+  rang, border aur click sab ek jaisa (`ML.tab()`).
+* Label ab padhne layak hain — `CREATED` ki jagah **New**, `PROPOSAL` ki jagah
+  **Proposal**. Wahi list jo IndiaMART use karta hai
+  (`window.OC_LEAD_STATUS_LABEL`); jo naam usme na ho uska code khud
+  Title Case ho jaata hai.
+
+Meta me ginti nikaalne ka tareeka thoda alag hai: `visibleLeads()` ko
+status/owner filter hata kar chalate hain, isliye **date-range, platform aur
+search** to lagte hain (ginti wahi dikhti hai jo "Showing: …" keh raha hai) par
+card wala filter nahi — warna ek card dabate hi baaki sab `0` ho jaate.
 
 ## IndiaMART — sheet se apne aap leads (auto sync)
 
