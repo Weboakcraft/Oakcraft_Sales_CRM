@@ -344,6 +344,31 @@ leads Ankush Goswami ke naam kar chuki thi. Admin ko kisi ko dena ho to
 dropdown hai hi. Kaun utha sakta hai, wahi list hai jo assign wale dropdown me
 dikhti hai (`ocLeadRoster`).
 
+### Kaun lead utha sakta hai
+
+Wahi log jo assign wale dropdown me dikhte hain (`ocLeadRoster()`): **Active**
+user jinka role lead uthata ho aur naam `OC_NO_LEADS` me na ho.
+
+Role ki list `ocIsSalesRole()` me hai aur usme **`User` bhi shaamil hai** —
+`user · sales executive · sales exec · salesexecutive · sales`. Isliye jis
+salesperson ka role CRM me `User` likha hai (jaise Mayank) wo bhi pool
+dekhta hai, "+ Mera" daba sakta hai aur assign wale dropdown me aata hai.
+Administrator aur Sales Manager nahi aate.
+
+### Pool khaali dikhe to — `ocPoolCheck()`
+
+App ka rule sahi hone ke bawajood pool khaali dikh sakta hai, agar **backend
+(Code.gs) bina naam wali rows non-admin ko bhejta hi na ho**. Ye app se nahi
+pata chalta, isliye console me:
+
+```js
+ocPoolCheck()        // salesperson ke login se chalaiye
+```
+
+Ye seedha server se poochh kar batata hai: kitni rows aayin, unme **bina naam
+ki kitni**, aapke naam ki kitni, doosro ki kitni — aur seedha faisla likh deta
+hai ki pool theek hai ya backend rok raha hai. Kuch likhta ya badalta nahi.
+
 ### Tag lagte hi doosre ke CRM se sach me hat jaati hai
 
 Ye sirf dikhne ka rule nahi — **doosre user ke device se lead hatni bhi

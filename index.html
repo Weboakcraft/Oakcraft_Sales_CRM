@@ -8122,7 +8122,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.24.4';
+var OC_WEB_BUILD = '2026.09.24.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -16386,6 +16386,63 @@ function pull(coll, force){
   }, function(){ busy[coll] = 0; return 0; });
 }
 window.ocPullCollection = function(coll){ return pull(coll || WATCH[0], true); };
+
+/* ---------------------------------------------------------------- 5. pool check
+   Console me `ocPoolCheck()` chalaiye (salesperson ke login se). Ye seedha
+   server se poochh kar batata hai ki BINA NAAM WALI leads aap tak pahunch bhi
+   rahi hain ya nahi -- kyunki agar backend unhe bhejta hi nahi, to app kitna
+   bhi sahi ho, pool khaali hi dikhega. Kuch likhta ya badalta nahi. */
+window.ocPoolCheck = function(coll){
+  coll = coll || 'indiamartLeads';
+  var me = myMail(), adm = isAdm();
+  return askServer(coll).then(function(rows){
+    var L = [];
+    L.push('===== POOL CHECK — ' + coll + ' =====');
+    L.push('aap        : ' + (me || '(pata nahi)') + (adm ? '  (Administrator — aapko sab dikhta hai)' : ''));
+    if(!rows){
+      L.push('Server se jawab NAHI aaya. ocCollFetchInfo() se wajah dekhiye.');
+      console.log(L.join('\n')); return null;
+    }
+    var mine = 0, none = 0, other = 0;
+    rows.forEach(function(r){
+      var ow = LC(r.owner || r.ownerEmail || r.createdBy);
+      if(!ow) none++; else if(ow === me) mine++; else other++;
+    });
+    L.push('server ne bheji : ' + rows.length + ' row');
+    L.push('   bina naam ki : ' + none);
+    L.push('   aapke naam ki: ' + mine);
+    L.push('   doosro ki    : ' + other);
+
+    var loc = arrOf(coll), lnone = 0;
+    loc.forEach(function(r){ if(!LC(r.owner || r.ownerEmail || r.createdBy)) lnone++; });
+    L.push('is device par   : ' + loc.length + ' row (' + lnone + ' bina naam ki)');
+
+    var shown = 0;
+    try{ shown = (window.scope ? (window.scope(loc, coll) || []) : loc).length; }catch(e){}
+    L.push('CRM me dikh rahi: ' + shown);
+
+    L.push('');
+    if(adm){
+      L.push('FAISLA: aap admin hain, isse pool ka pata nahi chalta.');
+      L.push('        Kisi salesperson ke login se ye dobara chalaiye.');
+    } else if(none > 0){
+      L.push('FAISLA: backend bina naam wali leads bhej raha hai — POOL THEEK HAI.');
+      L.push('        Agar phir bhi na dikhein to Reload & Update dabaiye.');
+    } else if(rows.length === mine && mine > 0){
+      L.push('FAISLA: backend sirf AAPKE naam wali leads bhej raha hai.');
+      L.push('        Bina naam wali ek bhi nahi aayi — isliye pool khaali hai.');
+      L.push('        Ye Code.gs ka rule hai, app ka nahi. Ye log bhej dijiye,');
+      L.push('        Code.gs ka patch bana dunga.');
+    } else {
+      L.push('FAISLA: is waqt koi bina naam wali lead hai hi nahi (sab kisi na kisi ke naam par hain).');
+      L.push('        Admin ke login se "Unassigned" card dekhiye — agar wahan ginti 0 se zyada hai');
+      L.push('        par yahan 0 aaya, to backend unhe bhej nahi raha. Ye log bhej dijiye.');
+    }
+    L.push('=====');
+    console.log(L.join('\n'));
+    return { server: rows.length, unowned: none, mine: mine, other: other, local: loc.length, shown: shown };
+  });
+};
 
 /* har pull ke baad: jo collection getAll me nahi aayi, use khud maang lo */
 try{
