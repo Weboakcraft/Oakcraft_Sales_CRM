@@ -344,6 +344,29 @@ leads Ankush Goswami ke naam kar chuki thi. Admin ko kisi ko dena ho to
 dropdown hai hi. Kaun utha sakta hai, wahi list hai jo assign wale dropdown me
 dikhti hai (`ocLeadRoster`).
 
+### Tag lagte hi doosre ke CRM se sach me hat jaati hai
+
+Ye sirf dikhne ka rule nahi — **doosre user ke device se lead hatni bhi
+chahiye**, warna uske local cache me padi purani (bina naam wali) copy pool
+me dikhti rehti hai aur **do log ek hi lead par kaam karte rehte hain**.
+
+v34 ka merge pehle aisa hi kar raha tha: jis row ko privacy ki wajah se
+chhoda jaata tha, wo `seenId` me darj hi nahi hoti thi, aur neeche wala
+"local me hai par server ne nahi bheji" wala loop use **wapas jod deta tha**.
+
+Ab local copy in dono soorat me hat jaati hai:
+
+* **(a)** server ne row bheji par uspar **kisi aur ka naam** hai
+* **(b)** **bina naam wali** lead server ki list me hai hi **nahi** — matlab
+  kisi ne utha li (ya hata di gayi)
+
+Isliye ye tab bhi kaam karta hai jab backend doosre logo ki leads bhejta hi
+nahi — usse (b) wali soorat ban jaati hai.
+
+**Nahi hataate** jab: row ka push baaki ho (`ocLeadPending()`), row abhi-abhi
+bani ho (2 minute ki chhoot — push raaste me ho sakta hai), ya row **hamare
+apne naam** par ho (hamara claim abhi push hona baaki hai).
+
 ### Ye sirf LEAD wale sections par hai
 
 `window.scope()` non-admin ke liye sirf apne owner wale record rakhta hai
