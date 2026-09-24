@@ -6482,15 +6482,46 @@ console.log('[oc v7] row-safe save active');
     var rows   = list.slice(0, lim);
     var selIds = Object.keys(window.__mlSel).filter(function(id){ return window.__mlSel[id]; });
 
-    /* ---- KPI ---- */
+    /* ---- KPI -- har card ek sub-section hai (IndiaMART jaisa) ----
+       Ginti HAMESHA card wale filter ke BINA hoti hai. `list` par status/owner
+       ka filter lag chuka hai; usse ginte to ek card dabate hi baaki sab 0 ho
+       jaate aur screen se gayab -- wapas jaane ka raasta hi na bachta.
+       Date-range, platform aur search phir bhi lagte hain, isliye ginti wahi
+       dikhti hai jo "Showing: ..." keh raha hai. */
+    var base;
+    (function(){
+      var f = window.__mlFilt, keep = { platform:f.platform, status:f.status, owner:f.owner };
+      window.__mlFilt = { platform:keep.platform, status:'', owner:'' };
+      try{ base = visibleLeads(); } finally { window.__mlFilt = keep; }
+    })();
+
     var byStatus = {};
-    list.forEach(function(l){ var s = statusCode(l.lead_status) || 'CREATED'; byStatus[s] = (byStatus[s] || 0) + 1; });
-    var unassigned = list.filter(function(l){ return !l.assigned_to && !l.owner; }).length;
-    var kpi = '<div class="mls-kpi"><div>Total<b>' + list.length + '</b></div>'
+    base.forEach(function(l){ var s = statusCode(l.lead_status) || 'CREATED'; byStatus[s] = (byStatus[s] || 0) + 1; });
+    var unassigned = base.filter(function(l){ return !l.assigned_to && !l.owner; }).length;
+
+    /* CREATED -> "New" jaisa padhne layak naam (IndiaMART wali hi list) */
+    function kpiLabel(code){
+      try{ if(window.OC_LEAD_STATUS_LABEL && window.OC_LEAD_STATUS_LABEL[code]) return window.OC_LEAD_STATUS_LABEL[code]; }catch(e){}
+      return String(code).replace(/_/g, ' ').toLowerCase().replace(/(^|\s)\w/g, function(m){ return m.toUpperCase(); });
+    }
+    var fs = window.__mlFilt.status, fo = window.__mlFilt.owner;
+    function kpiCard(on, count, label, call, title, tone){
+      var ink = tone ? ocToneInk(tone) : '';
+      return '<div class="kpi" onclick="' + call + '" title="' + esc(title) + '" '
+           + 'style="cursor:pointer'
+           + (ink ? ';border-left:4px solid ' + ink : '')
+           + (on ? ';outline:2px solid var(--brand)' : '') + '">'
+           + '<div class="val tabular"' + (ink ? ' style="color:' + ink + '"' : '') + '>' + count + '</div>'
+           + '<div class="lbl">' + esc(label) + '</div></div>';
+    }
+    var kpi = '<div class="kpi-grid" style="margin-bottom:16px">'
+      + kpiCard(!fs && !fo, base.length, 'Total leads', "ML.tab('')", 'Saari leads dikhao')
       + statusOptions().filter(function(s){ return byStatus[s]; }).map(function(s){
-          return '<div>' + esc(s) + '<b>' + byStatus[s] + '</b></div>';
+          return kpiCard(fs === s && !fo, byStatus[s], kpiLabel(s),
+                         "ML.tab('" + esc(s) + "')", 'Sirf ' + kpiLabel(s) + ' waali leads', s);
         }).join('')
-      + (admin ? '<div>Unassigned<b>' + unassigned + '</b></div>' : '')
+      + (admin ? kpiCard(fo === '__none__', unassigned, 'Unassigned', "ML.tab('__none__')",
+                         'Jin par kisi ka naam nahi', 'UNASSIGNED') : '')
       + '</div>';
 
     /* ---- toolbar ---- */
@@ -6695,6 +6726,18 @@ console.log('[oc v7] row-safe save active');
     l.updatedAt   = new Date().toISOString();
     mlSave(arr);
     toast('Ye lead ab aapki hai');
+    renderMetaLeads();
+  };
+
+  /* KPI card = sub-section. '' matlab sab, '__none__' matlab unassigned,
+     baaki koi bhi status code. Usi card par dobara click = filter hat gaya,
+     taaki user kabhi phanse nahi. Har baar list upar se shuru hoti hai. */
+  ML.tab = function(k){
+    var f = window.__mlFilt;
+    if(k === ''){ f.status = ''; f.owner = ''; }
+    else if(k === '__none__'){ f.status = ''; f.owner = (f.owner === '__none__') ? '' : '__none__'; }
+    else { f.owner = ''; f.status = (f.status === k) ? '' : k; }
+    window.__mlLim = 100;
     renderMetaLeads();
   };
 
@@ -8079,7 +8122,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.24.2';
+var OC_WEB_BUILD = '2026.09.24.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
