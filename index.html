@@ -773,7 +773,49 @@ function baseOpts({legend=false,horizontal=false,yFmt=v=>v}={}){
 
 /* ---------- shared cell renderers ---------- */
 function userCell(name){ return `<div class="cell-user"><div class="avatar-sm" style="background:${avColor(name)}">${initials(name)}</div><div><div class="strong">${name}</div></div></div>`; }
-function stageChip(s){const m={New:'c-new',Contacted:'c-prog',Qualified:'c-quo',Quoted:'c-quo',Won:'c-won',Lost:'c-lost'};return `<span class="chip ${m[s]||'c-neutral'}">${s}</span>`;}
+/* ====================================================================== *
+ *  STATUS KA RANG -- EK HI JAGAH                                         *
+ *  Traffic light: green = kaam ban gaya, red = band ho gaya,             *
+ *  yellow = chal raha hai / dhyan chahiye.                               *
+ *                                                                        *
+ *    Qualified · Won                 -> GREEN                            *
+ *    Not Qualified · Lost            -> RED                              *
+ *    Quotation Sent · Unassigned     -> YELLOW                           *
+ *    Contacted                       -> yellow (pehle se aisa hi tha)    *
+ *    System Master                   -> purple, New -> blue              *
+ *                                                                        *
+ *  IndiaMART, Enquiries, Meta Leads aur Qualified -- chaaron isi function *
+ *  se rang lete hain, isliye kabhi alag-alag nahi ho sakte. Naya status   *
+ *  aaye to bas yahan ek line jodiye.                                     *
+ * ====================================================================== */
+var OC_TONE_CLASS = { good:'c-won', bad:'c-lost', warn:'c-prog', info:'c-new', purple:'c-quo', none:'c-neutral' };
+var OC_TONE_INK   = { good:'var(--good-ink)', bad:'var(--crit)', warn:'#b06a00', info:'var(--brand)', purple:'#7a2fa8', none:'var(--text-2)' };
+function ocToneOf(v){
+  var c = String(v == null ? '' : v).trim().toUpperCase().replace(/[\s\-\/]+/g, '_').replace(/_+/g, '_');
+  if(!c) return 'none';
+  switch(c){
+    case 'QUALIFIED': case 'INTERESTED':
+    case 'WON': case 'CONVERTED': case 'CLOSED_WON': case 'DELIVERED':
+      return 'good';
+    case 'NOT_QUALIFIED': case 'NOTQUALIFIED': case 'NON_QUALIFIED': case 'NONQUALIFIED':
+    case 'UNQUALIFIED': case 'DISQUALIFIED':
+    case 'LOST': case 'REJECTED': case 'NOT_INTERESTED': case 'CLOSED_LOST': case 'CLOSED': case 'CANCELLED':
+      return 'bad';
+    case 'QUOTATION_SENT': case 'QUOTATIONSENT': case 'QUOTED': case 'QUOTATION':
+    case 'PROPOSAL': case 'QUOTE_SENT': case 'UNASSIGNED':
+    case 'CONTACTED': case 'FOLLOW_UP': case 'FOLLOWUP': case 'CALLED': case 'IN_PRODUCTION':
+      return 'warn';
+    case 'SYSTEM_MASTER': case 'SYSTEMMASTER': case 'SYSTEM':
+      return 'purple';
+    default:
+      return 'info';
+  }
+}
+window.ocToneOf    = ocToneOf;
+window.ocToneClass = function(v){ return OC_TONE_CLASS[ocToneOf(v)] || 'c-new'; };
+window.ocToneInk   = function(v){ return OC_TONE_INK[ocToneOf(v)]   || 'var(--brand)'; };
+
+function stageChip(s){return `<span class="chip ${ocToneClass(s)}">${s}</span>`;}
 function orderChip(s){const m={Confirmed:'c-new','In Production':'c-prog',Ready:'c-quo',Dispatched:'c-ship',Delivered:'c-won',Cancelled:'c-lost'};return `<span class="chip ${m[s]||'c-neutral'}">${s}</span>`;}
 function quoChip(s){const m={Draft:'c-neutral',Sent:'c-new',Accepted:'c-won',Rejected:'c-lost'};return `<span class="chip ${m[s]||'c-neutral'}">${s}</span>`;}
 function disChip(s){const m={Pending:'c-neutral',Packed:'c-prog',Shipped:'c-new','Out for Delivery':'c-ship',Delivered:'c-won'};return `<span class="chip ${m[s]||'c-neutral'}">${s}</span>`;}
@@ -6229,26 +6271,13 @@ console.log('[oc v7] row-safe save active');
     _memo.so = out;
     return out;
   }
-  function statusClass(s){
-    s = statusCode(s);
-    if(s === 'WON' || s === 'CONVERTED') return 'c-won';
-    if(s === 'LOST' || s === 'REJECTED' || s === 'NOT_INTERESTED') return 'c-lost';
-    if(s === 'QUALIFIED' || s === 'INTERESTED') return 'c-ship';
-    if(s === 'PROPOSAL' || s === 'QUOTED') return 'c-quo';
-    if(s === 'CONTACTED' || s === 'FOLLOW_UP') return 'c-prog';
-    return 'c-new';
-  }
+  function statusClass(s){ return ocToneClass(statusCode(s)); }
   /* inline <select> ke liye — chip class ka background yahan kaam nahi karta,
      isliye seedha colour lagate hain (inline style sabse upar jeetta hai). */
-  function statusColor(s){
-    s = statusCode(s);
-    if(s === 'WON' || s === 'CONVERTED') return 'var(--good-ink)';
-    if(s === 'LOST' || s === 'REJECTED' || s === 'NOT_INTERESTED') return 'var(--crit)';
-    if(s === 'QUALIFIED' || s === 'INTERESTED') return '#0b7a92';
-    if(s === 'PROPOSAL' || s === 'QUOTED') return '#7a2fa8';
-    if(s === 'CONTACTED' || s === 'FOLLOW_UP') return '#b06a00';
-    return 'var(--brand)';
-  }
+  /* rang ka faisla ek hi jagah (ocToneInk/ocToneClass) -- dekhiye stageChip
+     ke upar wala block. Isse Meta, IndiaMART, Enquiries aur Qualified me
+     ek jaisa status hamesha ek hi rang ka dikhta hai. */
+  function statusColor(s){ return ocToneInk(statusCode(s)); }
 
   /* ---- created_time_ist : DD-MM-YYYY HH:MM:SS ---- */
   function fmtIST(d){
@@ -8050,7 +8079,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.24.1';
+var OC_WEB_BUILD = '2026.09.24.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -13907,10 +13936,7 @@ function statusOf(v){
 function statusLabel(v){ var c = statusOf(v); return STATUS_LABEL[c] || c.replace(/_/g, ' '); }
 function statusChipClass(v){
   var c = statusOf(v);
-  return c === 'WON' ? 'c-won' : c === 'LOST' ? 'c-lost'
-       : c === 'NOT_QUALIFIED' ? 'c-neutral'      /* Lost se alag dikhna chahiye */
-       : c === 'QUALIFIED' ? 'c-ship' : c === 'QUOTATION_SENT' ? 'c-quo'
-       : c === 'SYSTEM_MASTER' ? 'c-quo' : c === 'CONTACTED' ? 'c-prog' : 'c-new';
+  return (typeof ocToneClass === 'function') ? ocToneClass(c) : 'c-new';
 }
 window.OC_LEAD_STATUSES     = STATUSES.slice();
 window.OC_LEAD_STATUS_LABEL = STATUS_LABEL;
@@ -14197,10 +14223,15 @@ window.renderIndiamart = function(){
   var fs = window.__imFilt.status, fo = window.__imFilt.owner;
   var onAll  = !fs && !fo;
   var onNone = (fo === '__none__');
-  function card(on, count, label, call, title){
+  /* box ka rang bhi status ke hisaab se -- green/red/yellow ek nazar me.
+     `tone` na ho to card apne default rang me rehta hai (Total leads). */
+  function card(on, count, label, call, title, tone){
+    var ink = tone ? ocToneInk(tone) : '';
     return '<div class="kpi" onclick="' + call + '" title="' + A(title) + '" '
-         + 'style="cursor:pointer' + (on ? ';outline:2px solid var(--brand)' : '') + '">'
-         + '<div class="val tabular">' + count + '</div>'
+         + 'style="cursor:pointer'
+         + (ink ? ';border-left:4px solid ' + ink : '')
+         + (on ? ';outline:2px solid var(--brand)' : '') + '">'
+         + '<div class="val tabular"' + (ink ? ' style="color:' + ink + '"' : '') + '>' + count + '</div>'
          + '<div class="lbl">' + E(label) + '</div></div>';
   }
 
@@ -14208,10 +14239,10 @@ window.renderIndiamart = function(){
     + card(onAll, all.length, 'Total leads', "IM.tab('')", 'Saari leads dikhao')
     + STATUSES.filter(function(s){ return byStatus[s]; }).map(function(s){
         return card(fs === s && !fo, byStatus[s], STATUS_LABEL[s],
-                    "IM.tab('" + A(s) + "')", 'Sirf ' + STATUS_LABEL[s] + ' waali leads');
+                    "IM.tab('" + A(s) + "')", 'Sirf ' + STATUS_LABEL[s] + ' waali leads', s);
       }).join('')
     + (admin ? card(onNone, unassigned, 'Unassigned', "IM.tab('__none__')",
-                    'Jin par kisi ka naam nahi') : '')
+                    'Jin par kisi ka naam nahi', 'UNASSIGNED') : '')
     + '</div>';
 
   var statOpts = '<option value="">All status</option>' + STATUSES.map(function(s){
@@ -14232,7 +14263,8 @@ window.renderIndiamart = function(){
     var edit = mayTouch(l) && allow('edit');
     var st   = statusOf(l.lead_status);
     var statusCell = edit
-      ? '<select class="field" style="padding:4px 8px;font-size:12px" onchange="IM.setStatus(\'' + A(l.id) + '\',this.value)">'
+      ? '<select class="field" style="padding:4px 8px;font-size:12px;font-weight:600;color:'
+          + ocToneInk(st) + '" onchange="IM.setStatus(\'' + A(l.id) + '\',this.value)">'
           + STATUSES.map(function(s){ return '<option value="' + A(s) + '"' + (s === st ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>'; }).join('')
         + '</select>'
       : '<span class="chip ' + statusChipClass(st) + '">' + E(STATUS_LABEL[st] || st) + '</span>';
@@ -14973,12 +15005,13 @@ function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
 function nowISO(){ return new Date().toISOString(); }
 
 /* ---------------------------------------------------------------- 1. buckets */
+/* chip class ocToneClass() se aati hai -- rang ka ek hi source */
 var BUCKETS = [
-  { key:'QUALIFIED',      label:'Qualified',       chip:'c-ship' },
-  { key:'SYSTEM_MASTER',  label:'System Master',   chip:'c-prog' },
-  { key:'QUOTATION_SENT', label:'Quotation Sent',  chip:'c-quo'  },
-  { key:'WON',            label:'Won',             chip:'c-won'  },
-  { key:'LOST',           label:'Lost',            chip:'c-lost' }
+  { key:'QUALIFIED',      label:'Qualified',       chip:ocToneClass('QUALIFIED')      },
+  { key:'SYSTEM_MASTER',  label:'System Master',   chip:ocToneClass('SYSTEM_MASTER')  },
+  { key:'QUOTATION_SENT', label:'Quotation Sent',  chip:ocToneClass('QUOTATION_SENT') },
+  { key:'WON',            label:'Won',             chip:ocToneClass('WON')            },
+  { key:'LOST',           label:'Lost',            chip:ocToneClass('LOST')           }
 ];
 var SUBSECTIONS = ['SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];   /* 4 subsections */
 /* Ye do status khud hi bata dete hain ki lead qualified ho chuki hai --
@@ -15166,15 +15199,18 @@ window.renderQualified = function(){
   /* 4 subsections — seedhe status se bante hain */
   var cards = '<div class="kpi-grid" style="margin-bottom:16px">'
     + SUBSECTIONS.map(function(k){
-        var on = window.__qlTab === k;
+        var on = window.__qlTab === k, ink = ocToneInk(k);
         return '<div class="kpi" onclick="QL.tab(\'' + k + '\')" title="' + A(bucketLabel(k)) + ' subsection" '
-             + 'style="cursor:pointer' + (on ? ';outline:2px solid var(--brand)' : '') + '">'
-             + '<div class="val tabular">' + (count[k] || 0) + '</div>'
+             + 'style="cursor:pointer;border-left:4px solid ' + ink
+             + (on ? ';outline:2px solid var(--brand)' : '') + '">'
+             + '<div class="val tabular" style="color:' + ink + '">' + (count[k] || 0) + '</div>'
              + '<div class="lbl">' + E(bucketLabel(k)) + '</div></div>';
       }).join('')
     + '<div class="kpi" onclick="QL.tab(\'QUALIFIED\')" title="Qualified — abhi aage nahi badhi" '
-    +   'style="cursor:pointer' + (window.__qlTab === 'QUALIFIED' ? ';outline:2px solid var(--brand)' : '') + '">'
-    +   '<div class="val tabular">' + (count.QUALIFIED || 0) + '</div><div class="lbl">Qualified (pending)</div></div>'
+    +   'style="cursor:pointer;border-left:4px solid ' + ocToneInk('QUALIFIED')
+    +   (window.__qlTab === 'QUALIFIED' ? ';outline:2px solid var(--brand)' : '') + '">'
+    +   '<div class="val tabular" style="color:' + ocToneInk('QUALIFIED') + '">' + (count.QUALIFIED || 0)
+    +   '</div><div class="lbl">Qualified (pending)</div></div>'
     + '</div>';
 
   var tabs = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">'
@@ -15195,7 +15231,8 @@ window.renderQualified = function(){
       if(typeof can === 'function' && !can(sec, 'edit')) canEdit = false;
     }catch(e){}
     var sel = canEdit
-      ? '<select class="field" style="padding:4px 8px;font-size:12px" onchange="QL.setStatus(\'' + A(r.src) + '\',\'' + A(r.id) + '\',this.value)">'
+      ? '<select class="field" style="padding:4px 8px;font-size:12px;font-weight:600;color:'
+        + ocToneInk(r.bucket) + '" onchange="QL.setStatus(\'' + A(r.src) + '\',\'' + A(r.id) + '\',this.value)">'
         + BUCKETS.map(function(b){
             return '<option value="' + A(b.key) + '"' + (b.key === r.bucket ? ' selected' : '') + '>' + E(b.label) + '</option>';
           }).join('')
