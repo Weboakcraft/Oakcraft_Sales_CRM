@@ -6598,8 +6598,10 @@ console.log('[oc v7] row-safe save active');
             + (l.assigned_to && !emailOfName(l.assigned_to) ? '<option value="" selected>' + esc(l.assigned_to) + ' (not in team)</option>' : '')
           + '</select>'
         : (mlMineToTake(l)
-            ? '<button class="btn sm primary" style="padding:3px 10px;font-size:11.5px" '
-              + 'onclick="ML.claim(\'' + l.id + '\')" title="Ye lead apne naam kar lijiye">+ Mera</button>'
+            ? '<select class="inl" title="Ye lead apne naam kar lijiye" onchange="ML.setAssign(\'' + l.id + '\',this.value)">'
+                + '<option value="">— Unassigned —</option>'
+                + '<option value="' + esc(mlMyMail()) + '">' + esc(nameOf(mlMyMail()) || mlMyMail()) + '</option>'
+              + '</select>'
             : esc(l.assigned_to || nameOf(l.owner) || '—'));
 
       return '<tr class="' + (sel ? 'sel' : '') + '">'
@@ -6700,34 +6702,19 @@ console.log('[oc v7] row-safe save active');
   };
   /* Kya ye lead current user utha sakta hai?
      Sirf tab jab lead par kisi ka naam na ho aur user khud leads uthata ho
-     (leadRoster). Admin ko button nahi dikhta -- uske paas dropdown hai. */
+     (leadRoster). Sales person ke dropdown me sirf uska apna naam hota hai;
+     admin ke paas poora dropdown pehle se hai. */
+  function mlMyMail(){
+    try{ return _lc((AUTH.current() || {}).email); }catch(e){ return ''; }
+  }
   function mlMineToTake(l){
     if(!l || l.owner || l.assigned_to) return false;
     if(meIsAdmin()) return false;
-    var me = '';
-    try{ me = _lc((AUTH.current() || {}).email); }catch(e){}
+    var me = mlMyMail();
     if(!me) return false;
     try{ return leadRoster().some(function(u){ return _lc(u.email) === me; }); }
     catch(e){ return false; }
   }
-
-  /* "+ Mera" -- bina naam wali lead apne naam kar lena. Uske baad wo lead
-     baaki team ki list se hat jaati hai, isliye do log ek hi lead par kaam
-     nahi karte. Jo lead pehle se kisi ki hai use yahan se nahi chheda ja
-     sakta. */
-  ML.claim = function(id){
-    var arr = mlAll(), l = findLead(arr, id);
-    if(!l) return;
-    if(!mlMineToTake(l)){ toast('Ye lead pehle se kisi ke naam hai.'); return; }
-    var me = '';
-    try{ me = _lc((AUTH.current() || {}).email); }catch(e){}
-    l.owner       = me;
-    l.assigned_to = nameOf(me) || me;
-    l.updatedAt   = new Date().toISOString();
-    mlSave(arr);
-    toast('Ye lead ab aapki hai');
-    renderMetaLeads();
-  };
 
   /* KPI card = sub-section. '' matlab sab, '__none__' matlab unassigned,
      baaki koi bhi status code. Usi card par dobara click = filter hat gaya,
@@ -6742,9 +6729,15 @@ console.log('[oc v7] row-safe save active');
   };
 
   ML.setAssign = function(id, email){
-    if(!meIsAdmin()) return;
     var arr = mlAll(), l = findLead(arr, id);
     if(!l) return;
+    /* Admin kisi ko bhi de sakta hai. Sales person ke dropdown me sirf uska
+       apna naam hota hai, aur wo sirf bina naam wali lead par lag sakta hai. */
+    if(!meIsAdmin()){
+      if(!mlMineToTake(l)) return;
+      if(!email){ renderMetaLeads(); return; }        /* "— Unassigned —" = kuch nahi badla */
+      if(_lc(email) !== mlMyMail()){ toast('Aap sirf apna naam laga sakte hain.'); renderMetaLeads(); return; }
+    }
     l.owner       = _lc(email);
     l.assigned_to = email ? nameOf(email) : '';
     l.updatedAt   = new Date().toISOString();
@@ -8122,7 +8115,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.24.5';
+var OC_WEB_BUILD = '2026.09.24.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -14320,8 +14313,10 @@ window.renderIndiamart = function(){
             }).join('')
         + '</select>'
       : (mineToTake(l)
-          ? '<button class="btn sm primary" style="padding:3px 10px;font-size:11.5px" '
-            + 'onclick="IM.claim(\'' + A(l.id) + '\')" title="Ye lead apne naam kar lijiye">+ Mera</button>'
+          ? '<select class="field" style="padding:4px 8px;font-size:12px" title="Ye lead apne naam kar lijiye" onchange="IM.setAssign(\'' + A(l.id) + '\',this.value)">'
+              + '<option value="">— Unassigned —</option>'
+              + '<option value="' + A(meEmail()) + '">' + E(nameOf(meEmail()) || meEmail()) + '</option>'
+            + '</select>'
           : E(l.assigned_to || nameOf(l.owner) || '—'));
 
     return '<tr>'
@@ -14440,8 +14435,8 @@ IM.setStatus = function(id, val){
 
 /* Kya ye lead current user utha sakta hai?
    Sirf tab jab lead par kisi ka naam na ho, user khud leads uthata ho
-   (leadRoster) aur usko edit ka haq ho. Admin ko button nahi dikhta --
-   uske paas poora dropdown pehle se hai. */
+   (leadRoster) aur usko edit ka haq ho. Sales person ke dropdown me sirf
+   uska apna naam hota hai; admin ke paas poora dropdown pehle se hai. */
 function mineToTake(l){
   if(!l || l.owner || l.assigned_to) return false;
   if(isAdm()) return false;
@@ -14452,35 +14447,19 @@ function mineToTake(l){
   catch(e){ return false; }
 }
 
-/* "+ Mera" -- bina naam wali lead apne naam kar lena.
-   Jaise hi lead kisi ke naam ho jaati hai, wo baaki team ki list se hat
-   jaati hai (scope ka rule), isliye do log ek hi lead par kaam nahi karte.
-   Jo lead pehle se kisi ki hai use yahan se nahi chheda ja sakta. */
-IM.claim = function(id){
-  if(!allow('edit')) return noPerm('edit');
-  var arr = imAll(), l = find(arr, id);
-  if(!l) return;
-  if(!mineToTake(l)){ tell('Ye lead pehle se kisi ke naam hai.'); return; }
-  var me = meEmail();
-  l.owner       = LC(me);
-  l.assigned_to = nameOf(me) || me;
-  l.updatedAt   = new Date().toISOString();
-  imSave(arr);
-  try{
-    if(typeof ocLogChange === 'function'){
-      ocLogChange({ coll:KEY, recId:id, recName:(l.sender_name || l.sender_mobile), field:'assigned',
-                    from:'', to:l.assigned_to, remark:'Lead khud uthayi', owner:l.owner,
-                    sp:l.assigned_to, createdAt:l.createdAt });
-    }
-  }catch(e){}
-  tell('Ye lead ab aapki hai');
-  renderIndiamart();
-};
-
 IM.setAssign = function(id, email){
-  if(!isAdm()) return;
   var arr = imAll(), l = find(arr, id);
   if(!l) return;
+  /* Admin kisi ko bhi de sakta hai. Sales person ke dropdown me sirf uska
+     apna naam hota hai, aur wo sirf bina naam wali lead par lag sakta hai --
+     isi se do log ek hi lead par kaam nahi karte. */
+  var self = false;
+  if(!isAdm()){
+    if(!mineToTake(l)) return;
+    if(!email){ renderIndiamart(); return; }          /* "— Unassigned —" = kuch nahi badla */
+    if(LC(email) !== LC(meEmail())){ tell('Aap sirf apna naam laga sakte hain.'); renderIndiamart(); return; }
+    self = true;
+  }
   var from = LC(l.owner);
   l.owner       = LC(email);
   l.assigned_to = email ? nameOf(email) : '';
@@ -14489,11 +14468,11 @@ IM.setAssign = function(id, email){
   try{
     if(typeof ocLogChange === 'function' && from !== LC(email)){
       ocLogChange({ coll:KEY, recId:id, recName:(l.sender_name || l.sender_mobile), field:'assigned',
-                    from:nameOf(from), to:l.assigned_to, remark:'Lead reassigned', owner:l.owner,
-                    sp:l.assigned_to, createdAt:l.createdAt });
+                    from:nameOf(from), to:l.assigned_to, remark:(self ? 'Lead khud uthayi' : 'Lead reassigned'),
+                    owner:l.owner, sp:l.assigned_to, createdAt:l.createdAt });
     }
   }catch(e){}
-  tell(email ? 'Assigned to ' + l.assigned_to : 'Unassigned');
+  tell(email ? (self ? 'Ye lead ab aapki hai' : 'Assigned to ' + l.assigned_to) : 'Unassigned');
   renderIndiamart();
 };
 
@@ -16797,7 +16776,7 @@ console.log('[oc v36] Qualified par Customer Type + Purchase Quantity poochhi ja
  *                                                                        *
  *   Rule bahut seedha hai:                                               *
  *     - Jis lead par kisi ka naam NAHI hai, wo poori sales team ko        *
- *       dikhti hai. Koi bhi "+ Mera" dabakar use apne naam kar sakta hai. *
+ *       dikhti hai. Koi bhi apne naam ka dropdown chunkar use le sakta hai. *
  *     - Jaise hi kisi ne apna tag laga diya, wo lead baaki sab ki list    *
  *       se HAT jaati hai -- sirf usi ko dikhti hai (aur admin ko).        *
  *       Isliye do log kabhi ek hi lead par kaam nahi karte.               *
