@@ -632,6 +632,7 @@ function ims_run_(dryRun){
         if(fillOwner){
           copy.owner = sheetOwn;
           copy.assigned_to = roster.all[sheetOwn] || r.assigned;
+          copy.assignedAt = nowIso;          /* v46: CRM ka 10 min response timer yahin se */
           ch.push('owner');
           ownerFilled.push((hit.sender_name || hit.sender_mobile || hid) + ' -> ' + copy.assigned_to);
         }
@@ -688,6 +689,7 @@ function ims_run_(dryRun){
         createdAt: nowIso,
         updatedAt: nowIso
       };
+      if(owner) rec.assignedAt = nowIso;     /* v46: naam ke saath aayi lead -- timer abhi se */
       if(status === 'QUALIFIED') rec.qualifiedAt = nowIso;
       fresh.push({ row: r.row, rec: rec });
 
