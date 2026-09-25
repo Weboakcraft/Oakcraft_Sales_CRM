@@ -1075,6 +1075,16 @@ been worked on, nothing is hidden and a warning is logged instead, because hidin
 would lose somebody's work. Admin helpers in the browser console: `ocMetaDupReport()` lists what
 is hidden, `ocMetaUnhideDup('<id>')` brings a row back.
 
+**v48 — an edit made *while a sync is running* is no longer lost.** The background sync
+(`CLOUD.pull`, every ~25 s) took its copy of the local leads when it *started*, and the
+Apps Script `getAll` answer takes several seconds. If the user changed a status in that window,
+the base pull wrote the sheet's older copy (`CREATED`) over it and the merge compared against
+the copy taken at the start — which did not have the new status either — so the lead went back
+to "New" and the user had to update it again (seen in the activity log as the same
+`CREATED → CONTACTED` two to four times within minutes). Every running pull now keeps a journal
+of the lead rows saved during it (`store.set` → `CLOUD.push`), and the merge compares the sheet
+against the newest local copy. Build `2026.09.25.11`.
+
 ## Meta Leads — "New Meta Leads Assigned" email
 
 `apps-script/LeadNotify.gs` mails each user one bulk summary of the leads newly assigned to

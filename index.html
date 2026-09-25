@@ -8140,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.10';
+var OC_WEB_BUILD = '2026.09.25.11';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -16112,6 +16112,42 @@ function sendChanged(coll, arr, force){
   });
 }
 
+/* v48 -- PULL KE DAURAAN KIYA GAYA EDIT.
+   Pull shuru hote hi `before` (local copy) le li jaati thi, phir getAll ka
+   jawab aane me 3-10 second lagte hain. Isi beech user ne status badla to:
+   base pull ne localStorage par sheet ki PURANI copy (CREATED) likh di, aur
+   merge ne `before` (jisme naya status tha hi nahi) se tulna ki -- naya
+   status gaayab, lead dobara "New" ban jaati thi. User phir se update karta,
+   phir se wahi. Ab har chalte pull ka ek journal hai: pull ke beech jo bhi
+   lead save hui (store.set -> CLOUD.push) uski taaza copy yahan aati hai aur
+   merge usi ko local maan kar tulna karta hai. */
+var activePulls = [];
+function journal(coll, arr){
+  if(!activePulls.length || !Array.isArray(arr)) return;
+  var m = {}, i;
+  for(i = 0; i < arr.length; i++){ var r = arr[i]; if(r && r.id) m[T(r.id)] = JSON.parse(JSON.stringify(r)); }
+  activePulls.forEach(function(j){
+    var cur = j[coll] || (j[coll] = {});
+    Object.keys(m).forEach(function(id){ cur[id] = m[id]; });
+  });
+}
+/* pull shuru hone ke waqt ki copy + pull ke beech ke edits = asli local */
+function localView(coll, before, jr){
+  var edits = (jr && jr[coll]) || null;
+  if(!edits) return before;
+  var out = [], idx = {};
+  (before || []).forEach(function(r){
+    if(!r || !r.id) return;
+    idx[T(r.id)] = out.length; out.push(r);
+  });
+  Object.keys(edits).forEach(function(id){
+    var e = edits[id];
+    if(idx[id] === undefined){ idx[id] = out.length; out.push(e); return; }
+    if(stampOf(e) >= stampOf(out[idx[id]])) out[idx[id]] = e;
+  });
+  return out;
+}
+
 /* debounce: ek hi save ke kai calls ek POST me */
 var timers = {}, queued = {};
 function schedulePush(coll, arr){
@@ -16128,6 +16164,7 @@ function schedulePush(coll, arr){
   var _push = CLOUD.push.bind(CLOUD);
   CLOUD.push = function(key, arr){
     if(COLLS.indexOf(key) < 0) return _push(key, arr);
+    try{ journal(key, Array.isArray(arr) ? arr : arrOf(key)); }catch(e){}
     try{ schedulePush(key, Array.isArray(arr) ? arr.slice() : arrOf(key)); }
     catch(e){ console.warn('[oc v32] push wrapper', e); return _push(key, arr); }
   };
@@ -16185,12 +16222,17 @@ function merge(coll, before){
   if(typeof CLOUD === 'undefined' || typeof CLOUD.pull !== 'function') return;
   var _pull = CLOUD.pull;
   CLOUD.pull = function(){
-    var self = this, before = {};
+    var self = this, before = {}, jr = {};
     COLLS.forEach(function(c){ before[c] = arrOf(c); });
-    return Promise.resolve(_pull.apply(self, arguments)).then(function(r){
+    activePulls.push(jr);
+    var endJr = function(){ var k = activePulls.indexOf(jr); if(k >= 0) activePulls.splice(k, 1); };
+    var p;
+    try{ p = _pull.apply(self, arguments); }catch(e){ endJr(); throw e; }
+    return Promise.resolve(p).then(function(r){
+      endJr();
       var changed = false;
       COLLS.forEach(function(c){
-        try{ if(merge(c, before[c])) changed = true; }catch(e){ console.warn('[oc v32] merge ' + c, e); }
+        try{ if(merge(c, localView(c, before[c], jr))) changed = true; }catch(e){ console.warn('[oc v32] merge ' + c, e); }
       });
       try{
         if(changed && typeof state !== 'undefined'){
@@ -16201,7 +16243,7 @@ function merge(coll, before){
         if(typeof refreshBadges === 'function') refreshBadges();
       }catch(e){}
       return r;
-    });
+    }, function(e){ endJr(); throw e; });
   };
 })();
 
