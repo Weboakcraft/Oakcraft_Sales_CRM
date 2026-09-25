@@ -1085,6 +1085,18 @@ to "New" and the user had to update it again (seen in the activity log as the sa
 of the lead rows saved during it (`store.set` → `CLOUD.push`), and the merge compares the sheet
 against the newest local copy. Build `2026.09.25.11`.
 
+## Sidebar badges — Enquiries and Follow-ups (v49)
+
+- **Enquiries** badge now shows exactly what the Enquiries list shows: same scope, same date
+  range (All time / Day / Week / Month / Custom range), same Stage and Salesperson filter —
+  the number on the list's "Enquiries" chip. It changes as soon as a filter changes. (The top
+  search box is not counted; it is shared by every section.)
+- **Follow-ups** badge counts every lead in the Follow-ups section (overdue, today, upcoming
+  and no date). It used to count only overdue + today, so it showed 0 when every follow-up was
+  in the future.
+
+Build `2026.09.25.12`.
+
 ## Meta Leads — "New Meta Leads Assigned" email
 
 `apps-script/LeadNotify.gs` mails each user one bulk summary of the leads newly assigned to

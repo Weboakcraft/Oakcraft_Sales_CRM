@@ -8140,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.11';
+var OC_WEB_BUILD = '2026.09.25.12';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -17790,9 +17790,10 @@ try{ if(localStorage.getItem('oc_lastView') === 'pipeline') localStorage.setItem
     try{
       var el = $$('nb-fu');
       if(el){
-        var n = 0; allRows().forEach(function(x){ if(x.bucket !== 'UPCOMING') n++; });
+        /* v49: badge = section me jitne follow-ups hain (sab -- upcoming bhi) */
+        var n = allRows().length;
         if(el.textContent !== String(n)) el.textContent = String(n);
-        el.title = 'Overdue + aaj + bina date wale follow-ups';
+        el.title = 'Follow-ups section me itne leads hain (overdue + aaj + upcoming + bina date)';
       }
     }catch(e){}
     return r;
@@ -18597,5 +18598,69 @@ console.log('[oc v47] Lead Response Timer summary');
 })();
 </script>
 
+<script>
+/* ====================================================================== *
+ * 45. OAKCRAFT v49 — ENQUIRIES BADGE = JITNI LIST ME DIKH RAHI HAIN       *
+ *                                                                        *
+ *   Pehle badge saari enquiries ginta tha (328), jabki Enquiries list par *
+ *   date filter (Day / Week / Month / Custom range), Stage aur            *
+ *   Salesperson filter lage hote hain (jaise 14–20 Sep -> 81). Ab badge   *
+ *   wahi number dikhata hai jo list ke "Enquiries" chip par hai: wahi     *
+ *   scope, wahi date range, wahi stage / salesperson filter. Filter       *
+ *   badalte hi badge bhi badal jaata hai. (Upar ka search box badge me     *
+ *   nahi ginta -- wo har section ke liye common hai.)                     *
+ * ====================================================================== */
+(function(){
+'use strict';
+function T(v){ return v == null ? '' : String(v); }
+function enqCount(){
+  var a = scope(DB.enquiries(), 'enquiries') || [];
+  var rg = { from:'', to:'' };
+  try{ if(typeof window.ocRangeOf === 'function') rg = window.ocRangeOf('enquiries') || rg; }catch(e){}
+  var f = { stage:'', sales:'' };
+  try{ if(typeof enqFilter !== 'undefined' && enqFilter) f = enqFilter; }catch(e){}
+  return a.filter(function(r){
+    if(!r) return false;
+    if(rg.from || rg.to){
+      var d = T(r.date || r.createdAt || r.updatedAt).slice(0, 10);
+      if(!d) return false;
+      if(rg.from && d < rg.from) return false;
+      if(rg.to   && d > rg.to)   return false;
+    }
+    if(f.stage && r.stage !== f.stage) return false;
+    if(f.sales && r.salesperson !== f.sales) return false;
+    return true;
+  }).length;
+}
+window.ocEnqBadgeCount = enqCount;
+
+var _rb = window.refreshBadges;
+window.refreshBadges = function(){
+  var r = (typeof _rb === 'function') ? _rb.apply(this, arguments) : undefined;
+  try{
+    var el = document.getElementById('nb-enq');
+    if(el){
+      var n = String(enqCount());
+      if(el.textContent !== n) el.textContent = n;
+      var lbl = 'All time';
+      try{ lbl = (window.ocRangeOf('enquiries') || {}).label || lbl; }catch(e){}
+      el.title = 'Enquiries list me itni dikh rahi hain (' + lbl + ', stage / salesperson filter ke saath)';
+    }
+  }catch(e){}
+  return r;
+};
+/* filter badle (date range / stage / salesperson) -> list dobara banti hai -> badge bhi */
+var _pe = window.paintEnq;
+if(typeof _pe === 'function'){
+  window.paintEnq = function(){
+    var r = _pe.apply(this, arguments);
+    try{ refreshBadges(); }catch(e){}
+    return r;
+  };
+}
+try{ refreshBadges(); }catch(e){}
+console.log('[oc v49] Enquiries badge = list count, Follow-ups badge = all follow-ups');
+})();
+</script>
 </body>
 </html>
