@@ -567,6 +567,25 @@ se purani rows bahar, aur ek baar ki safai: `previewIndiaMartCleanup()` →
 duplicate rows hataata hai. **Green row kabhi nahi hatti.** Kram: file paste →
 `checkIndiaMartGuard` → *New version Deploy* → preview → clean.
 
+## New lead response timer — 10 min (v46)
+
+IndiaMART aur Meta Leads me naya **Timer** column (Status se pehle). Sirf **New / CREATED** leads par:
+
+* Lead kisi salesperson ke naam hote hi (admin assign kare, salesperson apna naam lagaye, ya
+  sheet / auto-sync naam ke saath laaye) **10 minute ka timer** chalta hai, har second update:
+  `⏱ +07:32` (hara = Positive, abhi time hai) → 10 min ke baad `⏱ −03:15` (laal = Negative).
+* Status New se aage badalte hi timer rukta hai aur nateeja lead par likha jaata hai:
+  10 min ke andar **✓ OK**, baad me **✗ Very Low** (minute ke saath). Record fields:
+  `assignedAt · respAt · respMins · respResult (OK / VERY_LOW) · respBy`.
+* **History (⏱)** me do line: *Timer start* (kisko assign hui) aur *OK (Positive)* /
+  *Very Low (Negative)* — kitne minute, kaunsa status, aur agar status kisi aur ne badla to uska naam.
+  Ye `response` line SLA / TAT me nahi ginti.
+* Naam badla (reassign) aur lead abhi New hai to naye salesperson ka timer naye sire se.
+* Bina naam wali New lead: "assign par". **25-09-2026 13:30 IST se pehle** assign hui purani
+  New leads par timer nahi (`RESP_SINCE`) — warna sab laal dikhti. Limit `LIMIT_MIN = 10`.
+* `IndiaMartAutoSync.gs`: naam ke saath aayi nayi lead aur sheet se baad me naam bhara gaya
+  ho — dono par `assignedAt` likha jaata hai (Apps Script editor me bhi update kiya gaya).
+
 ## Comparison Dashboard (v45)
 
 Dashboard par **Recent Orders ke upar** ek *Comparison* panel:
