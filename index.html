@@ -8140,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.5';
+var OC_WEB_BUILD = '2026.09.25.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -17841,6 +17841,258 @@ try{
   }
 }catch(e){}
 console.log('[oc v44] dashboard: Administrator ke orders ginti se bahar');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 42. OAKCRAFT v45 — COMPARISON DASHBOARD (Recent Orders ke upar)         *
+ *                                                                        *
+ *   Sales aur Enquiries: pichhla hafta vs is hafte, pichhla mahina vs is *
+ *   mahine. Upar 4 tiles (aaj tak ki barabar tulna -- jaise Mon-Fri vs   *
+ *   pichhle hafte ka Mon-Fri), neeche ek LINE chart (roz ka running      *
+ *   total, Week / Month toggle) aur ek BAR chart (Week + Month, Last vs  *
+ *   This).                                                              *
+ *                                                                        *
+ *   Sales = orders ki Billing incl. GST (Revenue card jaisa), cancelled  *
+ *   aur Administrator ke orders bahar. Enquiries = dashboard ki hi       *
+ *   ginti (Enquiries + Meta + IndiaMART). Dono user ke scope ke hisaab   *
+ *   se. Upar wala Period filter is panel par nahi lagta -- ye hamesha     *
+ *   aaj ke hisaab se chalta hai.                                         *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocCmpDash) return; window.__ocCmpDash = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+function d2s(d){ return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+function addDays(d, n){ return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+function mondayOf(d){ var w = (d.getDay() + 6) % 7; return addDays(new Date(d.getFullYear(), d.getMonth(), d.getDate()), -w); }
+function recDay(r){
+  var v = T(r && (r.date || r.createdAt || r.updatedAt));
+  if(/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  var m = v.match(/^(\d{2})-(\d{2})-(\d{4})/);
+  return m ? (m[3] + '-' + m[2] + '-' + m[1]) : '';
+}
+function scoped(list, coll){ try{ return (typeof scope === 'function') ? (scope(list, coll) || []) : list; }catch(e){ return list; } }
+function fmtMoney(n){ n = Math.round(+n || 0); try{ return short(n); }catch(e){ return '₹' + n; } }
+var DAYN = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
+
+/* ---------------------------------------------------------------- data */
+function salesByDay(){
+  var out = {}, ord = [];
+  try{ ord = scoped(DB.orders() || [], 'orders'); }catch(e){ ord = []; }
+  ord.forEach(function(o){
+    if(!o || T(o.status).trim() === 'Cancelled') return;
+    try{ if(window.ocIsAdminOrder && window.ocIsAdminOrder(o)) return; }catch(e){}
+    var k = recDay(o); if(!k) return;
+    out[k] = (out[k] || 0) + Math.round((+o.amount || 0) * 1.18);
+  });
+  return out;
+}
+function enqByDay(){
+  var all = [];
+  try{ all = all.concat(DB.enquiries() || []); }catch(e){}
+  try{ if(typeof window.ocMetaAsEnq === 'function') all = all.concat(window.ocMetaAsEnq() || []); }catch(e){}
+  try{ if(typeof window.ocIndiamartAsEnq === 'function') all = all.concat(window.ocIndiamartAsEnq() || []); }catch(e){}
+  all = scoped(all, 'enquiries');
+  var out = {};
+  all.forEach(function(r){ var k = recDay(r); if(k) out[k] = (out[k] || 0) + 1; });
+  return out;
+}
+function sumRange(map, from, to){          /* dono shaamil, YYYY-MM-DD */
+  var s = 0; Object.keys(map).forEach(function(k){ if(k >= from && k <= to) s += map[k]; }); return s;
+}
+
+function periods(){
+  var now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var wk = mondayOf(today), lwk = addDays(wk, -7);
+  var dow = Math.round((today - wk) / 864e5);                  /* 0 = Mon */
+  var m0 = new Date(today.getFullYear(), today.getMonth(), 1);
+  var lm0 = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  var lmDays = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+  var mDays = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  var dom = today.getDate();
+  return {
+    today: today,
+    week: { thisFrom:d2s(wk), thisTo:d2s(today), lastFrom:d2s(lwk), lastToSame:d2s(addDays(lwk, dow)), lastTo:d2s(addDays(lwk, 6)),
+            label:'Week', thisLbl:'This week', lastLbl:'Last week', start:wk, lastStart:lwk, len:7, upto:dow },
+    month:{ thisFrom:d2s(m0), thisTo:d2s(today), lastFrom:d2s(lm0),
+            lastToSame:d2s(new Date(lm0.getFullYear(), lm0.getMonth(), Math.min(dom, lmDays))),
+            lastTo:d2s(new Date(lm0.getFullYear(), lm0.getMonth(), lmDays)),
+            label:'Month', thisLbl:MON[m0.getMonth()], lastLbl:MON[lm0.getMonth()], start:m0, lastStart:lm0,
+            len:Math.max(mDays, lmDays), mDays:mDays, lmDays:lmDays, upto:dom - 1 }
+  };
+}
+function compare(map, p){
+  var cur = sumRange(map, p.thisFrom, p.thisTo), prev = sumRange(map, p.lastFrom, p.lastToSame);
+  return { cur:cur, prev:prev, full:sumRange(map, p.lastFrom, p.lastTo) };
+}
+function delta(c){
+  if(!c.prev && !c.cur) return { txt:'—', cls:'' };
+  if(!c.prev) return { txt:'new', cls:'up' };
+  var pct = Math.round((c.cur - c.prev) / c.prev * 100);
+  return { txt:(pct > 0 ? '+' : '') + pct + '%', cls:(pct >= 0 ? 'up' : 'down') };
+}
+
+/* ---------------------------------------------------------------- UI */
+window.__ocCmpMode = window.__ocCmpMode || 'week';
+var INK = { sThis:'#2a78d6', sLast:'#9dc1ec', eThis:'#1baf7a', eLast:'#9fdcc4' };
+
+function tile(title, sub, c, isMoney){
+  var d = delta(c), f = isMoney ? fmtMoney : function(n){ return String(n); };
+  var col = d.cls === 'down' ? 'var(--crit,#d03b3b)' : (d.cls === 'up' ? 'var(--good-ink,#0a7a3d)' : 'var(--muted,#7a869a)');
+  return '<div class="kpi" style="min-width:0">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
+    +   '<div class="lbl" style="font-weight:600">' + E(title) + '</div>'
+    +   '<span style="font-size:12px;font-weight:700;color:' + col + '">' + E(d.txt) + '</span></div>'
+    + '<div class="val tabular" style="margin-top:6px">' + E(f(c.cur)) + '</div>'
+    + '<div class="sub" style="font-size:11.5px;color:var(--muted,#7a869a);margin-top:4px">'
+    +   E(sub) + ': <b>' + E(f(c.prev)) + '</b> · poora: ' + E(f(c.full)) + '</div>'
+    + '</div>';
+}
+
+function panelHTML(){
+  var P = periods(), S = salesByDay(), Q = enqByDay();
+  var sw = compare(S, P.week), sm = compare(S, P.month), ew = compare(Q, P.week), em = compare(Q, P.month);
+  window.__ocCmpData = { P:P, S:S, Q:Q, sw:sw, sm:sm, ew:ew, em:em };
+  var dn = DAYN[P.week.upto];
+  var btn = function(k, l){
+    var on = window.__ocCmpMode === k;
+    return '<button type="button" class="btn sm" onclick="ocCmpMode(\'' + k + '\')"'
+      + (on ? ' style="background:var(--brand,#2a78d6);color:#fff;border-color:var(--brand,#2a78d6)"' : '') + '>' + l + '</button>';
+  };
+  return '<div class="card" id="oc-cmp" style="margin-bottom:18px">'
+    + '<div class="card-head"><h3>Comparison <small style="font-weight:500;color:var(--muted,#7a869a);font-size:12px">'
+    +   'Sales &amp; Enquiries · pichhla vs abhi · aaj tak ki barabar tulna</small></h3></div>'
+    + '<div style="padding:4px 20px 18px">'
+    + '<div class="kpi-grid" style="margin-bottom:14px">'
+    +   tile('Sales · This week', 'Last week (Mon–' + dn + ')', sw, true)
+    +   tile('Sales · ' + P.month.thisLbl, P.month.lastLbl + ' (1–' + (P.month.upto + 1) + ')', sm, true)
+    +   tile('Enquiries · This week', 'Last week (Mon–' + dn + ')', ew, false)
+    +   tile('Enquiries · ' + P.month.thisLbl, P.month.lastLbl + ' (1–' + (P.month.upto + 1) + ')', em, false)
+    + '</div>'
+    + '<div class="grid-2" style="margin:0">'
+    +   '<div class="panel" style="margin:0"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
+    +     '<span>Trend <small id="oc-cmp-lsub">running total</small></span><span style="display:flex;gap:6px">' + btn('week', 'Week') + btn('month', 'Month') + '</span></h3>'
+    +     '<div class="chart-wrap"><canvas id="oc-cmp-line"></canvas></div></div>'
+    +   '<div class="panel" style="margin:0"><h3>Last vs This <small>aaj tak · Sales ₹ (left) · Enquiries (right)</small></h3>'
+    +     '<div class="chart-wrap"><canvas id="oc-cmp-bar"></canvas></div></div>'
+    + '</div></div></div>';
+}
+
+function destroy(id){
+  try{ var cv = document.getElementById(id); if(cv && typeof Chart !== 'undefined' && Chart.getChart){ var c = Chart.getChart(cv); if(c) c.destroy(); } }catch(e){}
+}
+function yMoney(v){ return fmtMoney(v); }
+
+function drawLine(){
+  var cv = document.getElementById('oc-cmp-line'); if(!cv || typeof Chart === 'undefined') return;
+  var D = window.__ocCmpData; if(!D) return;
+  var mode = window.__ocCmpMode === 'month' ? 'month' : 'week', p = D.P[mode];
+  var labels = [], sT = [], sL = [], eT = [], eL = [], a1 = 0, a2 = 0, b1 = 0, b2 = 0;
+  for(var i = 0; i < p.len; i++){
+    labels.push(mode === 'week' ? DAYN[i] : String(i + 1));
+    var dThis = addDays(p.start, i), dLast = addDays(p.lastStart, i);
+    var inThis = (mode === 'week') ? true : (i < p.mDays);
+    var inLast = (mode === 'week') ? true : (i < p.lmDays);
+    if(inLast){ a2 += D.S[d2s(dLast)] || 0; b2 += D.Q[d2s(dLast)] || 0; }
+    sL.push(inLast ? a2 : null); eL.push(inLast ? b2 : null);
+    if(inThis && i <= p.upto){ a1 += D.S[d2s(dThis)] || 0; b1 += D.Q[d2s(dThis)] || 0; sT.push(a1); eT.push(b1); }
+    else { sT.push(null); eT.push(null); }
+  }
+  destroy('oc-cmp-line');
+  var o = baseOpts({ legend:true, yFmt:yMoney });
+  o.scales.y.beginAtZero = true;
+  o.scales.y.title = { display:true, text:'Sales ₹', color:chartFont().color, font:{ size:11 } };
+  o.scales.y1 = { position:'right', beginAtZero:true, grid:{ display:false }, border:{ display:false },
+                  ticks:{ color:chartFont().color, font:{ size:11.5 }, precision:0 },
+                  title:{ display:true, text:'Enquiries', color:chartFont().color, font:{ size:11 } } };
+  o.interaction = { mode:'index', intersect:false };
+  if(mode === 'month') o.scales.x.ticks.autoSkip = true;
+  o.plugins.tooltip.callbacks = { label:function(c){
+    var v = c.parsed.y; if(v == null) return null;
+    return c.dataset.label + ': ' + (c.dataset.yAxisID === 'y1' ? v : fmtMoney(v));
+  } };
+  var ln = function(label, data, color, dash, axis){
+    return { label:label, data:data, borderColor:color, backgroundColor:color, yAxisID:axis, tension:.3, spanGaps:false,
+             borderWidth:dash ? 2 : 2.5, borderDash:dash ? [6, 4] : [], pointRadius:mode === 'week' ? 3 : 0, pointHoverRadius:4 };
+  };
+  var ch = new Chart(cv, { type:'line', data:{ labels:labels, datasets:[
+      ln('Sales · ' + p.thisLbl, sT, INK.sThis, false, 'y'),
+      ln('Sales · ' + p.lastLbl, sL, INK.sLast, true, 'y'),
+      ln('Enquiries · ' + p.thisLbl, eT, INK.eThis, false, 'y1'),
+      ln('Enquiries · ' + p.lastLbl, eL, INK.eLast, true, 'y1')
+    ] }, options:o });
+  try{ state.charts.cmpLine = ch; }catch(e){}
+  var sub = document.getElementById('oc-cmp-lsub');
+  if(sub) sub.textContent = (mode === 'week' ? 'Mon–Sun' : 'din 1–' + p.len) + ' · running total';
+}
+
+function drawBar(){
+  var cv = document.getElementById('oc-cmp-bar'); if(!cv || typeof Chart === 'undefined') return;
+  var D = window.__ocCmpData; if(!D) return;
+  destroy('oc-cmp-bar');
+  var o = baseOpts({ legend:true, yFmt:yMoney });
+  o.scales.y.beginAtZero = true;
+  o.scales.y1 = { position:'right', beginAtZero:true, grid:{ display:false }, border:{ display:false },
+                  ticks:{ color:chartFont().color, font:{ size:11.5 }, precision:0 } };
+  o.plugins.tooltip.callbacks = { label:function(c){
+    var v = c.parsed.y; return c.dataset.label + ': ' + (c.dataset.yAxisID === 'y1' ? v : fmtMoney(v));
+  } };
+  var bar = function(label, data, color, axis){
+    return { label:label, data:data, backgroundColor:color, yAxisID:axis, borderRadius:4, borderSkipped:false, maxBarThickness:38 };
+  };
+  var ch = new Chart(cv, { type:'bar', data:{ labels:['Week', 'Month'], datasets:[
+      bar('Sales · Last', [D.sw.prev, D.sm.prev], INK.sLast, 'y'),
+      bar('Sales · This', [D.sw.cur,  D.sm.cur],  INK.sThis, 'y'),
+      bar('Enquiries · Last', [D.ew.prev, D.em.prev], INK.eLast, 'y1'),
+      bar('Enquiries · This', [D.ew.cur,  D.em.cur],  INK.eThis, 'y1')
+    ] }, options:o });
+  try{ state.charts.cmpBar = ch; }catch(e){}
+}
+
+window.ocCmpMode = function(m){
+  window.__ocCmpMode = (m === 'month') ? 'month' : 'week';
+  var box = document.getElementById('oc-cmp');
+  if(box){
+    box.querySelectorAll('h3 button').forEach(function(b){
+      var on = (b.textContent === 'Month') === (window.__ocCmpMode === 'month');
+      b.style.background = on ? 'var(--brand,#2a78d6)' : ''; b.style.color = on ? '#fff' : ''; b.style.borderColor = on ? 'var(--brand,#2a78d6)' : '';
+    });
+  }
+  try{ drawLine(); }catch(e){ console.warn('[oc v45] line', e); }
+};
+
+function mount(){
+  try{
+    if(typeof state === 'undefined' || state.view !== 'dashboard') return;
+    var old = document.getElementById('oc-cmp'); if(old && old.parentNode) old.parentNode.removeChild(old);
+    var anchor = null;
+    content.querySelectorAll('.card h3').forEach(function(h){ if(!anchor && /Recent Orders/i.test(h.textContent)) anchor = h.closest('.card'); });
+    var wrap = document.createElement('div');
+    wrap.innerHTML = panelHTML();
+    var el = wrap.firstChild;
+    if(anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor);
+    else content.appendChild(el);
+    if(typeof Chart !== 'undefined'){ drawLine(); drawBar(); }
+  }catch(e){ console.warn('[oc v45] comparison', e); }
+}
+window.ocCmpMount = mount;
+
+var _rd = window.renderDashboard;
+if(typeof _rd === 'function'){
+  window.renderDashboard = function(){
+    var r = _rd.apply(this, arguments);
+    mount();
+    return r;
+  };
+}
+try{ if(typeof state !== 'undefined' && state.view === 'dashboard') setTimeout(mount, 0); }catch(e){}
+console.log('[oc v45] comparison dashboard (week / month · sales / enquiries)');
 })();
 </script>
 

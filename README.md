@@ -567,6 +567,22 @@ se purani rows bahar, aur ek baar ki safai: `previewIndiaMartCleanup()` →
 duplicate rows hataata hai. **Green row kabhi nahi hatti.** Kram: file paste →
 `checkIndiaMartGuard` → *New version Deploy* → preview → clean.
 
+## Comparison Dashboard (v45)
+
+Dashboard par **Recent Orders ke upar** ek *Comparison* panel:
+
+* **4 tiles** — Sales · This week, Sales · is mahina, Enquiries · This week, Enquiries · is
+  mahina. Har tile me % badlaav **aaj tak ki barabar tulna** se (jaise Mon–Fri vs pichhle hafte
+  ka Mon–Fri, 1–25 Sept vs 1–25 Aug), aur neeche pichhle period ka poora total.
+* **Line chart (Trend)** — roz ka running total, *Week* (Mon–Sun) / *Month* (din 1–31) toggle.
+  Sales ₹ left axis, Enquiries right axis; is period solid line, pichhla dashed.
+* **Bar chart (Last vs This)** — Week aur Month, Sales (₹, left) aur Enquiries (right), Last vs This.
+
+Sales = orders ki Billing incl. GST (Revenue card jaisa), Cancelled aur Administrator ke orders
+bahar. Enquiries = dashboard wali ginti (Enquiries + Meta + IndiaMART). Dono user ke scope se.
+Upar ka Period filter is panel par nahi lagta — ye hamesha aaj ke hisaab se chalta hai.
+Console: `window.__ocCmpData`.
+
 ## Dashboard me Administrator ke orders nahi ginte (v44)
 
 Administrator / Owner ke login se bane orders (jaise Vishu Mittal ke ₹0.01 / ₹0.02 rate wale
