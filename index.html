@@ -8140,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.3';
+var OC_WEB_BUILD = '2026.09.25.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -12156,6 +12156,19 @@ function getF(){
   return f;
 }
 function setF(f){ try{ localStorage.setItem(KEY, JSON.stringify(f)); }catch(e){} }
+/* v43: app khulte hi Day / Week / Month wala filter AAJ ke period par --
+   warna kal chuna hua din aaj bhi dikhta rehta tha */
+(function(){
+  try{
+    var f = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if(!f || typeof f !== 'object') return;
+    var now = new Date();
+    if(f.mode === 'day')   f.day   = todayS();
+    if(f.mode === 'week')  f.week  = isoWeekStr(now);
+    if(f.mode === 'month') f.month = todayS().slice(0, 7);
+    setF(f);
+  }catch(e){}
+})();
 
 /* mode + value -> { from, to, label, sub } */
 function rangeOf(f){
@@ -12304,7 +12317,15 @@ function reDash(){
 }
 
 window.ocDashMode = function(mode){
-  var f = getF(); f.mode = mode; setF(f); reDash();
+  var f = getF(); f.mode = mode;
+  /* v43: button dabate hi AAJ ka period -- pehle pichhli baar chuni hui
+     date yaad reh jaati thi (Day dabane par kal / parson ka data aata tha).
+     ◀ ▶ aur date picker se purana din ab bhi dekh sakte hain. */
+  var now = new Date();
+  if(mode === 'day')   f.day   = todayS();
+  if(mode === 'week')  f.week  = isoWeekStr(now);
+  if(mode === 'month') f.month = todayS().slice(0, 7);
+  setF(f); reDash();
 };
 window.ocDashStep = function(dir){
   var f = getF();

@@ -567,6 +567,13 @@ se purani rows bahar, aur ek baar ki safai: `previewIndiaMartCleanup()` →
 duplicate rows hataata hai. **Green row kabhi nahi hatti.** Kram: file paste →
 `checkIndiaMartGuard` → *New version Deploy* → preview → clean.
 
+## Dashboard: Day = aaj (v43)
+
+Dashboard ke period filter me **Day** dabate hi aaj ka data aata hai (pehle pichhli baar chuni
+hui date yaad reh jaati thi). **Week** = is hafte, **Month** = is mahine. App khulte waqt bhi
+Day / Week / Month filter aaj ke period par aa jaata hai. Purana din / hafta / mahina ◀ ▶ ya
+date picker se dekh sakte hain.
+
 ## Follow-up (v42)
 
 **Naya status "Follow-up"** — Enquiries (stage `Follow-up`), IndiaMART aur Meta Leads
