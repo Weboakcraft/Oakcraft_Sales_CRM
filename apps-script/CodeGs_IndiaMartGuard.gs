@@ -256,7 +256,7 @@ function img_clean_(dryRun){
     L.push('  GREEN (chhui nahi) : ' + greens);
     L.push('  hatengi            : ' + del.length + '  = ' + why.old + ' cut-off (' + IMG_START_AFTER + ') se pehle ki + '
            + why.dup + ' duplicate (mobile + time)');
-    L.push('  bachengi           : ' + (rows.length - blank - del.length) + ' (sab green / sahi)');
+    L.push('  bachengi           : ' + (rows.length - blank - del.length) + ' (green + cut-off ke baad ki nayi leads — ye kabhi nahi hatti)');
     if(greenOld) L.push('  DHYAN: ' + greenOld + ' GREEN row cut-off se pehle ki hain — green hone ki wajah se chhodi.');
     if(greenDup) L.push('  DHYAN: ' + greenDup + ' GREEN row aapas me duplicate hain — green hone ki wajah se chhodi.');
     if(blank) L.push('  ' + blank + ' bina id ki row — chhodi.');
