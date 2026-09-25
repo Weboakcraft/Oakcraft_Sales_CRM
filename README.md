@@ -1097,6 +1097,13 @@ against the newest local copy. Build `2026.09.25.11`.
 
 Build `2026.09.25.12`.
 
+## Qualified — Salesperson filter (v50)
+
+The Qualified section toolbar has an **All salespersons** dropdown next to *All sources*
+(shown to admins, and to anyone whose list has more than one salesperson). It lists only the
+people who own a lead in the section. Picking a name filters the table **and** the cards and
+tab counts above it, and the Excel export follows the same filter. Build `2026.09.25.13`.
+
 ## Meta Leads — "New Meta Leads Assigned" email
 
 `apps-script/LeadNotify.gs` mails each user one bulk summary of the leads newly assigned to

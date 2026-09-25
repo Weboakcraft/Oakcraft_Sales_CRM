@@ -8140,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.12';
+var OC_WEB_BUILD = '2026.09.25.13';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -15430,6 +15430,7 @@ function allRows(){
 window.__qlTab  = window.__qlTab  || 'ALL';
 window.__qlQ    = window.__qlQ    || '';
 window.__qlSrc  = window.__qlSrc  || '';
+window.__qlSp   = window.__qlSp   || '';    /* v50: salesperson filter */
 
 /* record par likha customer type ("Other" par salesperson ka likha hua) */
 function custType(rec){
@@ -15440,10 +15441,11 @@ function custType(rec){
 }
 
 function filtered(rows){
-  var q = LC(window.__qlQ), tab = window.__qlTab, src = window.__qlSrc;
+  var q = LC(window.__qlQ), tab = window.__qlTab, src = window.__qlSrc, sp = LC(window.__qlSp);
   return rows.filter(function(r){
     if(tab !== 'ALL' && r.bucket !== tab) return false;
     if(src && r.src !== src) return false;
+    if(sp && LC(r.person) !== sp) return false;
     if(!q) return true;
     return [r.id, r.name, r.contact, r.product, r.person].join(' ').toLowerCase().indexOf(q) >= 0;
   });
@@ -15451,7 +15453,25 @@ function filtered(rows){
 
 /* ---------------------------------------------------------------- 5. render */
 window.renderQualified = function(){
-  var rows  = allRows();
+  var rowsAll = allRows();
+  /* v50: salesperson dropdown -- sirf un logon ke naam jinki lead is section me hai */
+  var people = {};
+  rowsAll.forEach(function(r){ if(TR(r.person)) people[TR(r.person)] = 1; });
+  var names = Object.keys(people).sort(function(a, b){ return a.localeCompare(b); });
+  if(window.__qlSp && !people[TR(window.__qlSp)]){
+    var hit = names.filter(function(n){ return LC(n) === LC(window.__qlSp); })[0];
+    window.__qlSp = hit || '';
+  }
+  var showSp = isAdm() || names.length > 1;
+  if(!showSp) window.__qlSp = '';
+  var spSel = showSp
+    ? '<select class="field" id="qlSp" title="Salesperson"><option value="">All salespersons</option>'
+      + names.map(function(n){ return '<option value="' + A(n) + '"' + (LC(window.__qlSp) === LC(n) ? ' selected' : '') + '>' + E(n) + '</option>'; }).join('')
+      + '</select>'
+    : '';
+  /* upar ke cards / tabs bhi chune hue salesperson ki ginti dikhayein */
+  var spL = LC(window.__qlSp);
+  var rows  = spL ? rowsAll.filter(function(r){ return LC(r.person) === spL; }) : rowsAll;
   var count = { ALL: rows.length };
   BUCKETS.forEach(function(b){ count[b.key] = 0; });
   rows.forEach(function(r){ count[r.bucket] = (count[r.bucket] || 0) + 1; });
@@ -15533,6 +15553,7 @@ window.renderQualified = function(){
               return '<option value="' + A(k) + '"' + (window.__qlSrc === k ? ' selected' : '') + '>' + E(SRC[k].label) + '</option>';
             }).join('')
     +     '</select>'
+    +     spSel
     +     '<button class="btn sm" onclick="QL.exportXlsx()">Excel</button>'
     +   '</div>'
     + '</div>'
@@ -15560,6 +15581,8 @@ window.renderQualified = function(){
   }
   var ss = $$('qlSrc');
   if(ss) ss.onchange = function(){ window.__qlSrc = ss.value; renderQualified(); };
+  var sps = $$('qlSp');
+  if(sps) sps.onchange = function(){ window.__qlSp = sps.value; renderQualified(); };
 
   try{ if(typeof ocPaginate === 'function') ocPaginate(); }catch(e){}
 };
