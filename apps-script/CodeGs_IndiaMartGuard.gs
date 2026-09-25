@@ -21,8 +21,6 @@
  *        a) jiska query_time cut-off se pehle ya barabar hai
  *        b) jo sheet me NAYI hai (id nahi mili) aur jiska mobile + query_time
  *           kisi maujooda row se milta hai (purani duplicate copy)
- *      Saath me `_readAll('indiamartLeads')` se bhi purani rows bahar -- taaki
- *      kisi user ko wo dikhe hi nahi, chahe sheet me padi hon.
  *      Baaki collections par koi asar nahi.
  *   2. SAFAI (haath se, ek baar):
  *        previewIndiaMartCleanup()  -- kuch nahi badalta, sirf Logs me ginti
@@ -90,18 +88,11 @@ function img_data_(r){ return (r && r.data !== undefined && typeof r.data === 'o
 
 function ocImGuardPatch_(){
   var done = [];
-  if(typeof _readAll === 'function' && !_readAll.__ocImg){
-    var origRead = _readAll;
-    var wr = function(coll){
-      var out = origRead.apply(this, arguments);
-      try{
-        if(!IMG_ON || coll !== IMG_COLL || !out || !out.length) return out;
-        return out.filter(function(r){ return !img_tooOld_(img_data_(r)); });
-      }catch(e){ return out; }
-    };
-    wr.__ocImg = true; wr.__orig = origRead;
-    _readAll = wr; done.push('_readAll');
-  }
+  /* NOTE: _readAll ko jaan-boojh kar NAHI lapeta. Code.gs ka _upsertMany
+     _readAll se poora tab padh kar _writeMerged se DOBARA likhta hai -- agar
+     _readAll purani rows chhupata to har save par wo chupchaap sheet se mit
+     jaatin. Dikhne se rokne ka kaam app (ocImTooOld) karta hai; sheet ki
+     safai sirf cleanIndiaMartLeads() karta hai, backup ke saath. */
   if(typeof _upsertMany === 'function' && !_upsertMany.__ocImg){
     var origMany = _upsertMany;
     var wm = function(coll, recs){
@@ -140,8 +131,7 @@ function ocImGuardPatch_(){
 function img_filter_(recs){
   var existing = [];
   try{
-    var rd = (_readAll && _readAll.__orig) ? _readAll.__orig : _readAll;
-    existing = rd(IMG_COLL) || [];
+    existing = _readAll(IMG_COLL) || [];
   }catch(e){ existing = []; }
   var ids = {}, keys = {};
   existing.forEach(function(r){
@@ -167,13 +157,12 @@ function img_filter_(recs){
 function checkIndiaMartGuard(){
   var L = ['===== INDIAMART GUARD ====='];
   L.push('cut-off          : ' + IMG_START_AFTER + '  (key ' + IMG_CUT + ')');
-  L.push('_readAll patch   : ' + ((typeof _readAll === 'function' && _readAll.__ocImg) ? 'HAAN' : 'NAHI'));
   L.push('_upsertMany patch: ' + ((typeof _upsertMany === 'function' && _upsertMany.__ocImg) ? 'HAAN' : 'NAHI'));
   L.push('_upsert patch    : ' + ((typeof _upsert === 'function' && _upsert.__ocImg) ? 'HAAN' : (typeof _upsert === 'function' ? 'NAHI' : '(function hi nahi hai)')));
   try{
-    var raw = _readAll.__orig ? _readAll.__orig(IMG_COLL) : _readAll(IMG_COLL);
-    var shown = _readAll(IMG_COLL);
-    L.push('sheet me rows    : ' + (raw || []).length + '   |   app ko jayengi: ' + (shown || []).length);
+    var raw = _readAll(IMG_COLL) || [], old = 0;
+    raw.forEach(function(r){ if(img_tooOld_(img_data_(r))) old++; });
+    L.push('sheet me rows    : ' + raw.length + '   |   cut-off se pehle ki: ' + old);
   }catch(e){ L.push('read error: ' + e); }
   try{
     var t = img_filter_([
