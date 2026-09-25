@@ -8140,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.8';
+var OC_WEB_BUILD = '2026.09.25.10';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -18110,16 +18110,15 @@ console.log('[oc v45] comparison dashboard (week / month · sales / enquiries)')
  *   hone ki line bhi. Timer sirf New / CREATED leads par chalta hai.     *
  *                                                                        *
  *   Timer kab se: assignedAt (CRM me assign / apna naam lagane par apne  *
- *   aap). Sheet / auto-sync se naam ke saath aayi lead ka assignedAt      *
- *   uska createdAt maana jaata hai. RESP_SINCE se pehle assign hui       *
- *   purani leads par timer nahi lagta (warna sab din bhar laal dikhti).  *
+ *   aap, ya sheet ke naam se). assignedAt na ho to lead AANE ka waqt     *
+ *   (IndiaMART query_time / Meta created_time_ist). Purani aur bina naam *
+ *   wali New leads par bhi -- kitni der se padi hai, laal me.            *
  * ====================================================================== */
 (function(){
 'use strict';
 if(window.__ocRespTimer) return; window.__ocRespTimer = true;
 
 var LIMIT_MIN  = 10;
-var RESP_SINCE = '2026-09-25T08:00:00.000Z';        /* 25-09-2026 13:30 IST se */
 var COLLS = { indiamartLeads:1, metaLeads:1 };
 window.OC_RESP_LIMIT_MIN = LIMIT_MIN;
 
@@ -18140,21 +18139,36 @@ function nameOf(em){
 function recName(coll, r){ return coll === 'metaLeads' ? (TR(r.full_name) || TR(r.phone_number)) : (TR(r.sender_name) || TR(r.company) || TR(r.sender_mobile)); }
 function isoMs(v){ var s = T(v); if(!/\d{4}-\d{2}-\d{2}T/.test(s)) return NaN; return Date.parse(s); }
 
-/* timer kab se chala (ms) -- NaN = is lead par timer nahi */
-function baseMs(r){
-  if(!r || !ownerOf(r)) return NaN;
-  var b = isoMs(r.assignedAt);
+/* "DD-MM-YYYY HH:MM(:SS)" (IST, jaise sheet / Meta likhte hain) -> ms */
+function istMs(v){
+  var m = T(v).match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if(!m) return NaN;
+  return Date.UTC(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0)) - 330 * 60000;
+}
+/* lead kab aayi (IndiaMART query_time / Meta created_time_ist, warna createdAt) */
+function arrivedMs(r){
+  var b = istMs(r.query_time || r.created_time_ist);
   if(isNaN(b)) b = isoMs(r.createdAt);
-  if(isNaN(b) || b < Date.parse(RESP_SINCE)) return NaN;
+  return b;
+}
+/* timer kab se chala (ms) -- NaN = is lead par timer nahi.
+   v47: purani aur bina naam wali New leads par bhi -- CRM me assign hui to
+   assignedAt se, warna lead aane ke waqt se (kitni der se padi hai). */
+function baseMs(r){
+  if(!r) return NaN;
+  var b = isoMs(r.assignedAt);
+  if(isNaN(b)) b = arrivedMs(r);
   return b;
 }
 function fmtDur(ms){
-  var s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  var s = Math.max(0, Math.round(ms / 1000)), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
   var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  if(d) return d + 'd ' + h + 'h';
   return h ? (h + 'h ' + p(m) + 'm') : (p(m) + ':' + p(x));
 }
 function fmtMins(mins){
-  var ms = mins * 60000, s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  var ms = mins * 60000, s = Math.round(ms / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  if(d) return d + 'd ' + h + 'h';
   return h ? (h + 'h ' + m + 'm') : (m + 'm ' + x + 's');
 }
 window.ocRespBase = baseMs;
@@ -18217,11 +18231,11 @@ function leadsOf(coll){ try{ var a = JSON.parse(localStorage.getItem(coll) || '[
 function cellHTML(r){
   if(!r) return '<span class="sub">—</span>';
   if(isNew(statusOf(r))){
-    if(!ownerOf(r)) return '<span class="sub" style="font-size:11.5px;color:var(--muted,#7a869a)" title="Timer assign hote hi shuru hoga">assign par</span>';
     var b = baseMs(r);
-    if(isNaN(b)) return '<span class="sub" title="Timer ' + E(RESP_SINCE.slice(0, 10)) + ' ke baad assign hui leads par">—</span>';
+    if(isNaN(b)) return '<span class="sub">—</span>';
     return '<span class="oc-rt" data-base="' + b + '" style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;'
-         + 'font-weight:700;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap"></span>';
+         + 'font-weight:700;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap"></span>'
+         + (ownerOf(r) ? '' : '<div class="sub" style="font-size:10.5px;color:var(--muted,#7a869a);margin-top:3px" title="Kisi ne nahi uthayi -- lead aane ke waqt se">unassigned · aane se</div>');
   }
   if(r.respResult){
     var ok = r.respResult === 'OK', mm = +r.respMins || 0;
@@ -18313,6 +18327,231 @@ try{
 }catch(e){}
 
 console.log('[oc v46] New lead response timer (' + LIMIT_MIN + ' min) — IndiaMART + Meta');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 44. OAKCRAFT v47 — RESPONSE TIMER SUMMARY (Tracking > Lead Response)    *
+ *                                                                        *
+ *   v46 ke 10 min timer ka hisaab, salesperson-wise: kitni leads timer    *
+ *   par aayin, kitni OK, kitni Very Low, OK %, average / fastest /       *
+ *   slowest response, aur abhi kitni leads ka timer chal raha hai        *
+ *   (time ke andar / late). Period: Today / This week / This month /     *
+ *   All; source: IndiaMART / Meta. Neeche har response ki list + Excel.  *
+ *   Admin ko sab, salesperson ko sirf apna.                              *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocRespSummary) return; window.__ocRespSummary = true;
+
+var VIEW = 'respTrack';
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LC(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function A(v){ return E(v).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function $$(id){ return document.getElementById(id); }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function me(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function code(v){ return TR(v).toUpperCase().replace(/[\s\-]+/g, '_'); }
+function isNew(v){ var c = code(v); return !c || c === 'CREATED' || c === 'NEW'; }
+function lim(){ return window.OC_RESP_LIMIT_MIN || 10; }
+function users(){ try{ return JSON.parse(localStorage.getItem('users') || '[]') || []; }catch(e){ return []; } }
+function nameOf(em){ var e = LC(em); if(!e) return ''; var u = users(); for(var i = 0; i < u.length; i++) if(LC(u[i].email) === e) return TR(u[i].name) || em; return em; }
+function leads(k){ try{ var a = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+function fmtMin(m){ if(m == null || isNaN(m)) return '—'; var s = Math.round(m * 60), h = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), x = s % 60; return h ? (h + 'h ' + mm + 'm') : (mm + 'm ' + p2(x) + 's'); }
+function istTime(iso){ var d = new Date(iso); if(isNaN(d)) return '—'; return p2(d.getDate()) + '-' + p2(d.getMonth() + 1) + '-' + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()); }
+
+var SRC = { indiamartLeads:'IndiaMART', metaLeads:'Meta' };
+function nameOfLead(k, r){ return k === 'metaLeads' ? (TR(r.full_name) || TR(r.phone_number)) : (TR(r.sender_name) || TR(r.company) || TR(r.sender_mobile)); }
+
+window.__rsPeriod = window.__rsPeriod || 'week';
+window.__rsSrc    = window.__rsSrc    || '';
+function periodFrom(){
+  var n = new Date(), d = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  if(window.__rsPeriod === 'today') return d.getTime();
+  if(window.__rsPeriod === 'week'){ var w = (d.getDay() + 6) % 7; return new Date(d.getFullYear(), d.getMonth(), d.getDate() - w).getTime(); }
+  if(window.__rsPeriod === 'month') return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  return 0;
+}
+
+function collect(){
+  var from = periodFrom(), now = Date.now(), L = lim() * 60000, admin = isAdm(), mine = me();
+  var done = [], running = [];
+  Object.keys(SRC).forEach(function(k){
+    if(window.__rsSrc && window.__rsSrc !== k) return;
+    leads(k).forEach(function(r){
+      if(!r || !r.id) return;
+      if(k === 'indiamartLeads'){ try{ if(window.ocImTooOld && window.ocImTooOld(r)) return; if(window.ocImHidden && window.ocImHidden(r)) return; }catch(e){} }
+      if(k === 'metaLeads' && r.dupOf) return;
+      var own = LC(r.owner);
+      if(!admin && own !== mine && !(own === '' && !r.respResult)) return;   /* user: apni + bina naam wali (pool) */
+      if(r.respResult){
+        var t = Date.parse(T(r.respAt));
+        if(isNaN(t) || t < from) return;
+        done.push({ src:k, id:r.id, name:nameOfLead(k, r), owner:own, mins:+r.respMins || 0, ok:r.respResult === 'OK', at:r.respAt, by:LC(r.respBy),
+                    status:code(r.lead_status) });
+        return;
+      }
+      if(isNew(r.lead_status) && typeof window.ocRespBase === 'function'){
+        var b = window.ocRespBase(r);
+        if(isNaN(b)) return;
+        running.push({ src:k, id:r.id, name:nameOfLead(k, r), owner:own, base:b, late:(now - b) > L });
+      }
+    });
+  });
+  return { done:done, running:running };
+}
+
+function perPerson(data){
+  var m = {};
+  function row(o){ return m[o] || (m[o] = { owner:o, n:0, ok:0, low:0, sum:0, min:null, max:null, run:0, runLate:0 }); }
+  data.done.forEach(function(d){
+    var r = row(d.owner); r.n++; if(d.ok) r.ok++; else r.low++; r.sum += d.mins;
+    r.min = (r.min == null) ? d.mins : Math.min(r.min, d.mins); r.max = (r.max == null) ? d.mins : Math.max(r.max, d.mins);
+  });
+  data.running.forEach(function(x){ var r = row(x.owner); if(x.late) r.runLate++; else r.run++; });
+  return Object.keys(m).map(function(k){ return m[k]; }).sort(function(a, b){
+    var pa = a.n ? a.ok / a.n : -1, pb = b.n ? b.ok / b.n : -1;
+    if(!a.owner !== !b.owner) return a.owner ? -1 : 1;           /* Unassigned sabse neeche */
+    return (pb - pa) || (b.n - a.n) || nameOf(a.owner).localeCompare(nameOf(b.owner));
+  });
+}
+
+function pctChip(ok, n){
+  if(!n) return '<span class="sub">—</span>';
+  var p = Math.round(ok / n * 100);
+  var col = p >= 80 ? 'var(--good-ink,#0a7a3d)' : (p >= 50 ? '#b06a00' : 'var(--crit,#d03b3b)');
+  var bg  = p >= 80 ? 'rgba(12,163,12,.12)' : (p >= 50 ? 'rgba(237,161,0,.14)' : 'rgba(208,59,59,.12)');
+  return '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;background:' + bg + ';color:' + col + '">' + p + '%</span>';
+}
+function resChip(ok){
+  return ok ? '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;background:rgba(12,163,12,.12);color:var(--good-ink,#0a7a3d)">✓ OK</span>'
+            : '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;background:rgba(208,59,59,.12);color:var(--crit,#d03b3b);white-space:nowrap">✗ Very Low</span>';
+}
+
+window.renderRespSummary = function(){
+  var data = collect(), rows = perPerson(data);
+  var n = data.done.length, ok = data.done.filter(function(d){ return d.ok; }).length, low = n - ok;
+  var avg = n ? data.done.reduce(function(s, d){ return s + d.mins; }, 0) / n : null;
+  var runOk = data.running.filter(function(x){ return !x.late; }).length, runLate = data.running.length - runOk;
+
+  function kpi(val, lbl, ink){ return '<div class="kpi"' + (ink ? ' style="border-left:4px solid ' + ink + '"' : '') + '><div class="val tabular"' + (ink ? ' style="color:' + ink + '"' : '') + '>' + val + '</div><div class="lbl">' + E(lbl) + '</div></div>'; }
+  var cards = '<div class="kpi-grid" style="margin-bottom:16px">'
+    + kpi(n, 'Timer par leads (period)', '')
+    + kpi(ok, 'OK (' + lim() + ' min ke andar)', 'var(--good-ink,#0a7a3d)')
+    + kpi(low, 'Very Low (' + lim() + ' min ke baad)', 'var(--crit,#d03b3b)')
+    + kpi(n ? Math.round(ok / n * 100) + '%' : '—', 'OK %', '')
+    + kpi(E(fmtMin(avg)), 'Average response', '')
+    + kpi(runOk + ' / ' + runLate, 'Abhi chal rahe: time par / late', runLate ? 'var(--crit,#d03b3b)' : 'var(--brand,#2a78d6)')
+    + '</div>';
+
+  function btn(k, l){ var on = window.__rsPeriod === k; return '<button class="btn sm" onclick="ocRespPeriod(\'' + k + '\')"' + (on ? ' style="background:var(--brand);color:#fff;border-color:var(--brand)"' : '') + '>' + l + '</button>'; }
+  var tools = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+    + btn('today', 'Today') + btn('week', 'This week') + btn('month', 'This month') + btn('all', 'All')
+    + '<select class="field" id="rsSrc" style="margin-left:6px"><option value="">All sources</option>'
+    + Object.keys(SRC).map(function(k){ return '<option value="' + k + '"' + (window.__rsSrc === k ? ' selected' : '') + '>' + SRC[k] + '</option>'; }).join('')
+    + '</select><button class="btn sm" onclick="ocRespExport()">Excel</button></div>';
+
+  var body = rows.map(function(r){
+    return '<tr><td class="strong">' + (r.owner ? E(nameOf(r.owner) || r.owner) : '<span style="color:var(--muted)">— Unassigned —</span>') + '</td>'
+      + '<td class="tabular">' + r.n + '</td>'
+      + '<td class="tabular" style="color:var(--good-ink,#0a7a3d);font-weight:700">' + r.ok + '</td>'
+      + '<td class="tabular" style="color:var(--crit,#d03b3b);font-weight:700">' + r.low + '</td>'
+      + '<td>' + pctChip(r.ok, r.n) + '</td>'
+      + '<td class="tabular">' + E(r.n ? fmtMin(r.sum / r.n) : '—') + '</td>'
+      + '<td class="tabular">' + E(fmtMin(r.min)) + '</td>'
+      + '<td class="tabular">' + E(fmtMin(r.max)) + '</td>'
+      + '<td class="tabular">' + (r.run ? '<span style="color:var(--good-ink,#0a7a3d);font-weight:700">⏱ ' + r.run + '</span>' : '0') + '</td>'
+      + '<td class="tabular">' + (r.runLate ? '<span style="color:var(--crit,#d03b3b);font-weight:700">⏱ ' + r.runLate + '</span>' : '0') + '</td></tr>';
+  }).join('');
+
+  var recent = data.done.slice().sort(function(a, b){ return T(b.at).localeCompare(T(a.at)); }).slice(0, 100).map(function(d){
+    return '<tr><td class="sub tabular" style="white-space:nowrap">' + E(istTime(d.at)) + '</td>'
+      + '<td><span class="chip c-neutral">' + E(SRC[d.src]) + '</span></td>'
+      + '<td><span class="strong">' + E(d.name || '—') + '</span><div class="sub tabular">' + E(d.id) + '</div></td>'
+      + '<td>' + E(nameOf(d.owner)) + '</td>'
+      + '<td class="tabular">' + E(fmtMin(d.mins)) + '</td>'
+      + '<td>' + resChip(d.ok) + '</td>'
+      + '<td>' + E(d.status.replace(/_/g, ' ')) + '</td>'
+      + '<td class="sub">' + E(d.by && d.by !== d.owner ? nameOf(d.by) : '—') + '</td>'
+      + '<td><button class="btn sm" onclick="ocTrackHistory(\'' + A(d.src) + '\',\'' + A(d.id) + '\')">⏱</button></td></tr>';
+  }).join('');
+
+  content.innerHTML = cards
+    + '<div class="card"><div class="card-head"><h3>Salesperson-wise <small style="font-weight:500;color:var(--muted)">limit ' + lim() + ' min · OK ≥ 80% hara, 50–79% peela, &lt; 50% laal</small></h3>' + tools + '</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Salesperson</th><th>Timer leads</th><th>OK</th><th>Very Low</th><th>OK %</th><th>Avg response</th><th>Fastest</th><th>Slowest</th><th>Chal rahe (time par)</th><th>Chal rahe (late)</th></tr></thead>'
+    + '<tbody>' + (body || '<tr><td colspan="10" class="empty">Is period me abhi koi timer wali lead nahi. Nayi lead assign hote hi yahan ginti shuru ho jaayegi.</td></tr>') + '</tbody></table></div></div>'
+    + '<div class="card" style="margin-top:16px"><div class="card-head"><h3>Har response <small style="font-weight:500;color:var(--muted)">naye pehle · 100 tak</small></h3></div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Kab</th><th>Source</th><th>Lead</th><th>Salesperson</th><th>Response</th><th>Result</th><th>Naya status</th><th>Status kisne badla</th><th></th></tr></thead>'
+    + '<tbody id="rs-body">' + (recent || '<tr><td colspan="9" class="empty">Abhi koi response record nahi.</td></tr>') + '</tbody></table></div></div>';
+
+  var ss = $$('rsSrc'); if(ss) ss.onchange = function(){ window.__rsSrc = ss.value; renderRespSummary(); };
+  try{ if(typeof ocPaginate === 'function') ocPaginate(); }catch(e){}
+};
+window.ocRespPeriod = function(k){ window.__rsPeriod = k; renderRespSummary(); };
+window.ocRespExport = function(){
+  var data = collect(), rows = perPerson(data);
+  var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+  Promise.resolve(pre).then(function(ok){
+    if(ok === false || typeof XLSX === 'undefined') return;
+    var a = rows.map(function(r){ return { 'Salesperson':r.owner ? (nameOf(r.owner) || r.owner) : 'Unassigned', 'Timer Leads':r.n, 'OK':r.ok, 'Very Low':r.low,
+      'OK %':r.n ? Math.round(r.ok / r.n * 100) : '', 'Avg Response (min)':r.n ? Math.round(r.sum / r.n * 10) / 10 : '',
+      'Fastest (min)':r.min == null ? '' : r.min, 'Slowest (min)':r.max == null ? '' : r.max, 'Running On Time':r.run, 'Running Late':r.runLate }; });
+    var b = data.done.map(function(d){ return { 'Time':istTime(d.at), 'Source':SRC[d.src], 'Lead Id':d.id, 'Lead':d.name,
+      'Salesperson':nameOf(d.owner), 'Response (min)':d.mins, 'Result':d.ok ? 'OK' : 'Very Low', 'New Status':d.status, 'Changed By':nameOf(d.by) }; });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(a.length ? a : [{ 'Salesperson':'—' }]), 'Summary');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(b.length ? b : [{ 'Time':'—' }]), 'Responses');
+    XLSX.writeFile(wb, 'OakCraft-lead-response-' + window.__rsPeriod + '-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  });
+};
+
+/* ---------------------------------------------------------------- nav + view */
+try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Lead Response Timer', 'New lead assign hone ke baad ' + lim() + ' min — OK / Very Low, salesperson-wise']; }catch(e){}
+function addNav(){
+  try{
+    var nav = $$('nav'); if(!nav || nav.querySelector('a[data-view="' + VIEW + '"]')) return;
+    var after = nav.querySelector('a[data-view="imTrack"]'); if(!after) return;
+    var a = document.createElement('a');
+    a.setAttribute('data-view', VIEW);
+    a.innerHTML = ((typeof I !== 'undefined' && I.flow) ? I.flow : '') + '<span>Lead Response Timer</span>';
+    a.addEventListener('click', function(){ setView(VIEW); });
+    after.parentNode.insertBefore(a, after.nextSibling);
+  }catch(e){}
+}
+addNav(); [300, 1200, 3000].forEach(function(t){ setTimeout(addNav, t); });
+(function(){
+  var _setView = window.setView;
+  if(typeof _setView !== 'function') return;
+  window.setView = function(v){
+    if(v !== VIEW) return _setView.apply(this, arguments);
+    try{ state.view = VIEW; }catch(e){}
+    try{
+      document.querySelectorAll('.nav a').forEach(function(x){ x.classList.toggle('active', x.dataset.view === VIEW); });
+      var t = $$('pageTitle'), s = $$('pageSub');
+      if(t && t.childNodes[0]) t.childNodes[0].nodeValue = PAGE_META[VIEW][0];
+      if(s) s.textContent = PAGE_META[VIEW][1];
+      var sb = $$('searchBox'); if(sb) sb.style.display = 'none';
+      var qa = $$('quickAdd'); if(qa) qa.style.display = 'none';
+      Object.keys(state.charts || {}).forEach(function(k){ try{ state.charts[k].destroy(); }catch(e){} }); state.charts = {};
+    }catch(e){}
+    try{ localStorage.setItem('oc_lastView', VIEW); }catch(e){}
+    renderRespSummary();
+    try{ content.scrollTop = 0; }catch(e){}
+    try{ if(typeof navOpen === 'function') navOpen(false); }catch(e){}
+    return true;
+  };
+})();
+/* har 30 sec (chal rahe timer late ho jaate hain) + data badalne par taaza */
+setInterval(function(){ try{ if(state && state.view === VIEW && !document.querySelector('#modalBg.show')) renderRespSummary(); }catch(e){} }, 30000);
+(function(){
+  var _set = store.set.bind(store);
+  store.set = function(k, v){ var r = _set(k, v); try{ if((k === 'indiamartLeads' || k === 'metaLeads') && state && state.view === VIEW) setTimeout(renderRespSummary, 100); }catch(e){} return r; };
+})();
+console.log('[oc v47] Lead Response Timer summary');
 })();
 </script>
 

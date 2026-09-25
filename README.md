@@ -567,6 +567,19 @@ se purani rows bahar, aur ek baar ki safai: `previewIndiaMartCleanup()` →
 duplicate rows hataata hai. **Green row kabhi nahi hatti.** Kram: file paste →
 `checkIndiaMartGuard` → *New version Deploy* → preview → clean.
 
+## Lead Response Timer — summary (v47)
+
+Tracking me naya nav item **Lead Response Timer** (IndiaMART Tracking ke neeche):
+
+* Cards: timer par aayi leads, OK, Very Low, OK %, average response, abhi chal rahe timer
+  (time par / late). Bina naam wali New leads "— Unassigned —" row me (sabse neeche).
+* **Salesperson-wise** table: Timer leads · OK · Very Low · OK % (≥ 80% hara, 50–79% peela,
+  < 50% laal) · Avg / Fastest / Slowest response · abhi chal rahe (time par / late).
+* **Har response** ki list (naye pehle, 100 tak): kab, source, lead, salesperson, kitna time,
+  OK / Very Low, naya status, status kisne badla, ⏱ history.
+* Period: Today / This week / This month / All; source: IndiaMART / Meta; Excel (Summary +
+  Responses sheet). Admin ko sab, salesperson ko sirf apna. Har 30 sec taaza.
+
 ## New lead response timer — 10 min (v46)
 
 IndiaMART aur Meta Leads me naya **Timer** column (Status se pehle). Sirf **New / CREATED** leads par:
@@ -581,8 +594,10 @@ IndiaMART aur Meta Leads me naya **Timer** column (Status se pehle). Sirf **New 
   *Very Low (Negative)* — kitne minute, kaunsa status, aur agar status kisi aur ne badla to uska naam.
   Ye `response` line SLA / TAT me nahi ginti.
 * Naam badla (reassign) aur lead abhi New hai to naye salesperson ka timer naye sire se.
-* Bina naam wali New lead: "assign par". **25-09-2026 13:30 IST se pehle** assign hui purani
-  New leads par timer nahi (`RESP_SINCE`) — warna sab laal dikhti. Limit `LIMIT_MIN = 10`.
+* **Purani aur bina naam wali New leads par bhi timer** (v47): `assignedAt` na ho to lead
+  aane ka waqt (IndiaMART `query_time` / Meta `created_time_ist`, IST) — jaise `⏱ −1h 05m` ya
+  `⏱ −2d 4h`, taaki dikhe kitni der se padi hai. Bina naam wali lead ke neeche "unassigned · aane
+  se". Koi apna naam lagaye to uska 10 min naye sire se. Limit `LIMIT_MIN = 10`.
 * `IndiaMartAutoSync.gs`: naam ke saath aayi nayi lead aur sheet se baad me naam bhara gaya
   ho — dono par `assignedAt` likha jaata hai (Apps Script editor me bhi update kiya gaya).
 
