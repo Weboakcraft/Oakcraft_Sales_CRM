@@ -8140,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.6';
+var OC_WEB_BUILD = '2026.09.25.7';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -18018,7 +18018,7 @@ function drawLine(){
     return c.dataset.label + ': ' + (c.dataset.yAxisID === 'y1' ? v : fmtMoney(v));
   } };
   var ln = function(label, data, color, dash, axis){
-    return { label:label, data:data, borderColor:color, backgroundColor:color, yAxisID:axis, tension:.3, spanGaps:false,
+    return { label:label, data:data, borderColor:color, backgroundColor:color, yAxisID:axis, tension:.3, cubicInterpolationMode:'monotone', spanGaps:false,
              borderWidth:dash ? 2 : 2.5, borderDash:dash ? [6, 4] : [], pointRadius:mode === 'week' ? 3 : 0, pointHoverRadius:4 };
   };
   var ch = new Chart(cv, { type:'line', data:{ labels:labels, datasets:[
