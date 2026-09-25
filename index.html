@@ -589,12 +589,16 @@ function setView(v){
 
 /* ---------- Dashboard ---------- */
 function renderDashboard(){
-  const enq=scope(DB.enquiries(), 'enquiries'), quo=scope(DB.quotations(), 'quotations'), ord=scope(DB.orders()), dis=scope(DB.dispatch(), 'dispatch');
+  const enq=scope(DB.enquiries(), 'enquiries'), quo=scope(DB.quotations(), 'quotations'), ord=scope(DB.orders(), 'orders'), dis=scope(DB.dispatch(), 'dispatch');
   const totalEnq=enq.length;
   const won=enq.filter(e=>e.stage==='Won').length;
   const conv=totalEnq? Math.round(won/totalEnq*100):0;
   const openOrders=ord.filter(o=>!['Delivered','Cancelled'].includes(o.status)).length;
-  const revenue=ord.filter(o=>o.status!=='Cancelled').reduce((s,o)=>s+o.amount,0);
+  /* v40: Revenue = Billing Amount incl. 18% GST -- wahi figure jo Orders list me
+     "Billing Amount" column dikhata hai (Math.round(amount x 1.18)). Pehle yahan
+     GST ke bina order value thi, isliye dashboard aur Orders list mel nahi khaate the. */
+  const billOf=o=>Math.round((+o.amount||0)*1.18);
+  const revenue=ord.filter(o=>o.status!=='Cancelled').reduce((s,o)=>s+billOf(o),0);
   const pendingDis=ord.filter(o=>o.status==='Ready'||o.status==='Confirmed'||o.status==='In Production').length;
   const pipelineVal=enq.filter(e=>!['Won','Lost'].includes(e.stage)).reduce((s,e)=>s+(+e.value||0),0);
   /* Real month-over-month deltas (this calendar month vs last month). Earlier these were
@@ -602,7 +606,7 @@ function renderDashboard(){
   const _mk=d=>{ const x=new Date(String(d||'').slice(0,10)+'T00:00:00'); return isNaN(x)?'':x.getFullYear()+'-'+x.getMonth(); };
   const _now=new Date(), _cur=_now.getFullYear()+'-'+_now.getMonth(), _pd=new Date(_now.getFullYear(),_now.getMonth()-1,1), _prev=_pd.getFullYear()+'-'+_pd.getMonth();
   const _cnt=(list,key)=>list.filter(r=>_mk(r.date)===key).length;
-  const _sum=(list,key)=>list.filter(r=>_mk(r.date)===key).reduce((a,o)=>a+(+o.amount||0),0);
+  const _sum=(list,key)=>list.filter(r=>_mk(r.date)===key).reduce((a,o)=>a+billOf(o),0);
   const mom=(cur,prev,pct)=>{ if(!prev&&!cur) return ['','up']; if(!prev) return ['new','up']; const d=cur-prev; if(!d) return ['0'+(pct?'%':''),'up']; return [(d>0?'+':'')+(pct?Math.round(d/prev*100)+'%':d),(d>0?'up':'down')]; };
   const dEnq=mom(_cnt(enq,_cur),_cnt(enq,_prev),true);
   const _convOf=key=>{ const l=enq.filter(r=>_mk(r.date)===key); return l.length?Math.round(l.filter(e=>e.stage==='Won').length/l.length*100):0; };
@@ -622,7 +626,7 @@ function renderDashboard(){
       ${dcard('inbox','rgba(42,120,214,.12)','#2a78d6',totalEnq,'Total Enquiries',dEnq[0],dEnq[1])}
       ${dcard('flow','rgba(27,175,122,.14)','#1baf7a',conv+'%','Conversion Rate',dConv[0],dConv[1])}
       ${dcard('cart','rgba(237,161,0,.14)','#b06a00',openOrders,'Open Orders',dOrd[0],dOrd[1])}
-      ${dcard('money','rgba(12,163,12,.13)','#0ca30c',short(revenue),'Revenue (excl. cancelled)',dRev[0],dRev[1])}
+      ${dcard('money','rgba(12,163,12,.13)','#0ca30c',short(revenue),'Revenue (Billing incl. GST)',dRev[0],dRev[1])}
       ${dcard('truck','rgba(208,59,59,.12)','#d03b3b',pendingDis,'Pending Dispatch','','up')}
     </div>
 
@@ -8112,7 +8116,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.24.8';
+var OC_WEB_BUILD = '2026.09.25.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10498,6 +10502,7 @@ window.ocIndiamartAsEnq = function(){
   imRaw().forEach(function(l){
     if(!l || !l.id) return;
     try{ if(window.ocImHidden && window.ocImHidden(l)) return; }catch(e){}
+    try{ if(window.ocImTooOld && window.ocImTooOld(l)) return; }catch(e){}   /* v40: cut-off se pehle ki nahi */
     var st = S(l.lead_status || l.status).toUpperCase().replace(/[\s\-]+/g, '_');
     out.push({
       id: S(l.id),
@@ -12094,6 +12099,17 @@ function withFilter(rg, fn){
 
   var _get  = store.get;
   var _meta = window.ocMetaAsEnq;
+  /* v40: IndiaMART bhi dashboard me enquiry ki tarah ginta hai, par period
+     filter uspar lagta hi nahi tha -- "Sept" chuno to bhi saari IndiaMART
+     leads Total Enquiries / Conversion / Funnel me aa jaati thin. */
+  var _im = window.ocIndiamartAsEnq;
+  if(typeof _im === 'function'){
+    window.ocIndiamartAsEnq = function(){
+      var a = [];
+      try{ a = _im.apply(this, arguments) || []; }catch(e){ a = []; }
+      return a.filter(function(r){ return inRange('enquiries', r, rg); });
+    };
+  }
   store.get = function(k, def){
     var v = _get.apply(store, arguments);
     if(FILTERED.indexOf(k) < 0 || !Array.isArray(v)) return v;
@@ -12110,6 +12126,7 @@ function withFilter(rg, fn){
   finally{
     store.get = _get;
     if(typeof _meta === 'function') window.ocMetaAsEnq = _meta;
+    if(typeof _im === 'function') window.ocIndiamartAsEnq = _im;
   }
 }
 
@@ -14017,10 +14034,43 @@ window.ocLeadStatusLabel    = statusLabel;
 window.ocLeadStatusChip     = statusChipClass;
 
 /* ---------------------------------------------------------------- 2. store */
+/* IndiaMART ka data SIRF is waqt ke BAAD ka (query_time > START_AFTER).
+   Yahi niyam Apps Script me IMS_START_AFTER hai -- dono ek jaisa rakhiye.
+   Pehle ye rule sirf import par tha, app me nahi: jo purani (April-Aug)
+   rows sheet me wapas aa gayin wo users ko dikhti rahin aur admin ka
+   browser unke bojh se bhar gaya. Ab app bhi inhe na dikhata hai, na
+   rakhta hai, na sheet par wapas bhejta hai. */
+var START_AFTER = '31-08-2026 22:38:08';
+window.OC_IM_START_AFTER = START_AFTER;
+function tooOld(l){
+  if(!l) return false;
+  var k = timeKey(normTime(l.query_time));
+  return !!k && k <= timeKey(START_AFTER);
+}
+window.ocImTooOld = tooOld;
 function imAll(){
-  try{ var a = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(a) ? a : []; }
+  try{
+    var a = JSON.parse(localStorage.getItem(KEY) || '[]');
+    return Array.isArray(a) ? a.filter(function(l){ return !tooOld(l); }) : [];
+  }
   catch(e){ return []; }
 }
+/* local copy se purani rows hamesha ke liye hata do (jagah bhi khaali hoti hai) */
+function pruneOld(){
+  try{
+    var raw = JSON.parse(localStorage.getItem(KEY) || '[]');
+    if(!Array.isArray(raw)) return 0;
+    var keep = raw.filter(function(l){ return !tooOld(l); });
+    var n = raw.length - keep.length;
+    if(n){
+      localStorage.setItem(KEY, JSON.stringify(keep));
+      console.log('[oc v40] indiamartLeads: ' + n + ' purani row (' + START_AFTER + ' se pehle ki) is device se hatayi');
+    }
+    return n;
+  }catch(e){ return 0; }
+}
+window.ocImPruneOld = pruneOld;
+pruneOld();
 function imSave(arr){
   try{ store.set(KEY, arr); }
   catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(arr)); }catch(x){} }
@@ -15007,6 +15057,7 @@ try{
     CLOUD.pull = function(){
       var self = this;
       return Promise.resolve(_pullIM.apply(self, arguments)).then(function(r){
+        try{ pruneOld(); }catch(e){}
         try{
           if(state && state.view === VIEW && !(window.__ocUserTyping && window.__ocUserTyping())) renderIndiamart();
           if(typeof refreshBadges === 'function') refreshBadges();
@@ -15781,6 +15832,28 @@ window.ocLeadPending = function(){
    ki gayi row dobara upload na ho, aur snapshot bhi wahi maan lete hain --
    isse app khulte hi poora collection bina wajah sheet par nahi likha jaata.
    (Jo row sach me pending thi wo PEND queue me hai, wo phir bhi jaayegi.) */
+/* v40: jo row is device par hai hi nahi, uska snapshot / pending rakhne ka
+   koi matlab nahi -- sirf browser ki jagah khaata hai. Jagah bhar jaane par
+   (QuotaExceeded) naya data save hi nahi hota tha aur pending queue kabhi
+   khaali nahi hoti thi -- wahi 2347 rows har 2 minute sheet par jaati rahin. */
+window.ocLeadForget = function(coll, ids){
+  if(COLLS.indexOf(coll) < 0 || !ids || !ids.length) return;
+  var s = snap(), sm = s[coll] || {}, p = pend(), pm = p[coll] || {}, ch = false;
+  ids.forEach(function(id){
+    id = T(id);
+    if(sm[id] !== undefined){ delete sm[id]; ch = true; }
+    if(pm[id] !== undefined){ delete pm[id]; ch = true; }
+  });
+  if(ch){ s[coll] = sm; p[coll] = pm; P(SNAP, s); P(PEND, p); }
+};
+COLLS.forEach(function(c){
+  try{
+    var have = {}; arrOf(c).forEach(function(r){ if(r && r.id) have[T(r.id)] = 1; });
+    var gone = Object.keys(snapFor(c)).concat(Object.keys(pendFor(c))).filter(function(id){ return !have[id]; });
+    if(gone.length) window.ocLeadForget(c, gone);
+  }catch(e){}
+});
+
 COLLS.forEach(function(c){
   try{
     var rows = arrOf(c);
@@ -15834,15 +15907,37 @@ function sendChanged(coll, arr, force){
   var pendingNow = {}, i;
   pendIds(coll).forEach(function(id){ pendingNow[id] = 1; });
 
+  /* v40 (sirf IndiaMART): server ki list ek baar aa jaane se pehle kuch mat
+     bhejo -- warna purani cached copy (jo sheet se hata di gayi thi) boot
+     hote hi wapas sheet par chali jaati hai. Server list aate hi v34 merge
+     khud flush bula deta hai. */
+  if(coll === 'indiamartLeads' && !window.__ocImServerSeen) return Promise.resolve(true);
+  var imKey = (coll === 'indiamartLeads') ? (window.__ocImServerKeys || null) : null;
+  var dropIds = [];
+
   var out = [], skipped = 0, cosmetic = 0;
   for(i = 0; i < arr.length; i++){
     var o = arr[i];
     if(!o || !o.id) continue;
     var id = T(o.id), js = JSON.stringify(o);
+    if(coll === 'indiamartLeads'){
+      /* 31/08/2026 22:38:08 se pehle ki lead kabhi sheet par nahi jaati */
+      try{ if(window.ocImTooOld && window.ocImTooOld(o)){ dropIds.push(id); continue; } }catch(e){}
+      /* server par wahi mobile + wahi time ki lead doosri id se pehle se hai
+         -> ye purani duplicate copy hai, bhejni nahi */
+      if(imKey){
+        var dk = T(o.sender_mobile || o.mobile || o.phone).replace(/\D/g, '').slice(-10) + '|' + T(o.query_time).replace(/\D/g, '');
+        if(imKey[dk] && imKey[dk] !== id){ dropIds.push(id); continue; }
+      }
+    }
     if(was[id] === js && !pendingNow[id] && !force) continue;   /* bilkul wahi hai jo sheet par hai */
     if(!mayWrite(o, coll)){ skipped++; continue; }              /* doosre ki row — kabhi mat chhuo */
     if(was[id] && !pendingNow[id] && !force && !realChange(o, was[id])){ cosmetic++; continue; }
     out.push({ id:id, js:js, rec:o });
+  }
+  if(dropIds.length){
+    try{ window.ocLeadForget(coll, dropIds); }catch(e){}
+    console.log('[oc v40] ' + dropIds.length + ' ' + coll + ' row(s) purani / duplicate thin — sheet par NAHI bheji');
   }
   if(cosmetic) console.log('[oc v32] ' + cosmetic + ' ' + coll + ' row(s) me sirf normalise ka farak tha — sheet par nahi bheji');
   if(skipped) console.log('[oc v32] ' + skipped + ' ' + coll + ' row(s) doosre user ki hain — chhui nahi gayin');
@@ -16302,7 +16397,44 @@ function askServer(coll){
 }
 
 /* ---------------------------------------------------------------- 3. merge */
+/* v40 -- IndiaMART ki server list ko saaf karo, merge se PEHLE:
+     1. 31/08/2026 22:38:08 se pehle ki rows bahar (ocImTooOld)
+     2. ek hi mobile + ek hi query_time ki do copy ho to ek hi rakho --
+        jiske paas enquiry_no hai (asli sync wali), warna jispar kaam hua
+   Jo bahar hui unki id `drop` me aati hai, taaki local copy bhi hat jaaye. */
+function imKeyOf(r){
+  var p = T(r && (r.sender_mobile || r.mobile || r.phone)).replace(/\D/g, '').slice(-10);
+  var t = T(r && r.query_time).replace(/\D/g, '');
+  return (p && t) ? (p + '|' + t) : '';
+}
+function imClean(rows){
+  var drop = {}, keep = [], byKey = {}, old = 0, dup = 0;
+  rows.forEach(function(r){
+    try{ if(window.ocImTooOld && window.ocImTooOld(r)){ drop[T(r.id)] = 1; old++; return; } }catch(e){}
+    var k = imKeyOf(r);
+    if(!k){ keep.push(r); return; }
+    var cur = byKey[k];
+    if(!cur){ byKey[k] = r; keep.push(r); return; }
+    var better = (!!T(r.enquiry_no).trim() !== !!T(cur.enquiry_no).trim())
+               ? !!T(r.enquiry_no).trim()
+               : (stampOf(r) > stampOf(cur));
+    dup++;
+    if(better){ drop[T(cur.id)] = 1; keep[keep.indexOf(cur)] = r; byKey[k] = r; }
+    else drop[T(r.id)] = 1;
+  });
+  var keys = {};
+  keep.forEach(function(r){ var k = imKeyOf(r); if(k) keys[k] = T(r.id); });
+  if(old || dup) console.log('[oc v40] indiamartLeads: server ki ' + old + ' purani + ' + dup + ' duplicate row chhodi (sheet me abhi bhi hain — cleanIndiaMartLeads() se saaf hongi)');
+  return { rows: keep, drop: drop, keys: keys };
+}
+
 function merge(coll, rows){
+  var imDrop = {}, imKeys = null;
+  if(coll === 'indiamartLeads'){
+    var cl = imClean(rows);
+    rows = cl.rows; imDrop = cl.drop; imKeys = cl.keys;
+    window.__ocImServerKeys = imKeys;
+  }
   var local = arrOf(coll), byId = {}, i;
   for(i = 0; i < local.length; i++) if(local[i] && local[i].id) byId[T(local[i].id)] = local[i];
 
@@ -16359,21 +16491,54 @@ function merge(coll, rows){
      Nahi hataate jab: row push hone ka intezaar kar rahi ho, ya abhi-abhi
      bani ho, ya hamare apne naam par ho aur hamari copy server se nayi ho
      (yaani hamara claim abhi raaste me hai). */
-  var me2 = myMail();
+  var me2 = myMail(), forget = [];
+  var isIM = (coll === 'indiamartLeads');
   local.forEach(function(loc){
     var id = T(loc && loc.id);
     if(!id || seenId[id]) return;
+    if(isIM){
+      /* v40: purani (cut-off se pehle) ya server ne duplicate maan kar chhodi */
+      var bad = !!imDrop[id];
+      try{ if(!bad && window.ocImTooOld && window.ocImTooOld(loc)) bad = true; }catch(e){}
+      if(!bad && imKeys){ var k = imKeyOf(loc); if(k && imKeys[k] && imKeys[k] !== id) bad = true; }
+      if(bad){ removed++; forget.push(id); return; }
+    }
     if(pend[id] || tooFresh(loc)){ out.push(loc); return; }
     if(srvSaw[id]){
       if(ownLoc(loc) && ownLoc(loc) === me2){ out.push(loc); return; }   /* apna claim, abhi push hona baaki */
       removed++; return;                                                /* (a) */
     }
     if(!ownLoc(loc)){ removed++; return; }                              /* (b) */
+    /* v40 (IndiaMART): server ki list hi sach hai. Jo row server par nahi hai
+       aur push bhi baaki nahi -- wo sheet se hata di gayi thi. Pehle aisi row
+       (agar kisi ke naam par ho) hamesha ke liye device par rehti thi aur
+       mauka milte hi sheet par wapas chali jaati thi. */
+    if(isIM && rows.length){ removed++; forget.push(id); return; }
     out.push(loc);
   });
+  if(forget.length){ try{ if(window.ocLeadForget) window.ocLeadForget(coll, forget); }catch(e){} }
+
+  if(isIM && !window.__ocImServerSeen){
+    window.__ocImServerSeen = true;
+    /* ab jo sach me badla hai wahi jaayega (sendChanged is flag ka intezaar karta hai) */
+    setTimeout(function(){ try{ if(window.ocFlushLeadSync) window.ocFlushLeadSync(); }catch(e){} }, 1500);
+  }
 
   if(!added && !updated && !removed) return 0;
-  try{ localStorage.setItem(coll, JSON.stringify(out)); }catch(e){ return 0; }
+  var js = JSON.stringify(out);
+  try{ localStorage.setItem(coll, js); }
+  catch(e){
+    /* Browser ki jagah bhar gayi. Pehle ye chupchaap `return 0` tha -- isi
+       wajah se admin ki list kal par atki rahi aur kisi ko pata nahi chala.
+       (Snapshot jaan-boojh kar nahi hataate: uske bina guard poori collection
+       ko "badli hui" maan kar sheet par bhej deta.) */
+    console.warn('[oc v40] ' + coll + ': browser storage full — server ka naya data save nahi hua', e);
+    if(!merge.__warned){
+      merge.__warned = true;
+      try{ toast('Browser storage full hai — ' + coll + ' ka naya data save nahi ho pa raha.'); }catch(x){}
+    }
+    return 0;
+  }
   console.log('[oc v34] ' + coll + ': ' + added + ' nayi + ' + updated + ' updated'
             + (removed ? ' + ' + removed + ' hatayi (ab kisi aur ki hain)' : '') + ' row server se aayin');
   return added + updated + removed;
@@ -16493,6 +16658,9 @@ try{
 }catch(e){}
 
 [2500, 12000].forEach(function(ms){ setTimeout(function(){ WATCH.forEach(function(k){ pull(k, false); }); }, ms); });
+/* server 90 sec tak jawab hi na de to IndiaMART ke push hamesha ke liye na
+   ruke rahen (purani/duplicate rows ka pehra sendChanged me phir bhi lagta hai) */
+setTimeout(function(){ if(!window.__ocImServerSeen){ window.__ocImServerSeen = true; try{ if(window.ocFlushLeadSync) window.ocFlushLeadSync(); }catch(e){} } }, 90000);
 
 console.log('[oc v34] collection fallback fetch active (' + WATCH.join(', ') + ')');
 })();

@@ -531,6 +531,54 @@ status/owner filter hata kar chalate hain, isliye **date-range, platform aur
 search** to lagte hain (ginti wahi dikhti hai jo "Showing: …" keh raha hai) par
 card wala filter nahi — warna ek card dabate hi baaki sab `0` ho jaate.
 
+## IndiaMART — sirf 31/08/2026 22:38:08 ke baad ka data (v40)
+
+**Niyam:** IndiaMART me sirf wo leads jinka `query_time` **31/08/2026 22:38:08 ke
+baad** ka hai. Pehle ye niyam sirf Apps Script ke *import* (`IMS_START_AFTER`) par
+tha — CRM app aur web app (doPost) par nahi. Ab teeno jagah hai.
+
+**25-09-2026 ki jaanch — kya bigda tha:**
+
+| Kya dikha | Asli wajah |
+|---|---|
+| Backend `indiamartLeads` me 2,648 rows, sahi sirf 301 (green) | 2,073 rows cut-off se pehle ki + 274 green rows ki duplicate copy (same mobile + time, bina `enquiry_no`) |
+| `audit` me 10:21 se har 1–2 min `saveMany 2347 records` (mis@oakcraft.in) | Ek browser ki purani cached copy. Uska storage full tha, isliye push "confirm" hona save nahi hota tha aur har 2 min wahi 2347 rows dobara sheet par jaati thin |
+| Admin ko 296, list kal 17:48 par atki | Admin browser ka storage full (QuotaExceeded) — server ki 2,648 rows save nahi hui, v34 merge chupchaap `return 0` |
+| Users ko 493 / 603 (April–Aug bhi) | Unke browser me jagah thi, to server ka poora purana data dikh gaya — app me cut-off tha hi nahi |
+| Dashboard Sept me 1073+ enquiries | Period filter Meta par lagta tha, IndiaMART par nahi |
+
+**App (index.html, build `2026.09.25.1`):**
+
+* `ocImTooOld()` / `OC_IM_START_AFTER` — cut-off se pehle ki lead na list, na KPI,
+  na badge, na dashboard, na Qualified; boot par aur har pull ke baad device se hat
+  jaati hai (`ocImPruneOld`).
+* v34 merge server list ko pehle saaf karta hai: purani rows bahar, aur ek hi
+  mobile + time ki do copy ho to `enquiry_no` wali rakhi jaati hai.
+* Jo IndiaMART row server par nahi hai aur push baaki nahi — wo device se hat jaati
+  hai (pehle kisi ke naam wali row hamesha ke liye rehti thi aur wapas sheet par jaati thi).
+* Server list aane se pehle IndiaMART ka koi push nahi; purani / duplicate row kabhi push
+  nahi hoti; unka pending + snapshot bhi saaf (`ocLeadForget`) taaki browser ki jagah khaali ho.
+* Storage full ho to ab toast + console warning, chupchaap nahi.
+
+**Backend (`apps-script/CodeGs_IndiaMartGuard.gs`):** `_upsertMany` / `_upsert`
+par pehra (purani ya nayi-duplicate IndiaMART row likhi hi nahi jaati), `_readAll`
+se purani rows bahar, aur ek baar ki safai: `previewIndiaMartCleanup()` →
+`cleanIndiaMartLeads()` — backup tab banata hai aur **sirf non-green** purani /
+duplicate rows hataata hai. **Green row kabhi nahi hatti.** Kram: file paste →
+`checkIndiaMartGuard` → *New version Deploy* → preview → clean.
+
+## Dashboard Revenue = Billing incl. GST (v40)
+
+* **Revenue card** ab `Math.round(amount × 1.18)` ka jod hai (cancelled chhod kar) —
+  wahi figure jo Orders list ka *Billing Amount* column dikhata hai. Label:
+  *Revenue (Billing incl. GST)*. Pehle GST ke bina order value thi, isliye dashboard
+  aur Orders list mel nahi khaate the. Month-over-month delta bhi isi par.
+* `renderDashboard` `scope(DB.orders())` ko collection ke bina bulata tha, isliye
+  **Sales Manager** ko dashboard par sirf apne orders ka revenue dikhta tha (Orders
+  section me sab). Ab `scope(DB.orders(), 'orders')`.
+* Dashboard ka period filter ab IndiaMART leads par bhi lagta hai (Total Enquiries,
+  Conversion, Funnel, Sources).
+
 ## IndiaMART — sheet se apne aap leads (auto sync)
 
 `apps-script/IndiaMartAutoSync.gs` IndiaMART waali Google Sheet ke **`Indiamart_crm`** tab se
