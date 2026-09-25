@@ -269,7 +269,7 @@ td .sub{color:var(--muted);font-size:12px}
       <div class="nav-label">Sales Pipeline</div>
       <a data-view="enquiries" data-icon="inbox"><span>Enquiries</span><span class="badge" id="nb-enq">0</span></a>
       <a data-view="qualified" data-icon="flow"><span>Qualified</span><span class="badge" id="nb-qual">0</span></a>
-      <a data-view="pipeline" data-icon="flow"><span>Pipeline Board</span></a>
+      <a data-view="followups" data-icon="flow"><span>Follow-ups</span><span class="badge" id="nb-fu">0</span></a>
       <a data-view="indiamart" data-icon="inbox"><span>IndiaMART</span><span class="badge" id="nb-im">0</span></a>
       <a data-view="metaLeads" data-icon="flow"><span>Meta Leads</span><span class="badge" id="nb-meta">0</span></a>
       <a data-view="quotations" data-icon="doc"><span>Quotations</span><span class="badge" id="nb-quo">0</span></a>
@@ -3047,7 +3047,7 @@ function bindAppEvents(){
 
     var bar = '<div class="ml-bar">'
       + '<input class="ml-s" id="mlSearch" placeholder="Search naam / phone / city / campaign\u2026" value="' + esc(window.__mlQ || '') + '">'
-      + '<button class="btn" onclick="ML.importBox()">Import from Meta</button>'
+      + (admin ? '<button class="btn" onclick="ML.importBox()">Import from Meta</button>' : '')
       + (admin ? '<button class="btn" onclick="ML.stageBox()">Stages</button>' : '')
       + '</div>';
 
@@ -6241,10 +6241,12 @@ console.log('[oc v7] row-safe save active');
     return _lc(p);
   }
 
-  function statusCode(s){ return String(s == null ? '' : s).trim().toUpperCase().replace(/\s+/g, '_'); }
+  /* v42: '-' bhi '_' banta hai, taaki stage 'Follow-up' <-> status FOLLOW_UP */
+  function statusCode(s){ return String(s == null ? '' : s).trim().toUpperCase().replace(/[\s\-]+/g, '_'); }
   var STATUS_STAGE = {
     CREATED:'New', NEW:'New', OPEN:'New', FRESH:'New',
-    CONTACTED:'Contacted', FOLLOW_UP:'Contacted', FOLLOWUP:'Contacted', CALLED:'Contacted',
+    CONTACTED:'Contacted', CALLED:'Contacted',
+    FOLLOW_UP:'Follow-up', FOLLOWUP:'Follow-up',
     QUALIFIED:'Qualified', INTERESTED:'Qualified',
     PROPOSAL:'Proposal', QUOTED:'Proposal', QUOTATION:'Proposal',
     WON:'Won', CONVERTED:'Won', CLOSED_WON:'Won',
@@ -6269,7 +6271,7 @@ console.log('[oc v7] row-safe save active');
     var seen = {}, out = [];
     function add(s){ s = statusCode(s); if(s && !seen[s]){ seen[s] = 1; out.push(s); } }
     metaCfg().stages.forEach(function(s){ add(stageToStatus(s)); });
-    ['CREATED','CONTACTED','QUALIFIED','PROPOSAL','WON','LOST'].forEach(add);
+    ['CREATED','CONTACTED','FOLLOW_UP','QUALIFIED','PROPOSAL','WON','LOST'].forEach(add);
     mlAll().forEach(function(l){ add(l && l.lead_status); });
     _memo.so = out;
     return out;
@@ -6544,11 +6546,12 @@ console.log('[oc v7] row-safe save active');
           + leadRoster(window.__mlFilt.owner).map(function(u){
               return '<option value="' + esc(u.email) + '"' + (_lc(window.__mlFilt.owner) === _lc(u.email) ? ' selected' : '') + '>' + esc(u.name || u.email) + '</option>';
             }).join('') + '</select>' : '')
-      + '<button class="btn primary" onclick="ML.bulkBox()">⬆ Bulk Upload</button>'
+      /* v42: Bulk Upload / Import from Meta / Stages / Sync -- sirf admin */
+      + (admin ? '<button class="btn primary" onclick="ML.bulkBox()">⬆ Bulk Upload</button>' : '')
       /* "+ Add Lead" hata diya gaya: Meta leads apne aap aati hain (MetaAutoSync + Bulk
          Upload). Manually lead banane ki zarurat nahi thi aur usse duplicate bante the.
          Edit ab bhi chalta hai -- ML.form(id) waise ka waisa hai. */
-      + '<button class="btn" onclick="ML.importBox()">Import from Meta</button>'
+      + (admin ? '<button class="btn" onclick="ML.importBox()">Import from Meta</button>' : '')
       + '<button class="btn" onclick="ML.exportSheet()">Export</button>'
       + (admin ? '<button class="btn" onclick="ML.stageBox()">Stages</button>' : '')
       + (admin ? '<button class="btn" onclick="ML.syncSheet()">Sync to Sheet</button>' : '')
@@ -6879,6 +6882,7 @@ console.log('[oc v7] row-safe save active');
     var v = function(x){ var e = document.getElementById(x); return e ? String(e.value).trim() : ''; };
     var rec = id ? findLead(arr, id) : null;
     var isNew = !rec;
+    ML.__fromStatus = rec ? rec.lead_status : null;
     if(isNew) rec = { id: mlId(), source:'Meta', createdAt: new Date().toISOString().slice(0, 10) };
 
     rec.full_name        = v('mlName');
@@ -6904,9 +6908,28 @@ console.log('[oc v7] row-safe save active');
     if(admin){ rec.owner = _lc(v('mlOwner')); rec.assigned_to = rec.owner ? nameOf(rec.owner) : ''; }
     else if(!rec.owner){ rec.owner = meEmail(); rec.assigned_to = nameOf(rec.owner); }
 
+    var fromSt = isNew ? '' : statusCode(ML.__fromStatus != null ? ML.__fromStatus : '');
+    if(!isNew && fromSt && fromSt !== rec.lead_status) rec.statusUpdatedAt = rec.updatedAt;   /* v42 */
     mlNorm(rec);
     if(isNew) arr.unshift(rec);
     mlSave(arr);
+    /* v42: edit form ka remark history me (status badla ho ya wahi raha ho) */
+    try{
+      if(!isNew && typeof window.ocLogChange === 'function'){
+        var rem = '';
+        try{ if(typeof window.ocTakePend === 'function') rem = window.ocTakePend('metaLeads', rec.id, rec.lead_status) || ''; }catch(e){}
+        if(fromSt && fromSt !== rec.lead_status){
+          window.ocLogChange({ coll:'metaLeads', recId:rec.id, recName:(rec.full_name || rec.phone_number), field:'status',
+                               from:fromSt, to:rec.lead_status, remark:rem, owner:rec.owner, sp:rec.assigned_to,
+                               createdAt:rec.createdAt || rec.created_time || '' });
+        } else if(rem){
+          window.ocLogChange({ coll:'metaLeads', recId:rec.id, recName:(rec.full_name || rec.phone_number), field:'update',
+                               from:rec.lead_status, to:rec.lead_status, remark:rem, owner:rec.owner, sp:rec.assigned_to,
+                               createdAt:rec.createdAt || rec.created_time || '' });
+        }
+      }
+    }catch(e){}
+    ML.__fromStatus = null;
     closeModal();
     toast(isNew ? 'Lead add ho gaya' : 'Lead update ho gaya');
     renderMetaLeads();
@@ -7845,7 +7868,7 @@ window.paintEnq = function(){
 /* ====================================================================== *
  * 5. PIPELINE BOARD — drag & drop + move buttons + click to edit          *
  * ====================================================================== */
-var PIPE_STAGES = ['New','Contacted','Qualified','System Master','Quoted','Won','Lost'];
+var PIPE_STAGES = ['New','Contacted','Follow-up','Qualified','System Master','Quoted','Won','Lost'];
 /* v31: 'System Master' Qualified section ka ek sub-status hai ('Quoted' = Quotation Sent).
    PIPE_STAGES is block ke andar band tha, isliye use bahar bhi de dete hain — Qualified
    section aur baaki naye module isi ek hi list ko maanein. */
@@ -8117,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.2';
+var OC_WEB_BUILD = '2026.09.25.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10486,7 +10509,7 @@ function imRaw(){
    conversion rate isi stage par chalte hain, isliye naam wahi rakhe hain jo
    PIPE_STAGES me hain. */
 var IM_STAGE = {
-  CREATED: 'New', CONTACTED: 'Contacted', QUALIFIED: 'Qualified',
+  CREATED: 'New', CONTACTED: 'Contacted', FOLLOW_UP: 'Follow-up', QUALIFIED: 'Qualified',
   /* Not Qualified ek band ho chuki lead hai. Ise 'New' ginte to dashboard ke
      funnel me 100+ mari hui leads "abhi kaam baaki hai" dikhtin. */
   NOT_QUALIFIED: 'Lost',
@@ -10800,7 +10823,7 @@ function logChange(o){
     var ts     = nowISO();
     var prevTs = lastStageTs(coll, recId, o.createdAt);
     var hrs    = prevTs ? hoursBetween(prevTs, ts) : null;
-    var sla    = (o.field === 'created') ? null : slaFor(coll, o.from);
+    var sla    = (o.field === 'created' || o.field === 'update') ? null : slaFor(coll, o.from);   /* v42: same-stage update par SLA nahi */
     var late   = (hrs != null && sla != null && hrs > sla);
     var row = {
       id: newActId(),
@@ -10861,6 +10884,7 @@ function ensureRemarkModal(){
     +     '<textarea id="oc-rem-text" rows="3" placeholder="Why is this being changed? (at least 3 characters)" '
     +       'style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border,#dde3ee);border-radius:9px;font:inherit;background:var(--surface-2,#f7f9fc);color:inherit"></textarea>'
     +     '<div id="oc-rem-qual"></div>'
+    +     '<div id="oc-rem-fu"></div>'
     +     '<div id="oc-rem-err" style="display:none;color:var(--crit,#d03b3b);font-size:12px;margin-top:6px"></div>'
     +     '<div class="sub" style="font-size:11px;color:var(--muted,#7a869a);margin-top:8px">'
     +       'This reason is saved in the history permanently, with your name and the time.</div>'
@@ -10881,6 +10905,7 @@ var REM_CANCEL = null;             /* Cancel dabane par bulane wala callback */
    OCQ (v36) ke paas hai, taaki IndiaMART wale modal me bhi wahi list aur
    wahi niyam chale. */
 var REM_QUAL = null;               /* { coll, id } jab sawaal dikhane hain */
+var REM_FU = false;                /* v42: Follow-up date maangni hai? */
 function askRemark(info, cb){
   var w = ensureRemarkModal();
   REM_CB = cb;
@@ -10889,6 +10914,21 @@ function askRemark(info, cb){
   $$('oc-rem-sub').textContent   = info.sub || '';
   var t = $$('oc-rem-text'); t.value = '';
   $$('oc-rem-err').style.display = 'none';
+
+  /* v42: Follow-up par agli follow-up ki date bhi isi modal me (zaroori) */
+  REM_FU = !!info.fu;
+  var fb = $$('oc-rem-fu');
+  if(fb){
+    if(REM_FU){
+      var tmr = new Date(); tmr.setDate(tmr.getDate() + 1);
+      var iso = function(d){ return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); };
+      var cur = TR(info.fuDate) || iso(tmr);
+      fb.innerHTML = '<label class="lbl" style="display:block;font-size:11.5px;font-weight:600;margin-top:12px">Next follow-up date '
+        + '<span style="color:var(--crit,#d03b3b)">*</span></label>'
+        + '<input type="date" id="oc-rem-fudate" min="' + iso(new Date()) + '" value="' + cur + '" '
+        + 'style="width:100%;margin-top:6px;padding:8px 10px;border:1px solid var(--border,#dde3ee);border-radius:9px;font:inherit;background:var(--surface-2,#f7f9fc);color:inherit">';
+    } else fb.innerHTML = '';
+  }
 
   REM_QUAL = null;
   var box = $$('oc-rem-qual');
@@ -10908,8 +10948,9 @@ function askRemark(info, cb){
 function closeRemark(){
   var w = $$('oc-rem-wrap'); if(w) w.style.display = 'none';
   var onC = REM_CANCEL;
-  REM_CB = null; REM_QUAL = null; REM_CANCEL = null;
+  REM_CB = null; REM_QUAL = null; REM_CANCEL = null; REM_FU = false;
   var q = $$('oc-rem-qual'); if(q) q.innerHTML = '';
+  var fq = $$('oc-rem-fu'); if(fq) fq.innerHTML = '';
   /* Save wale raaste par ye pehle hi null kar diya jaata hai, isliye yahan
      sirf Cancel / Escape par chalta hai. */
   if(onC){ try{ onC(); }catch(e){} }
@@ -10937,9 +10978,20 @@ document.addEventListener('click', function(ev){
       }
       ans = r.ans;
     }
+    /* v42: Follow-up ki date */
+    var extra = {};
+    if(REM_FU){
+      var fd = $$('oc-rem-fudate'), dv = TR(fd && fd.value);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(dv)){
+        er.textContent = 'Next follow-up date chuniye.'; er.style.display = '';
+        try{ fd.focus(); }catch(e){}
+        return;
+      }
+      extra.fuDate = dv;
+    }
     var cb = REM_CB; REM_CANCEL = null; closeRemark();
     if(qual && ans){ try{ OCQ.write(qual.coll, qual.id, ans); }catch(e){} }
-    if(typeof cb === 'function') cb(v);
+    if(typeof cb === 'function') cb(v, extra);
   }
 });
 document.addEventListener('keydown', function(ev){
@@ -10983,12 +11035,59 @@ function gate(coll, recId, to, info, proceed){
   try{
     if(TR(to).toUpperCase().replace(/[\s\-]+/g, '_') === 'QUALIFIED') info.qual = { coll:coll, id:recId };
   }catch(e){}
-  askRemark(info, function(rem){
+  /* v42: Follow-up -> agli date bhi maango, aur record par likho */
+  var isFu = (TR(to).toUpperCase().replace(/[\s\-]+/g, '_') === 'FOLLOW_UP');
+  if(isFu){
+    info.fu = true;
+    try{ var cr = fuRec(coll, recId); if(cr && cr.followUpDate && cr.followUpDate >= fuToday()) info.fuDate = cr.followUpDate; }catch(e){}
+  }
+  askRemark(info, function(rem, extra){
+    var fd = isFu && extra && extra.fuDate;
+    if(fd){
+      rem = '[Next follow-up: ' + fuPretty(fd) + '] ' + rem;
+      fuWrite(coll, recId, fd, rem);
+    }
     PEND = { key: pendKey(coll, recId, to), remark: rem };
     proceed();
+    /* status badalne wala function record ko apni copy se dobara likh
+       sakta hai -- date wahan na pahunchi ho to dobara laga do */
+    if(fd){ try{ var chk = fuRec(coll, recId); if(chk && chk.followUpDate !== fd) fuWrite(coll, recId, fd, rem); }catch(e){} }
   });
   return undefined;
 }
+
+/* ---------------------------------------------------------------- v42 follow-up helpers */
+function fuToday(){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function fuPretty(iso){ var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(iso)); return m ? (m[3] + '/' + m[2] + '/' + m[1]) : T(iso); }
+function fuArr(coll){
+  if(coll === 'enquiries'){ try{ return DB.enquiries() || []; }catch(e){ return []; } }
+  try{ var a = JSON.parse(localStorage.getItem(coll) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+function fuRec(coll, id){
+  var a = fuArr(coll);
+  for(var i = 0; i < a.length; i++) if(a[i] && T(a[i].id) === T(id)) return a[i];
+  return null;
+}
+/* record par follow-up ki date + aakhri remark likho (enquiries / IndiaMART / Meta) */
+function fuWrite(coll, id, date, note){
+  try{
+    var arr = fuArr(coll), r = null;
+    for(var i = 0; i < arr.length; i++) if(arr[i] && T(arr[i].id) === T(id)){ r = arr[i]; break; }
+    if(!r) return false;
+    var now = nowISO();
+    r.followUpDate = date;
+    r.followUpNote = TR(note);
+    r.followUpAt   = now;
+    r.followUpBy   = meMail();
+    r.updatedAt    = now;
+    if(coll === 'enquiries') DB.save('enquiries', arr);
+    else store.set(coll, arr);
+    return true;
+  }catch(e){ console.warn('[oc v42] fuWrite', e); return false; }
+}
+window.ocFuWrite = fuWrite;
+window.ocFuToday = fuToday;
+window.ocFuPretty = fuPretty;
 
 /* Ye teen baahar bhi chahiye: IndiaMART ka IM.setStatus is script block ke
    BAAD bana hai, isliye wo `gate` ko seedha nahi dekh sakta. */
@@ -11066,16 +11165,29 @@ function byId(arr, id){ return (arr || []).filter(function(x){ return x && T(x.i
     var sel = $$('m-stage');
     if(!e || !sel) return _orig.apply(self, args);
     var from = TR(e.stage), to = TR(sel.value);
-    if(!to || from === to) return _orig.apply(self, args);
+    if(!to) return _orig.apply(self, args);
+    /* v42: stage wahi rahe tab bhi edit par remark maango (history me 'update') */
+    var same = (from === to);
+    /* pehle zaroori fields jaancho -- warna remark likhne ke baad pata chalta ki form adhoora hai */
+    try{
+      if(typeof window.ocReqMissing === 'function' && $$('m-cust')){
+        var miss = window.ocReqMissing('enquiry', { prev:(e && e.custom) || {}, skipFiles:false });
+        if(miss && miss.length){ if(typeof window.ocReqReport === 'function') window.ocReqReport(miss); return; }
+      }
+    }catch(vx){}
     return gate('enquiries', id, to, {
-      title: 'Enquiry stage: ' + from + ' → ' + to,
+      title: same ? ('Enquiry update — stage: ' + to) : ('Enquiry stage: ' + from + ' → ' + to),
       sub: TR(e.customer) + '  ·  ' + T(id)
     }, function(){
       var rem = takePend('enquiries', id, to);
       var r = _orig.apply(self, args);
       var after = byId(enqArrX(), id);
-      if(after && TR(after.stage) === to){
-        logChange({ coll:'enquiries', recId:id, recName:after.customer, field:'stage',
+      /* v42: stage wahi hai to save hua ya nahi, form band hone se pata chalta hai
+         (zaroori field khaali ho to form khula rehta hai -- tab history nahi) */
+      var saved = true;
+      if(same){ try{ var mb = document.getElementById('modalBg'); saved = !(mb && mb.classList.contains('show')); }catch(x){} }
+      if(after && TR(after.stage) === to && saved){
+        logChange({ coll:'enquiries', recId:id, recName:after.customer, field:(same ? 'update' : 'stage'),
                     from:from, to:to, remark:rem, owner:after.owner, sp:after.salesperson,
                     createdAt:e.createdAt || (e.date ? e.date + 'T09:00:00.000Z' : '') });
       }
@@ -13995,16 +14107,18 @@ function noPerm(action){ try{ if(typeof permToast === 'function') return permToa
    list me nahi tha, isliye uska KPI card banta hi nahi tha aur row ke
    dropdown me wo option hi nahi hoti thi -- 287 me se 102 leads kisi bhi
    card me gini hi nahi ja rahi thin. Ab wo poora status hai. */
-var STATUSES = ['CREATED','CONTACTED','QUALIFIED','NOT_QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
+var STATUSES = ['CREATED','CONTACTED','FOLLOW_UP','QUALIFIED','NOT_QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
 var STATUS_LABEL = {
-  CREATED:'New', CONTACTED:'Contacted', QUALIFIED:'Qualified',
+  CREATED:'New', CONTACTED:'Contacted', FOLLOW_UP:'Follow-up', QUALIFIED:'Qualified',
   NOT_QUALIFIED:'Not Qualified',
   SYSTEM_MASTER:'System Master', QUOTATION_SENT:'Quotation Sent',
   WON:'Won', LOST:'Lost'
 };
 var STATUS_ALIAS = {
   NEW:'CREATED', OPEN:'CREATED', FRESH:'CREATED', CREATED:'CREATED',
-  FOLLOW_UP:'CONTACTED', FOLLOWUP:'CONTACTED', CALLED:'CONTACTED', CONTACTED:'CONTACTED',
+  CALLED:'CONTACTED', CONTACTED:'CONTACTED',
+  /* v42: Follow-up ab apna status hai (pehle Contacted me mil jaata tha) */
+  FOLLOW_UP:'FOLLOW_UP', FOLLOWUP:'FOLLOW_UP',
   INTERESTED:'QUALIFIED', QUALIFIED:'QUALIFIED',
   /* "Not Qualified" alag status hai -- "Lost" nahi. Isse pehle ye kahin
      match hi nahi hota tha aur lead kisi card me nahi dikhti thi. */
@@ -14436,7 +14550,7 @@ window.renderIndiamart = function(){
     +     '<input class="field" id="imSearch" placeholder="Search name / mobile / city / product…" value="' + A(window.__imQ) + '" style="min-width:190px">'
     +     '<select class="field" id="imFStat">' + statOpts + '</select>'
     +     (admin ? '<select class="field" id="imFOwn">' + ownOpts + '</select>' : '')
-    +     '<button class="btn sm" onclick="IM.bulkBox()">⬆ Bulk Upload</button>'
+    +     (admin ? '<button class="btn sm" onclick="IM.bulkBox()">⬆ Bulk Upload</button>' : '')   /* v42: sirf admin */
     +     '<button class="btn sm" onclick="IM.exportXlsx()">Excel</button>'
     +     (admin ? '<button class="btn sm" onclick="IM.syncSheet()">Sync to Sheet</button>' : '')
     +     (allow('create') ? '<button class="btn primary sm" onclick="IM.form()">+ Add Lead</button>' : '')
@@ -14653,6 +14767,7 @@ IM.save = function(id){
   if(!rec.sender_name && !rec.sender_mobile && !rec.sender_email){ tell('Naam, mobile ya email me se kuch to daaliye.'); return; }
   if(rec.lead_status === 'QUALIFIED' && !rec.qualifiedAt) rec.qualifiedAt = new Date().toISOString();
   rec.updatedAt = new Date().toISOString();
+  if(!isNew && from !== rec.lead_status) rec.statusUpdatedAt = rec.updatedAt;   /* v42 */
   norm(rec);
   if(isNew) arr.unshift(rec);
   imSave(arr);
@@ -14661,9 +14776,18 @@ IM.save = function(id){
       if(isNew){
         ocLogChange({ coll:KEY, recId:rec.id, recName:(rec.sender_name || rec.sender_mobile), field:'created',
                       from:'', to:rec.lead_status, remark:'Lead added', owner:rec.owner, sp:rec.assigned_to, createdAt:rec.createdAt });
-      } else if(from !== rec.lead_status){
-        ocLogChange({ coll:KEY, recId:rec.id, recName:(rec.sender_name || rec.sender_mobile), field:'status',
-                      from:from, to:rec.lead_status, remark:'', owner:rec.owner, sp:rec.assigned_to, createdAt:rec.createdAt });
+      } else {
+        /* v42: edit form ka remark (v42 gate ne PEND me rakha) -- status badla
+           ho to 'status', wahi raha to 'update' */
+        var rem = '';
+        try{ if(typeof window.ocTakePend === 'function') rem = window.ocTakePend(KEY, rec.id, rec.lead_status) || ''; }catch(e){}
+        if(from !== rec.lead_status){
+          ocLogChange({ coll:KEY, recId:rec.id, recName:(rec.sender_name || rec.sender_mobile), field:'status',
+                        from:from, to:rec.lead_status, remark:rem, owner:rec.owner, sp:rec.assigned_to, createdAt:rec.createdAt });
+        } else if(rem){
+          ocLogChange({ coll:KEY, recId:rec.id, recName:(rec.sender_name || rec.sender_mobile), field:'update',
+                        from:from, to:rec.lead_status, remark:rem, owner:rec.owner, sp:rec.assigned_to, createdAt:rec.createdAt });
+        }
       }
     }
   }catch(e){}
@@ -15124,12 +15248,13 @@ function nowISO(){ return new Date().toISOString(); }
 /* chip class ocToneClass() se aati hai -- rang ka ek hi source */
 var BUCKETS = [
   { key:'QUALIFIED',      label:'Qualified',       chip:ocToneClass('QUALIFIED')      },
+  { key:'FOLLOW_UP',      label:'Follow-up',       chip:ocToneClass('FOLLOW_UP')      },
   { key:'SYSTEM_MASTER',  label:'System Master',   chip:ocToneClass('SYSTEM_MASTER')  },
   { key:'QUOTATION_SENT', label:'Quotation Sent',  chip:ocToneClass('QUOTATION_SENT') },
   { key:'WON',            label:'Won',             chip:ocToneClass('WON')            },
   { key:'LOST',           label:'Lost',            chip:ocToneClass('LOST')           }
 ];
-var SUBSECTIONS = ['SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];   /* 4 subsections */
+var SUBSECTIONS = ['FOLLOW_UP','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];   /* v42: Follow-up bhi */
 /* Ye do status khud hi bata dete hain ki lead qualified ho chuki hai --
    inke liye qualifiedAt ka intezaar nahi karna padta. Won / Lost / Quoted
    bina qualify hue bhi ho sakte hain, isliye unke liye qualifiedAt zaroori hai. */
@@ -15148,6 +15273,7 @@ function bucketOf(v){
   var c = code(v);
   if(!c) return '';
   if(c === 'QUALIFIED' || c === 'INTERESTED') return 'QUALIFIED';
+  if(c === 'FOLLOW_UP' || c === 'FOLLOWUP') return 'FOLLOW_UP';
   if(c === 'SYSTEM_MASTER' || c === 'SYSTEMMASTER' || c === 'SYSTEM') return 'SYSTEM_MASTER';
   if(c === 'QUOTATION_SENT' || c === 'QUOTATIONSENT' || c === 'QUOTED' || c === 'QUOTATION'
      || c === 'PROPOSAL' || c === 'QUOTE_SENT') return 'QUOTATION_SENT';
@@ -15157,8 +15283,8 @@ function bucketOf(v){
 }
 
 /* har collection me bucket ka apna likha hua roop */
-var ENQ_STAGE = { QUALIFIED:'Qualified', SYSTEM_MASTER:'System Master', QUOTATION_SENT:'Quoted', WON:'Won', LOST:'Lost' };
-var LEAD_CODE = { QUALIFIED:'QUALIFIED', SYSTEM_MASTER:'SYSTEM_MASTER', QUOTATION_SENT:'QUOTATION_SENT', WON:'WON', LOST:'LOST' };
+var ENQ_STAGE = { QUALIFIED:'Qualified', FOLLOW_UP:'Follow-up', SYSTEM_MASTER:'System Master', QUOTATION_SENT:'Quoted', WON:'Won', LOST:'Lost' };
+var LEAD_CODE = { QUALIFIED:'QUALIFIED', FOLLOW_UP:'FOLLOW_UP', SYSTEM_MASTER:'SYSTEM_MASTER', QUOTATION_SENT:'QUOTATION_SENT', WON:'WON', LOST:'LOST' };
 
 /* ---------------------------------------------------------------- 2. sources */
 function lsArr(k){
@@ -15488,7 +15614,7 @@ window.QL = QL;
     ps.splice(at, 0, 'System Master');     /* purane build par bhi chale */
   }catch(e){}
 })();
-var ENQ_STAGE_LIST = ['New','Contacted','Qualified','System Master','Quoted','Won','Lost'];
+var ENQ_STAGE_LIST = ['New','Contacted','Follow-up','Qualified','System Master','Quoted','Won','Lost'];
 
 /* stage ke naye chip colours */
 (function(){
@@ -15543,7 +15669,7 @@ function fillStageSelect(sel){
 
 /* b) Meta pipeline stages — 'System Master' aur 'Quotation Sent' zaroori hain,
       warna ML.setStatus in statuses ka stage 'New' bana deta (purana bug). */
-var META_STAGES = ['New','Contacted','Qualified','System Master','Quotation Sent','Proposal','Won','Lost'];
+var META_STAGES = ['New','Contacted','Follow-up','Qualified','System Master','Quotation Sent','Proposal','Won','Lost'];
 function ensureMetaStages(push){
   try{
     var ff = {};
@@ -15587,7 +15713,7 @@ try{
 }catch(e){}
 
 /* ---------------------------------------------------------------- 8. registration */
-try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Qualified', 'Qualified leads · System Master · Quotation Sent · Won · Lost']; }catch(e){}
+try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Qualified', 'Qualified leads · Follow-up · System Master · Quotation Sent · Won · Lost']; }catch(e){}
 try{ if(typeof PERM_SECTIONS !== 'undefined' && PERM_SECTIONS.indexOf(VIEW) < 0) PERM_SECTIONS.push(VIEW); }catch(e){}
 try{ if(typeof SECTION_OF_VIEW !== 'undefined') SECTION_OF_VIEW[VIEW] = VIEW; }catch(e){}
 
@@ -17211,6 +17337,429 @@ function install(){
 function boot(){ setTimeout(install, 60); setTimeout(install, 600); setTimeout(install, 2500); }
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 40. OAKCRAFT v42 — FOLLOW-UP                                            *
+ *                                                                        *
+ *   1. Naya status "Follow-up" -- Enquiries (stage 'Follow-up'),          *
+ *      IndiaMART + Meta (lead_status FOLLOW_UP) aur Qualified section.   *
+ *      Follow-up chunte hi wahi Reason / Remark modal khulta hai, saath   *
+ *      me "Next follow-up date" (zaroori). Date record par              *
+ *      followUpDate me, remark followUpNote me aur history me jaata hai. *
+ *   2. Edit form (Enquiry / IndiaMART / Meta) me status WAHI rahe tab bhi *
+ *      remark maanga jaata hai -- history me 'update' ki line.           *
+ *   3. Pipeline Board nav se hata; uski jagah "Follow-ups" section:      *
+ *      teeno jagah ki follow-up leads, overdue din ke saath.             *
+ *   4. Bulk Upload / Import from Meta / Stages / Sync to Sheet --         *
+ *      sirf admin (button bhi nahi dikhte, function bhi mana karte hain).*
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocFollowUp) return; window.__ocFollowUp = true;
+
+var VIEW = 'followups';
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LC(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function A(v){ return E(v).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function $$(id){ return document.getElementById(id); }
+function tell(m){ try{ toast(m); }catch(e){} }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function code(v){ return TR(v).toUpperCase().replace(/[\s\-\/]+/g, '_').replace(/_+/g, '_'); }
+function lsArr(k){ try{ var a = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function byId(arr, id){ for(var i = 0; i < arr.length; i++) if(arr[i] && T(arr[i].id) === T(id)) return arr[i]; return null; }
+function scoped(list, coll){ try{ return (typeof scope === 'function') ? (scope(list, coll) || []) : list; }catch(e){ return list; } }
+function today(){ return (typeof window.ocFuToday === 'function') ? window.ocFuToday() : new Date().toISOString().slice(0, 10); }
+function pretty(iso){ return (typeof window.ocFuPretty === 'function') ? window.ocFuPretty(iso) : T(iso); }
+function dayNum(iso){ var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(iso)); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5 : null; }
+function nameOfEmail(em){
+  var e = LC(em); if(!e) return '';
+  var u = lsArr('users');
+  for(var i = 0; i < u.length; i++) if(LC(u[i] && u[i].email) === e) return TR(u[i].name) || em;
+  return em;
+}
+function isoOfStamp(s){ var m = T(s).match(/^(\d{2})-(\d{2})-(\d{4})/); return m ? (m[3] + '-' + m[2] + '-' + m[1]) : ''; }
+
+/* ---------------------------------------------------------------- 1. sources */
+var LEAD_OPTS_META = ['CREATED','CONTACTED','FOLLOW_UP','QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
+function leadLabel(c){ var m = window.OC_LEAD_STATUS_LABEL || {}; return m[c] || T(c).replace(/_/g, ' '); }
+var SRC = {
+  enquiries: {
+    label:'Enquiry', section:'enquiries', fu:'Follow-up',
+    all: function(){ var a = []; try{ a = DB.enquiries() || []; }catch(e){ a = lsArr('enquiries'); } return scoped(a, 'enquiries'); },
+    isFu: function(r){ return code(r.stage) === 'FOLLOW_UP'; },
+    row: function(r){ return { name:T(r.customer), contact:'', product:T(r.product), person:T(r.salesperson) || nameOfEmail(r.owner),
+                               since:T(r.stageChangedAt) || T(r.updatedAt) }; },
+    opts: function(){ return (window.PIPE_STAGES || []).map(function(s){ return [s, s]; }); },
+    cur: function(r){ return TR(r.stage); },
+    set: function(id, v){ if(typeof ocMoveEnq === 'function') ocMoveEnq(id, v); }
+  },
+  indiamartLeads: {
+    label:'IndiaMART', section:'indiamart', fu:'FOLLOW_UP',
+    all: function(){
+      var a = scoped(lsArr('indiamartLeads'), 'indiamartLeads');
+      return a.filter(function(r){
+        try{ if(window.ocImHidden && window.ocImHidden(r)) return false; }catch(e){}
+        try{ if(window.ocImTooOld && window.ocImTooOld(r)) return false; }catch(e){}
+        return true;
+      });
+    },
+    isFu: function(r){ return code(r.lead_status || r.status) === 'FOLLOW_UP'; },
+    row: function(r){ return { name:T(r.sender_name) || T(r.company), contact:T(r.sender_mobile), product:T(r.product),
+                               person:T(r.assigned_to) || nameOfEmail(r.owner), since:T(r.statusUpdatedAt) || T(r.updatedAt) }; },
+    opts: function(){ return (window.OC_LEAD_STATUSES || []).map(function(c){ return [c, leadLabel(c)]; }); },
+    cur: function(r){ return code(r.lead_status); },
+    set: function(id, v){ if(window.IM && typeof IM.setStatus === 'function') IM.setStatus(id, v); }
+  },
+  metaLeads: {
+    label:'Meta', section:'metaLeads', fu:'FOLLOW_UP',
+    all: function(){ return scoped(lsArr('metaLeads'), 'metaLeads').filter(function(r){ return !(r && r.dupOf); }); },
+    isFu: function(r){ return code(r.lead_status) === 'FOLLOW_UP' || (!TR(r.lead_status) && code(r.stage) === 'FOLLOW_UP'); },
+    row: function(r){ return { name:T(r.full_name) || T(r.name), contact:T(r.phone_number) || T(r.phone), product:T(r.product) || T(r.campaign),
+                               person:T(r.assigned_to) || nameOfEmail(r.owner), since:T(r.statusUpdatedAt) || T(r.updatedAt) }; },
+    opts: function(){ return LEAD_OPTS_META.map(function(c){ return [c, leadLabel(c)]; }); },
+    cur: function(r){ return code(r.lead_status); },
+    set: function(id, v){ if(window.ML && typeof ML.setStatus === 'function') ML.setStatus(id, v); }
+  }
+};
+var KEYS = ['enquiries','indiamartLeads','metaLeads'];
+
+function allRows(){
+  var out = [], t = dayNum(today());
+  KEYS.forEach(function(k){
+    var s = SRC[k];
+    s.all().forEach(function(r){
+      if(!r || !s.isFu(r)) return;
+      var x = s.row(r);
+      x.src = k; x.id = T(r.id); x.rec = r;
+      x.fuDate = /^\d{4}-\d{2}-\d{2}$/.test(T(r.followUpDate)) ? T(r.followUpDate) : '';
+      x.note = TR(r.followUpNote).replace(/^\[Next follow-up: [^\]]*\]\s*/, '');   /* date alag column me hai */
+      var d = x.fuDate ? dayNum(x.fuDate) : null;
+      x.days = (d == null || t == null) ? null : (t - d);       /* >0 = itne din overdue */
+      x.bucket = (x.days == null) ? 'NODATE' : (x.days > 0 ? 'OVERDUE' : (x.days === 0 ? 'TODAY' : 'UPCOMING'));
+      out.push(x);
+    });
+  });
+  var rank = { OVERDUE:0, NODATE:1, TODAY:2, UPCOMING:3 };
+  return out.sort(function(a, b){
+    if(rank[a.bucket] !== rank[b.bucket]) return rank[a.bucket] - rank[b.bucket];
+    if(a.days != null && b.days != null && a.days !== b.days) return b.days - a.days;   /* sabse zyada overdue upar */
+    return T(a.name).localeCompare(T(b.name));
+  });
+}
+window.ocFollowUps = allRows;
+
+/* ---------------------------------------------------------------- 2. render */
+window.__fuTab = window.__fuTab || 'ALL';
+window.__fuQ   = window.__fuQ   || '';
+window.__fuSrc = window.__fuSrc || '';
+window.__fuSp  = window.__fuSp  || '';
+
+var TABS = [
+  { key:'ALL',      label:'All follow-ups', ink:'var(--text,#1c1c1c)' },
+  { key:'OVERDUE',  label:'Overdue',        ink:'var(--crit,#d03b3b)' },
+  { key:'TODAY',    label:'Due today',      ink:'#b06a00' },
+  { key:'UPCOMING', label:'Upcoming',       ink:'var(--brand,#2a78d6)' },
+  { key:'NODATE',   label:'No date',        ink:'var(--muted,#7a869a)' }
+];
+function dueCell(r){
+  if(r.bucket === 'NODATE') return '<span class="chip c-neutral">Date nahi</span>';
+  if(r.bucket === 'OVERDUE') return '<span class="chip c-lost">' + r.days + ' din overdue</span>';
+  if(r.bucket === 'TODAY') return '<span class="chip c-prog">Aaj</span>';
+  return '<span class="chip c-new">' + (-r.days) + ' din baaki</span>';
+}
+function filtered(rows){
+  var q = LC(window.__fuQ), tab = window.__fuTab, src = window.__fuSrc, sp = LC(window.__fuSp);
+  return rows.filter(function(r){
+    if(tab !== 'ALL' && r.bucket !== tab) return false;
+    if(src && r.src !== src) return false;
+    if(sp && LC(r.person) !== sp) return false;
+    if(!q) return true;
+    return [r.id, r.name, r.contact, r.product, r.person, r.note].join(' ').toLowerCase().indexOf(q) >= 0;
+  });
+}
+function canEditRow(r){
+  var ok = true;
+  try{ if(typeof canTouch === 'function') ok = !!canTouch(r.rec, r.src); }catch(e){}
+  try{ if(typeof can === 'function' && !can(SRC[r.src].section, 'edit')) ok = false; }catch(e){}
+  return ok;
+}
+
+window.renderFollowUps = function(){
+  var rows = allRows();
+  var count = { ALL: rows.length, OVERDUE:0, TODAY:0, UPCOMING:0, NODATE:0 };
+  rows.forEach(function(r){ count[r.bucket]++; });
+  var list = filtered(rows);
+
+  var cards = '<div class="kpi-grid" style="margin-bottom:16px">' + TABS.map(function(t){
+      var on = window.__fuTab === t.key;
+      return '<div class="kpi" onclick="FU.tab(\'' + t.key + '\')" style="cursor:pointer;border-left:4px solid ' + t.ink
+           + (on ? ';outline:2px solid var(--brand)' : '') + '">'
+           + '<div class="val tabular" style="color:' + t.ink + '">' + (count[t.key] || 0) + '</div>'
+           + '<div class="lbl">' + E(t.label) + '</div></div>';
+    }).join('') + '</div>';
+
+  var people = {};
+  rows.forEach(function(r){ if(TR(r.person)) people[TR(r.person)] = 1; });
+  var spSel = isAdm()
+    ? '<select class="field" id="fuSp"><option value="">All salespersons</option>'
+      + Object.keys(people).sort().map(function(p){ return '<option value="' + A(p) + '"' + (LC(window.__fuSp) === LC(p) ? ' selected' : '') + '>' + E(p) + '</option>'; }).join('')
+      + '</select>'
+    : '';
+
+  var body = list.map(function(r){
+    var edit = canEditRow(r), s = SRC[r.src];
+    var cur = s.cur(r.rec);
+    var sel = edit
+      ? '<select class="field" style="padding:4px 8px;font-size:12px;font-weight:600;color:' + ocToneInk(cur) + '" '
+        + 'onchange="FU.setStatus(\'' + A(r.src) + '\',\'' + A(r.id) + '\',this.value)">'
+        + s.opts().map(function(o){ return '<option value="' + A(o[0]) + '"' + (code(o[0]) === code(cur) ? ' selected' : '') + '>' + E(o[1]) + '</option>'; }).join('')
+        + '</select>'
+      : '<span class="chip ' + ocToneClass(cur) + '">Follow-up</span>';
+    return '<tr>'
+      + '<td><span class="chip c-neutral">' + E(s.label) + '</span></td>'
+      + '<td><span class="strong">' + E(r.name || '—') + '</span><div class="sub tabular">' + E(r.id) + '</div></td>'
+      + '<td class="tabular" style="white-space:nowrap">' + E(r.contact || '—') + '</td>'
+      + '<td style="max-width:260px">' + E(T(r.product).slice(0, 140) || '—') + '</td>'
+      + '<td>' + E(r.person || '—') + '</td>'
+      + '<td class="tabular" style="white-space:nowrap">' + (r.fuDate ? E(pretty(r.fuDate)) : '—') + '</td>'
+      + '<td style="white-space:nowrap">' + dueCell(r) + '</td>'
+      + '<td style="max-width:260px;font-size:12.5px">' + (r.note ? E(r.note) : '<span class="sub">—</span>') + '</td>'
+      + '<td>' + sel + '</td>'
+      + '<td><div class="row-actions" style="display:flex;gap:4px">'
+        + (edit ? '<button title="Follow-up update — remark + agli date" onclick="FU.update(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Update</button>' : '')
+        + '<button title="Record kholo" onclick="FU.open(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Open</button>'
+        + '<button title="Status history" onclick="ocTrackHistory(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">⏱</button>'
+      + '</div></td></tr>';
+  }).join('');
+
+  var tabLabel = (TABS.filter(function(t){ return t.key === window.__fuTab; })[0] || TABS[0]).label;
+  content.innerHTML = cards
+    + '<div class="card">'
+    + '<div class="card-head"><h3>' + E(tabLabel) + ' <span class="chip c-neutral" style="margin-left:4px">' + list.length + '</span></h3>'
+    +   '<div class="tools">'
+    +     '<input class="field" id="fuSearch" placeholder="Search name / mobile / product / remark…" value="' + A(window.__fuQ) + '" style="min-width:200px">'
+    +     '<select class="field" id="fuSrc"><option value="">All sources</option>'
+    +       KEYS.map(function(k){ return '<option value="' + A(k) + '"' + (window.__fuSrc === k ? ' selected' : '') + '>' + E(SRC[k].label) + '</option>'; }).join('')
+    +     '</select>' + spSel
+    +     '<button class="btn sm" onclick="FU.exportXlsx()">Excel</button>'
+    +   '</div></div>'
+    + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Enquiries, IndiaMART aur Meta Leads — jis bhi lead ka status <b>Follow-up</b> hai wo yahan hai. '
+    +   'Sabse zyada overdue upar. <b>Update</b> se remark aur agli follow-up date likhiye; status badalte hi lead yahan se hat jaati hai.</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr>'
+    +   '<th>Source</th><th>Name</th><th>Contact</th><th>Product / Requirement</th><th>Salesperson</th><th>Follow-up date</th><th>Overdue</th><th>Last remark</th><th>Status</th><th></th>'
+    + '</tr></thead><tbody id="fu-body">'
+    + (body || '<tr><td colspan="10" class="empty">' + (rows.length ? 'Is filter par koi follow-up nahi mila.'
+        : 'Abhi koi follow-up nahi hai. Kisi bhi Enquiry, IndiaMART ya Meta lead ka status <b>Follow-up</b> karte hi wo yahan aa jaayegi.') + '</td></tr>')
+    + '</tbody></table></div></div>';
+
+  var si = $$('fuSearch');
+  if(si){
+    si.oninput = function(){
+      window.__fuQ = si.value;
+      clearTimeout(window.__fuT);
+      window.__fuT = setTimeout(function(){
+        var pos = si.selectionStart;
+        renderFollowUps();
+        var n = $$('fuSearch'); if(n){ n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} }
+      }, 220);
+    };
+  }
+  var ss = $$('fuSrc'); if(ss) ss.onchange = function(){ window.__fuSrc = ss.value; renderFollowUps(); };
+  var sp = $$('fuSp');  if(sp) sp.onchange = function(){ window.__fuSp = sp.value; renderFollowUps(); };
+  try{ if(typeof ocPaginate === 'function') ocPaginate(); }catch(e){}
+};
+
+/* ---------------------------------------------------------------- 3. actions */
+var FU = {};
+FU.tab = function(k){ window.__fuTab = (window.__fuTab === k && k !== 'ALL') ? 'ALL' : k; renderFollowUps(); };
+FU.open = function(src, id){
+  try{
+    if(src === 'enquiries' && typeof openEnqModal === 'function') return openEnqModal(id);
+    if(src === 'metaLeads' && window.ML && typeof ML.form === 'function') return ML.form(id);
+    if(src === 'indiamartLeads' && window.IM && typeof IM.form === 'function') return IM.form(id);
+  }catch(e){}
+};
+/* status yahin se -- wahi purana raasta (remark, permission, history) */
+FU.setStatus = function(src, id, v){
+  var s = SRC[src]; if(!s) return;
+  s.set(id, v);
+  setTimeout(function(){ try{ if(state && state.view === VIEW) renderFollowUps(); }catch(e){} }, 60);
+};
+/* Follow-up hi rehta hai -- sirf remark + agli date (history me 'update') */
+FU.update = function(src, id){
+  var s = SRC[src]; if(!s || typeof window.ocGate !== 'function') return;
+  var arr = (src === 'enquiries') ? (function(){ try{ return DB.enquiries() || []; }catch(e){ return []; } })() : lsArr(src);
+  var rec = byId(arr, id); if(!rec) return;
+  var x = s.row(rec), to = s.fu;
+  window.ocGate(src, id, to, {
+    title: 'Follow-up update',
+    sub: (x.name || '—') + '  ·  ' + id,
+    onCancel: function(){ try{ renderFollowUps(); }catch(e){} }
+  }, function(){
+    var rem = '';
+    try{ rem = window.ocTakePend(src, id, to) || ''; }catch(e){}
+    try{
+      var after = byId((src === 'enquiries') ? (DB.enquiries() || []) : lsArr(src), id) || rec;
+      if(typeof window.ocLogChange === 'function'){
+        window.ocLogChange({ coll:src, recId:id, recName:x.name, field:'update', from:s.cur(after) || to, to:s.cur(after) || to,
+                             remark:rem, owner:after.owner, sp:x.person, createdAt:after.createdAt || '' });
+      }
+    }catch(e){}
+    tell('Follow-up update ho gaya');
+    try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+    try{ if(state && state.view === VIEW) renderFollowUps(); }catch(e){}
+  });
+};
+FU.exportXlsx = function(){
+  var list = filtered(allRows());
+  if(!list.length){ tell('Nothing to export'); return; }
+  var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+  Promise.resolve(pre).then(function(ok){
+    if(ok === false || typeof XLSX === 'undefined') return;
+    var rows = list.map(function(r){
+      return { 'Source':SRC[r.src].label, 'Record Id':r.id, 'Name':r.name, 'Contact':r.contact, 'Product':r.product,
+               'Salesperson':r.person, 'Follow-up Date':r.fuDate ? pretty(r.fuDate) : '',
+               'Overdue Days':(r.days != null && r.days > 0) ? r.days : 0,
+               'Due':({ OVERDUE:'Overdue', TODAY:'Today', UPCOMING:'Upcoming', NODATE:'No date' })[r.bucket], 'Last Remark':r.note };
+    });
+    var ws = XLSX.utils.json_to_sheet(rows), wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Follow-ups');
+    XLSX.writeFile(wb, 'OakCraft-followups-' + today() + '.xlsx');
+    tell('Downloaded ' + rows.length + ' rows ✓');
+  });
+};
+window.FU = FU;
+
+/* ---------------------------------------------------------------- 4. edit-form gate
+   Status badle ya wahi rahe -- Save par remark maango (Follow-up par date bhi). */
+function gateSave(coll, key, statusId, getCode, titleOf, subOf){
+  return function(_orig){
+    var w = function(id){
+      var self = this, args = arguments;
+      if(!id || typeof window.ocGate !== 'function') return _orig.apply(self, args);
+      var arr = lsArr(coll), rec = byId(arr, id), sel = $$(statusId);
+      if(!rec || !sel) return _orig.apply(self, args);
+      try{ if(typeof canTouch === 'function' && !canTouch(rec, coll)) return _orig.apply(self, args); }catch(e){}
+      var from = getCode(rec.lead_status), to = getCode(sel.value);
+      if(!to) return _orig.apply(self, args);
+      var same = (from === to);
+      return window.ocGate(coll, id, to, {
+        title: same ? (titleOf + ' update — status: ' + leadLabel(to)) : (titleOf + ' status: ' + leadLabel(from) + ' → ' + leadLabel(to)),
+        sub: subOf(rec) + '  ·  ' + id
+      }, function(){ return _orig.apply(self, args); });
+    };
+    w.__v42 = true;
+    return w;
+  };
+}
+function imCode(v){ try{ if(typeof window.ocLeadStatusCode === 'function') return window.ocLeadStatusCode(v); }catch(e){} return code(v); }
+function install(){
+  try{
+    if(window.IM && typeof IM.save === 'function' && !IM.save.__v42){
+      IM.save = gateSave('indiamartLeads', 'IM', 'imStat', imCode, 'IndiaMART lead',
+        function(r){ return TR(r.sender_name) || TR(r.company) || TR(r.sender_mobile) || '—'; })(IM.save);
+    }
+    if(window.ML && typeof ML.save === 'function' && !ML.save.__v42){
+      ML.save = gateSave('metaLeads', 'ML', 'mlStatus', function(v){ return code(v) || 'CREATED'; }, 'Meta lead',
+        function(r){ return TR(r.full_name) || TR(r.phone_number) || '—'; })(ML.save);
+    }
+    adminOnly();
+  }catch(e){ console.warn('[oc v42] install', e); }
+}
+
+/* ---------------------------------------------------------------- 5. admin-only actions */
+function adminOnly(){
+  function guard(obj, name){
+    if(!obj || typeof obj[name] !== 'function' || obj[name].__v42a) return;
+    var o = obj[name];
+    var g = function(){ if(!isAdm()){ tell('Ye option sirf admin ke liye hai.'); return; } return o.apply(this, arguments); };
+    g.__v42a = true; obj[name] = g;
+  }
+  guard(window.ML, 'bulkBox'); guard(window.ML, 'importBox'); guard(window.ML, 'stageBox'); guard(window.ML, 'syncSheet');
+  guard(window.IM, 'bulkBox'); guard(window.IM, 'syncSheet');
+}
+function boot(){ install(); setTimeout(install, 700); setTimeout(install, 2600); }
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+
+/* ---------------------------------------------------------------- 6. view registration */
+try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Follow-ups', 'Enquiries · IndiaMART · Meta — follow-ups aur overdue']; }catch(e){}
+try{ if(typeof PERM_SECTIONS !== 'undefined' && PERM_SECTIONS.indexOf(VIEW) < 0) PERM_SECTIONS.push(VIEW); }catch(e){}
+try{ if(typeof SECTION_OF_VIEW !== 'undefined') SECTION_OF_VIEW[VIEW] = VIEW; }catch(e){}
+try{ if(localStorage.getItem('oc_lastView') === 'pipeline') localStorage.setItem('oc_lastView', VIEW); }catch(e){}
+
+(function(){
+  var _setView = window.setView;
+  if(typeof _setView !== 'function') return;
+  window.setView = function(v){
+    if(v === 'pipeline') v = VIEW;                 /* Pipeline Board ab nav me nahi hai */
+    if(v !== VIEW) return _setView.apply(this, arguments);
+    try{ if(typeof can === 'function' && !can(VIEW, 'view')){ if(typeof permToast === 'function') permToast('view'); return _setView.call(this, 'dashboard'); } }catch(e){}
+    try{ state.view = VIEW; }catch(e){}
+    try{
+      document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active', a.dataset.view === VIEW); });
+      var t = $$('pageTitle'), s = $$('pageSub');
+      if(t && t.childNodes[0]) t.childNodes[0].nodeValue = PAGE_META[VIEW][0];
+      if(s) s.textContent = PAGE_META[VIEW][1];
+      var sb = $$('searchBox'); if(sb) sb.style.display = 'none';
+      var qa = $$('quickAdd'); if(qa) qa.style.display = 'none';
+      Object.keys(state.charts || {}).forEach(function(k){ try{ state.charts[k].destroy(); }catch(e){} });
+      state.charts = {};
+    }catch(e){}
+    try{ localStorage.setItem('oc_lastView', VIEW); }catch(e){}
+    renderFollowUps();
+    try{ content.scrollTop = 0; }catch(e){}
+    try{ if(typeof navOpen === 'function') navOpen(false); }catch(e){}
+    try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+    return true;
+  };
+})();
+
+/* badge = jo aaj tak ho jaane chahiye the (overdue + aaj + bina date) */
+(function(){
+  var _rb = window.refreshBadges;
+  window.refreshBadges = function(){
+    var r = (typeof _rb === 'function') ? _rb.apply(this, arguments) : undefined;
+    try{
+      var el = $$('nb-fu');
+      if(el){
+        var n = 0; allRows().forEach(function(x){ if(x.bucket !== 'UPCOMING') n++; });
+        if(el.textContent !== String(n)) el.textContent = String(n);
+        el.title = 'Overdue + aaj + bina date wale follow-ups';
+      }
+    }catch(e){}
+    return r;
+  };
+})();
+(function(){
+  var WATCH = { enquiries:1, metaLeads:1, indiamartLeads:1 };
+  var tmr = null;
+  function schedule(){
+    clearTimeout(tmr);
+    tmr = setTimeout(function(){
+      try{
+        if(typeof refreshBadges === 'function') refreshBadges();
+        if(state && state.view === VIEW && !(window.__ocUserTyping && window.__ocUserTyping())) renderFollowUps();
+      }catch(e){}
+    }, 180);
+  }
+  var _set = store.set.bind(store);
+  store.set = function(k, v){ var r = _set(k, v); try{ if(WATCH[k]) schedule(); }catch(e){} return r; };
+  if(typeof CLOUD !== 'undefined' && typeof CLOUD.pull === 'function'){
+    var _pull = CLOUD.pull;
+    CLOUD.pull = function(){
+      var self = this;
+      return Promise.resolve(_pull.apply(self, arguments)).then(function(r){ try{ schedule(); }catch(e){} return r; });
+    };
+  }
+})();
+
+try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+console.log('[oc v42] Follow-up status + Follow-ups section + admin-only lead actions');
 })();
 </script>
 

@@ -567,6 +567,36 @@ se purani rows bahar, aur ek baar ki safai: `previewIndiaMartCleanup()` →
 duplicate rows hataata hai. **Green row kabhi nahi hatti.** Kram: file paste →
 `checkIndiaMartGuard` → *New version Deploy* → preview → clean.
 
+## Follow-up (v42)
+
+**Naya status "Follow-up"** — Enquiries (stage `Follow-up`), IndiaMART aur Meta Leads
+(`lead_status` = `FOLLOW_UP`) aur Qualified section (naya tab + card) me.
+
+* Follow-up chunte hi wahi **Reason / Remark** modal khulta hai, saath me **Next follow-up
+  date** (zaroori, default kal). Record par likha jaata hai:
+  `followUpDate` (YYYY-MM-DD) · `followUpNote` · `followUpAt` · `followUpBy`. History me
+  remark `[Next follow-up: DD/MM/YYYY] …` ki shakal me.
+* **Status wahi rahe tab bhi remark** — Enquiry / IndiaMART / Meta ke Edit form me Save par
+  remark hamesha maanga jaata hai. Status badla ho to history me `status`/`stage`, wahi raha
+  to `update` line (is par SLA / TAT nahi ginta). Enquiry form me zaroori fields remark se
+  **pehle** jaanche jaate hain. Qualified lead par Customer Type / Qty pehle se na bhare hon
+  to wo bhi isi modal me.
+* Pehle `FOLLOW_UP` → `Contacted` ban jaata tha (IndiaMART alias, Meta stage map) — ab apna status.
+  Meta ka `statusCode()` ab `-` ko bhi `_` banata hai (`Follow-up` ↔ `FOLLOW_UP`).
+
+**Follow-ups section** — nav me *Pipeline Board* ki jagah (Pipeline Board nav se hata; purana
+`oc_lastView = pipeline` apne aap Follow-ups khol deta hai). Teeno source ki follow-up leads
+ek list me: Follow-up date, **kitne din overdue**, last remark, status dropdown, **Update**
+(remark + nayi date, status wahi), Open, ⏱ history, Excel. Cards / tabs: All · Overdue · Due
+today · Upcoming · No date. Sabse zyada overdue sabse upar. Salesperson ko sirf apni (aur bina
+naam wali) leads — wahi `scope()`. Admin ke liye salesperson filter. Nav badge = overdue + aaj
++ bina date.
+
+**Sirf admin ke liye:** IndiaMART — *Bulk Upload*, *Sync to Sheet*; Meta Leads — *Bulk Upload*,
+*Import from Meta*, *Stages*, *Sync to Sheet*. Button user ko dikhte hi nahi, aur functions
+(`IM.bulkBox/syncSheet`, `ML.bulkBox/importBox/stageBox/syncSheet`) bhi non-admin ko mana kar
+dete hain.
+
 ## Unassigned card sabko (v41)
 
 IndiaMART aur Meta Leads me **Unassigned** KPI card pehle sirf admin ko dikhta tha.
