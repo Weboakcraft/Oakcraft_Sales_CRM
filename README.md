@@ -567,6 +567,19 @@ se purani rows bahar, aur ek baar ki safai: `previewIndiaMartCleanup()` →
 duplicate rows hataata hai. **Green row kabhi nahi hatti.** Kram: file paste →
 `checkIndiaMartGuard` → *New version Deploy* → preview → clean.
 
+## Unassigned card sabko (v41)
+
+IndiaMART aur Meta Leads me **Unassigned** KPI card pehle sirf admin ko dikhta tha.
+Ab salesperson ko bhi dikhta hai — uski ginti us user ke apne pool se hoti hai
+(jo lead kisi ke naam nahi), aur click karne par sirf wahi leads aati hain, taaki wo
+dropdown se apna naam laga sake. Owner filter dropdown aur bulk assign pehle ki tarah
+sirf admin ke liye hain.
+
+**Safai me nayi lead kabhi nahi hatti:** `cleanIndiaMartLeads()` sirf wo non-green
+row hataata hai jo cut-off se pehle ki ho **ya** kisi doosri row ki duplicate
+(same mobile + time) ho. Cut-off ke baad aayi nayi lead (green na ho tab bhi) bachi
+rehti hai; guard bhi sirf purani / duplicate row rokta hai.
+
 ## Dashboard Revenue = Billing incl. GST (v40)
 
 * **Revenue card** ab `Math.round(amount × 1.18)` ka jod hai (cancelled chhod kar) —

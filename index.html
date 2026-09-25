@@ -6523,8 +6523,9 @@ console.log('[oc v7] row-safe save active');
           return kpiCard(fs === s && !fo, byStatus[s], kpiLabel(s),
                          "ML.tab('" + esc(s) + "')", 'Sirf ' + kpiLabel(s) + ' waali leads', s);
         }).join('')
-      + (admin ? kpiCard(fo === '__none__', unassigned, 'Unassigned', "ML.tab('__none__')",
-                         'Jin par kisi ka naam nahi', 'UNASSIGNED') : '')
+      /* v41: Unassigned card sabko (IndiaMART jaisa) */
+      + kpiCard(fo === '__none__', unassigned, 'Unassigned', "ML.tab('__none__')",
+                'Jin par kisi ka naam nahi', 'UNASSIGNED')
       + '</div>';
 
     /* ---- toolbar ---- */
@@ -8116,7 +8117,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.1';
+var OC_WEB_BUILD = '2026.09.25.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -14363,8 +14364,10 @@ window.renderIndiamart = function(){
         return card(fs === s && !fo, byStatus[s], STATUS_LABEL[s],
                     "IM.tab('" + A(s) + "')", 'Sirf ' + STATUS_LABEL[s] + ' waali leads', s);
       }).join('')
-    + (admin ? card(onNone, unassigned, 'Unassigned', "IM.tab('__none__')",
-                    'Jin par kisi ka naam nahi', 'UNASSIGNED') : '')
+    /* v41: Unassigned card sabko -- salesperson ko bhi pool ki ginti dikhe
+       (jo lead kisi ke naam nahi, wo sabki hai; click = sirf wahi leads) */
+    + card(onNone, unassigned, 'Unassigned', "IM.tab('__none__')",
+           'Jin par kisi ka naam nahi', 'UNASSIGNED')
     + '</div>';
 
   var statOpts = '<option value="">All status</option>' + STATUSES.map(function(s){
