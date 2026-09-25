@@ -8140,7 +8140,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.4';
+var OC_WEB_BUILD = '2026.09.25.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -17781,6 +17781,66 @@ try{ if(localStorage.getItem('oc_lastView') === 'pipeline') localStorage.setItem
 
 try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
 console.log('[oc v42] Follow-up status + Follow-ups section + admin-only lead actions');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 41. OAKCRAFT v44 — DASHBOARD SE ADMIN KE ORDERS BAHAR                   *
+ *                                                                        *
+ *   Administrator / Owner ke login se bane orders (jaise Vishu Mittal ke  *
+ *   ₹0.01 / ₹0.02 rate wale test orders) Dashboard ki kisi bhi ginti me   *
+ *   nahi aate -- Revenue, Open Orders, Pending Dispatch, Revenue Trend,   *
+ *   Sales Funnel, Order Status, sales charts. Wo Orders / Dispatch        *
+ *   section me pehle jaise dikhte rehte hain; data kahin se delete nahi   *
+ *   hota. Order ka "admin ka hona" uske owner ke role se tay hota hai.    *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocDashNoAdmin) return; window.__ocDashNoAdmin = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function LC(v){ return T(v).trim().toLowerCase(); }
+var ADMIN_ROLES = { administrator:1, owner:1 };
+
+function adminEmails(){
+  var out = {};
+  try{
+    var u = JSON.parse(localStorage.getItem('users') || '[]') || [];
+    u.forEach(function(x){ if(x && x.email && ADMIN_ROLES[LC(x.role)]) out[LC(x.email)] = 1; });
+  }catch(e){}
+  return out;
+}
+function ownerOf(r){ return LC(r && (r.owner || r.ownerEmail || r.createdBy)); }
+window.ocIsAdminOrder = function(o){ return !!adminEmails()[ownerOf(o)]; };
+
+var _rd = window.renderDashboard;
+if(typeof _rd === 'function'){
+  window.renderDashboard = function(){
+    var adm = adminEmails();
+    if(!Object.keys(adm).length) return _rd.apply(this, arguments);
+    var _get = store.get;
+    store.get = function(k){
+      var v = _get.apply(store, arguments);
+      if(!Array.isArray(v)) return v;
+      if(k === 'orders') return v.filter(function(o){ return !adm[ownerOf(o)]; });
+      if(k === 'dispatch'){
+        var bad = {};
+        (_get.call(store, 'orders', []) || []).forEach(function(o){ if(o && adm[ownerOf(o)]) bad[T(o.id)] = 1; });
+        return v.filter(function(d){ return !(d && bad[T(d.orderId)]); });
+      }
+      return v;
+    };
+    try{ return _rd.apply(this, arguments); }
+    finally{ store.get = _get; }
+  };
+}
+try{
+  if(typeof state !== 'undefined' && state.view === 'dashboard' && typeof renderDashboard === 'function'){
+    setTimeout(function(){ try{ renderDashboard(); }catch(e){} }, 0);
+  }
+}catch(e){}
+console.log('[oc v44] dashboard: Administrator ke orders ginti se bahar');
 })();
 </script>
 

@@ -567,6 +567,15 @@ se purani rows bahar, aur ek baar ki safai: `previewIndiaMartCleanup()` →
 duplicate rows hataata hai. **Green row kabhi nahi hatti.** Kram: file paste →
 `checkIndiaMartGuard` → *New version Deploy* → preview → clean.
 
+## Dashboard me Administrator ke orders nahi ginte (v44)
+
+Administrator / Owner ke login se bane orders (jaise Vishu Mittal ke ₹0.01 / ₹0.02 rate wale
+test orders — 47 orders, kul ~₹17.5K) Dashboard ki kisi ginti me nahi aate: Revenue, Open
+Orders, Pending Dispatch, Revenue Trend, Sales Funnel, Order Status aur sales charts. Unke
+dispatch rows bhi bahar. **Orders aur Dispatch section me wo pehle jaise dikhte hain** — kuch
+delete nahi hota. Faisla order ke `owner` ke role se hota hai (`users` me Administrator / Owner);
+console me `ocIsAdminOrder(order)`.
+
 ## Dashboard: Day = aaj (v43)
 
 Dashboard ke period filter me **Day** dabate hi aaj ka data aata hai (pehle pichhli baar chuni
