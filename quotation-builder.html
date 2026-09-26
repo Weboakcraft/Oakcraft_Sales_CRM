@@ -216,6 +216,28 @@ table.items td .idel{font-size:9px; color:var(--ink-soft)}
 .words-box{background:var(--cream); border:1px solid var(--line); padding:2.6mm 4mm; margin-bottom:2.4mm}
 .words-box .lbl{font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--gold-deep); font-weight:700}
 .words-box .w{font-family:Georgia,serif; font-style:italic; font-size:11px; margin-top:1mm; line-height:1.5}
+/* ---- AMC table (preview + PDF) ---- */
+.amc-box{margin-top:4mm; border:1px solid var(--line)}
+.amc-box .amc-h{display:flex; justify-content:space-between; align-items:baseline; gap:4mm; background:var(--cream); padding:2mm 3mm; border-bottom:1px solid var(--line)}
+.amc-box .amc-h .lbl{font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--gold-deep); font-weight:700}
+.amc-box .amc-h .rule{font-size:9px; color:var(--ink-soft)}
+table.amc{width:100%; border-collapse:collapse; font-size:9.5px}
+table.amc th{font-size:8px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:700; text-align:left; padding:1.6mm 3mm; border-bottom:1px solid var(--line)}
+table.amc td{padding:1.6mm 3mm; border-bottom:1px solid var(--line); vertical-align:middle}
+table.amc th.c, table.amc td.c{text-align:center}
+table.amc th.r, table.amc td.r{text-align:right}
+table.amc td .an{font-weight:700; color:var(--ink)}
+table.amc td .ad{font-size:8.5px; color:var(--muted); margin-top:.4mm}
+table.amc tr.amc-tot td{border-bottom:0; font-weight:700; background:var(--cream)}
+.amc-ed{border:1px solid var(--line); border-radius:4px; margin-top:6px}
+.amc-ed .amc-row{display:grid; grid-template-columns:1fr 78px 58px; gap:6px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--line); font-size:12px}
+.amc-ed .amc-row:last-child{border-bottom:0}
+.amc-ed .amc-row.hd{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:700}
+.amc-ed .amc-row .nm{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.amc-ed .amc-row .pr{text-align:right; color:var(--ink-soft)}
+.amc-ed .amc-row input{width:100%; padding:4px 5px; text-align:right}
+.amc-chk{display:flex; align-items:center; gap:7px; font-size:12px; margin-bottom:8px; cursor:pointer}
+.amc-chk input{width:auto; margin:0}
 .commit-grid{display:grid; grid-template-columns:1fr 1fr; gap:2mm 4mm; font-size:9.5px}
 .commit-grid .cg{border:1px solid var(--line); padding:2mm 3mm}
 .commit-grid .cg .k{font-size:8px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted)}
@@ -555,6 +577,18 @@ body.exporting .page{visibility:visible !important; opacity:1 !important}
     </div>
     <div class="f" id="frAmtWrap" style="display:none"><label>Freight amount (₹, ex-GST — added to taxable value)</label><input type="number" id="inFreight" value="0" oninput="S.freight=parseFloat(this.value)||0; R()"></div>
     <div class="f"><label>Payment terms</label><input id="inPay" oninput="S.payTerms=this.value; R()"></div>
+    <div class="f" id="amcSec"><label>AMC Charges &amp; Rules</label>
+      <label class="amc-chk"><input type="checkbox" id="inAmcOn" onchange="S.amc.on=this.checked; document.getElementById('amcBody').style.display=(this.checked?'':'none'); R()"> Show AMC table in quotation</label>
+      <div id="amcBody">
+        <div class="frow">
+          <div class="f"><label>Total AMC years</label><input type="number" id="inAmcYears" min="1" max="20" oninput="amcSet('years',this.value)"></div>
+          <div class="f"><label>Free years</label><input type="number" id="inAmcFree" min="0" max="20" oninput="amcSet('free',this.value)"></div>
+        </div>
+        <div class="f"><label>Default AMC % per year (of chair list price)</label><input type="number" id="inAmcPct" min="0" max="100" step="0.5" oninput="amcSet('pct',this.value)"></div>
+        <div id="amcList"></div>
+        <div class="hint" id="amcHint"></div>
+      </div>
+    </div>
     <div class="f"><label>Terms & conditions (one per line)</label><textarea id="inTerms" rows="6" oninput="S.terms=this.value; R()"></textarea></div>
   </div>
 
@@ -671,6 +705,8 @@ let S = {
   items: [], freight: 0, freightMode: "none",
   warranty: "1 Year — manufacturing defects",
   payTerms: "40% advance with PO · Balance before dispatch",
+  /* AMC: pehle `free` saal free, baaki (years - free) saal chargeable @ har item ka % (list price par, per year) */
+  amc: { on: true, years: 5, free: 1, pct: 10 },
   terms: [
     "All prices are in INR and exclusive of GST unless stated otherwise.",
     "Payment: 40% advance along with the purchase order; remaining balance before dispatch.",
@@ -779,6 +815,68 @@ function addItem(){
   renderItemsEditor(); R();
 }
 function rmItem(i){ S.items.splice(i,1); renderItemsEditor(); R(); }
+
+/* ================= AMC ================= */
+function amcDefaults(){ return { on: true, years: 5, free: 1, pct: 10 }; }
+function amcNorm(){
+  const a = S.amc || (S.amc = amcDefaults());
+  a.years = Math.max(1, Math.min(20, Math.round(+a.years || 0) || 1));
+  a.free  = Math.max(0, Math.min(a.years, Math.round(+a.free || 0)));
+  a.pct   = Math.max(0, Math.min(100, +a.pct || 0));
+  return a;
+}
+function amcSet(k, v){
+  S.amc[k] = (v === '' ? 0 : parseFloat(v)) || 0;
+  amcNorm(); R();
+}
+/* item ka % — khaali ho to default % */
+function amcPctOf(it){ return (it.amcPct === null || it.amcPct === undefined || it.amcPct === '') ? S.amc.pct : (+it.amcPct || 0); }
+function amcSetItem(i, v){
+  if(!S.items[i]) return;
+  S.items[i].amcPct = (v === '') ? null : Math.max(0, Math.min(100, parseFloat(v) || 0));
+  R();
+}
+function amcCalc(){
+  const a = amcNorm();
+  const charge = Math.max(0, a.years - a.free);
+  let total = 0;
+  const rows = S.items.filter(it => (it.name||'').trim() || +it.price).map(it => {
+    const pct = amcPctOf(it), qty = +it.qty || 0, price = +it.price || 0;
+    const perYr = price * qty * pct / 100;
+    const cost = perYr * charge;
+    total += cost;
+    return { name: it.name, price, qty, pct, perYr, cost };
+  });
+  return { on: !!a.on, years: a.years, free: a.free, charge, pct: a.pct, rows, total };
+}
+function renderAmcEditor(){
+  const w = document.getElementById('amcList'); if(!w) return;
+  const a = amcNorm();
+  const yr = document.getElementById('inAmcYears'), fr = document.getElementById('inAmcFree'), pc = document.getElementById('inAmcPct');
+  const ae = document.activeElement;
+  if(yr && ae !== yr) yr.value = a.years;
+  if(fr && ae !== fr) fr.value = a.free;
+  if(pc && ae !== pc) pc.value = a.pct;
+  const on = document.getElementById('inAmcOn'); if(on) on.checked = !!a.on;
+  const body = document.getElementById('amcBody'); if(body) body.style.display = a.on ? '' : 'none';
+  /* user % likh raha ho to list dobara mat banao, warna cursor chala jaata hai */
+  if(ae && w.contains(ae)) { amcHintUpd(); return; }
+  if(!S.items.length){ w.innerHTML = ''; amcHintUpd(); return; }
+  w.innerHTML = `<div class="amc-ed">
+    <div class="amc-row hd"><span>Item</span><span style="text-align:right">List price</span><span style="text-align:right">% / yr</span></div>
+    ${S.items.map((it,i)=>`<div class="amc-row">
+      <span class="nm" title="${esc(it.name)}">${esc(it.name) || '<i style="color:var(--muted)">Product '+(i+1)+'</i>'}${(+it.qty||0)>1?` <span style="color:var(--muted)">× ${+it.qty}</span>`:''}</span>
+      <span class="pr">${inr(+it.price||0)}</span>
+      <input type="number" min="0" max="100" step="0.5" placeholder="${a.pct}" value="${(it.amcPct===null||it.amcPct===undefined||it.amcPct==='')?'':it.amcPct}" oninput="amcSetItem(${i},this.value)">
+    </div>`).join('')}
+  </div>`;
+  amcHintUpd();
+}
+function amcHintUpd(){
+  const h = document.getElementById('amcHint'); if(!h) return;
+  const A = amcCalc();
+  h.innerHTML = `Pehla ${A.free} saal AMC free · agle ${A.charge} saal chargeable. Item ka % khaali chhodne par default ${A.pct}% lagta hai. Total AMC: <b>${inr(A.total)}</b> (ex-GST).`;
+}
 function updItem(i, k, v){
   S.items[i][k] = (k==='qty'||k==='price'||k==='disc') ? (parseFloat(v)||0) : v;
   R();
@@ -980,6 +1078,27 @@ function totalsMainHTML(C){
       <div class="tr"><span class="k">Round off</span><span class="v">${C.roundoff>=0?'+':'−'} ${Math.abs(C.roundoff).toFixed(2)}</span></div>
       <div class="grand"><span class="k">Grand Total</span><span class="v">${inr0(C.grand)}</span></div>
     </div>
+  </div>`;
+}
+function amcHTML(){
+  const A = amcCalc();
+  if(!A.on || !A.rows.length) return '';
+  const body = A.rows.map(r=>`<tr>
+      <td><div class="an">${esc(r.name)||'—'}</div><div class="ad">${inr(r.price)} × ${r.qty} · ${r.pct}% per year</div></td>
+      <td class="c">${A.years} Year${A.years>1?'s':''}</td>
+      <td class="c">${A.charge} Year${A.charge===1?'':'s'}</td>
+      <td class="r"><b>${inr(r.cost)}</b></td>
+    </tr>`).join('');
+  return `
+  <div class="amc-box">
+    <div class="amc-h"><span class="lbl">AMC Charges &amp; Rules</span>
+      <span class="rule">First ${A.free} year${A.free===1?'':'s'} AMC free · thereafter charged per year on chair list price (ex-GST)</span></div>
+    <table class="amc">
+      <thead><tr><th>Item Name</th><th class="c">Total AMC Year</th><th class="c">Chargeable AMC Year</th><th class="r">Total AMC Cost (₹)</th></tr></thead>
+      <tbody>${body}
+        <tr class="amc-tot"><td colspan="3">Total AMC cost (${A.charge} chargeable year${A.charge===1?'':'s'}, GST extra)</td><td class="r">${inr(A.total)}</td></tr>
+      </tbody>
+    </table>
   </div>`;
 }
 function termsSigHTML(){
@@ -1189,6 +1308,7 @@ function paginate(C){
   /* pass 1: measure header, each row, and each bottom block separately */
   M.innerHTML = fullHeadHTML('')
     + `<table class="items" id="mTbl">${THEAD}<tbody>${rowsArr.join('')}</tbody></table>`
+    + `<div id="mA">${amcHTML()}</div>`
     + `<div id="mB1">${totalsMainHTML(C)}</div>`
     + `<div id="mB2">${termsSigHTML()}</div>`
     + `<div class="foot-strip" id="mFoot">x</div>`;
@@ -1198,8 +1318,9 @@ function paginate(C){
   const headH = tbl.getBoundingClientRect().top - mTop;                    // full header incl. margins
   const theadH = trs[0].getBoundingClientRect().top - tbl.getBoundingClientRect().top;
   const rowH = trs.map((tr,i)=> (i<trs.length-1 ? trs[i+1].getBoundingClientRect().top : tbl.getBoundingClientRect().bottom) - tr.getBoundingClientRect().top);
-  const b1 = M.querySelector('#mB1'), b2 = M.querySelector('#mB2'), ft = M.querySelector('#mFoot');
-  const b1H = b1.getBoundingClientRect().bottom - tbl.getBoundingClientRect().bottom;  // incl. top margin
+  const ba = M.querySelector('#mA'), b1 = M.querySelector('#mB1'), b2 = M.querySelector('#mB2'), ft = M.querySelector('#mFoot');
+  const aH  = ba.getBoundingClientRect().bottom - tbl.getBoundingClientRect().bottom;  // AMC table (0 if off)
+  const b1H = b1.getBoundingClientRect().bottom - ba.getBoundingClientRect().bottom;   // incl. top margin
   const b2H = b2.getBoundingClientRect().bottom - b1.getBoundingClientRect().bottom;   // incl. top margin
   const footH = ft.getBoundingClientRect().bottom - b2.getBoundingClientRect().bottom; // pinned footer
 
@@ -1225,7 +1346,8 @@ function paginate(C){
     cur.rows.push(i); used += rowH[i];
   });
   let remain = cap - used;
-  [['tot', b1H], ['terms', b2H]].forEach(([key, h])=>{
+  const blockList = (aH > 0.5 ? [['amc', aH]] : []).concat([['tot', b1H], ['terms', b2H]]);
+  blockList.forEach(([key, h])=>{
     if(h > remain && (cur.rows.length || cur.blocks.length)){
       pages.push(cur);
       cur = {cont:true, rows:[], blocks:[]};
@@ -1256,14 +1378,15 @@ function R(){
       const isLastRowPage = p.rows[p.rows.length-1] === rowsArr.length-1;
       if(!isLastRowPage) inner += `<div class="tbl-cont-note">Continued on next page…</div>`;
     }
-    (p.blocks || []).forEach(b=>{ inner += (b==='tot') ? totalsMainHTML(C) : termsSigHTML(); });
-    if(idx < pages.length-1 && (!p.rows.length || p.rows[p.rows.length-1] === rowsArr.length-1) && (p.blocks||[]).length < 2 && !(p.blocks||[]).includes('terms')){
+    (p.blocks || []).forEach(b=>{ inner += (b==='amc') ? amcHTML() : (b==='tot') ? totalsMainHTML(C) : termsSigHTML(); });
+    if(idx < pages.length-1 && (!p.rows.length || p.rows[p.rows.length-1] === rowsArr.length-1) && !(p.blocks||[]).includes('terms')){
       inner += `<div class="tbl-cont-note">Continued on next page…</div>`;
     }
     inner += `<div class="pagefill"></div><div class="foot-strip">oakcraft.in · ${CO.email} · Manufacturer-Direct Since Day One</div>`;
     html += `<div class="pwrap"><div class="page inv-page">${inner}</div></div>`;
   });
   document.getElementById('printArea').innerHTML = html;
+  try{ renderAmcEditor(); }catch(e){}
   fitPreview();
 }
 
@@ -1365,7 +1488,7 @@ function newQuotation(){
   numberFinal = false;
   dateManual = false;
   S.co=""; S.attn=""; S.addr=""; S.cgstin=""; S.cph=""; S.state="Delhi"; S.shipTo="";
-  S.items=[]; S.freight=0; S.freightMode="none";
+  S.items=[]; S.freight=0; S.freightMode="none"; S.amc=amcDefaults();
   document.getElementById('frAmtWrap').style.display='none';
   S.date=new Date().toISOString().slice(0,10);
   document.getElementById('pdfbar').classList.remove('show');
@@ -1396,6 +1519,7 @@ function syncInputs(){
   document.getElementById('inWar').value = S.warranty;
   document.getElementById('inPay').value = S.payTerms;
   document.getElementById('inTerms').value = S.terms;
+  try{ renderAmcEditor(); }catch(e){}
 }
 
 /* ================= BOOT ================= */
@@ -1823,11 +1947,13 @@ window.addEventListener('focus', ()=>{
       rep: S.rep, repPh: S.repPh, co: S.co, attn: S.attn, addr: S.addr, cgstin: S.cgstin,
       cph: S.cph, state: S.state, shipTo: S.shipTo, freight: S.freight, freightMode: S.freightMode,
       warranty: S.warranty, payTerms: S.payTerms, terms: S.terms,
+      amc: { on: !!(S.amc && S.amc.on), years: +S.amc.years || 5, free: +S.amc.free || 0, pct: +S.amc.pct || 0 },
       items: (S.items || []).map(function(it){
         return { photo: it.photo || '', thumb: it.thumb || '', name: it.name || '', desc: it.desc || '', hsn: it.hsn || '',
                  qty: +it.qty || 0, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
                  gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null,
-                 gpParts: it.gpParts || {}, otype: it.otype || '' };
+                 gpParts: it.gpParts || {}, otype: it.otype || '',
+                 amcPct: (it.amcPct === null || it.amcPct === undefined || it.amcPct === '') ? null : +it.amcPct };
       })
     };
   }
@@ -1840,18 +1966,23 @@ window.addEventListener('focus', ()=>{
     if(qb.valid   !== undefined) S.valid   = +qb.valid   || 15;
     if(qb.gst     !== undefined) S.gst     = +qb.gst;
     if(qb.freight !== undefined) S.freight = +qb.freight || 0;
+    /* AMC ke bina saved purani quotation me AMC table apne aap nahi judti */
+    S.amc = qb.amc ? { on: !!qb.amc.on, years: +qb.amc.years || 5, free: +qb.amc.free || 0, pct: +qb.amc.pct || 0 }
+                   : { on: false, years: 5, free: 1, pct: 10 };
     if(qb.items && qb.items.length){
       S.items = qb.items.map(function(it){
         return { photo: it.photo || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
                  qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
                  gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null,
-                 gpParts: it.gpParts || {}, otype: it.otype || '' };
+                 gpParts: it.gpParts || {}, otype: it.otype || '',
+                 amcPct: (it.amcPct === null || it.amcPct === undefined || it.amcPct === '') ? null : +it.amcPct };
       });
     }
     return true;
   }
   /* purani quotations (CRM form se bani, ya bina qb wali) bhi khul jaayein */
   function applyLegacy(rec){
+    S.amc = { on: false, years: 5, free: 1, pct: 10 };
     S.co = rec.customer && rec.customer !== '—' ? rec.customer : '';
     ['attn','addr','cph','cgstin','shipTo'].forEach(function(k){ if(rec[k]) S[k] = rec[k]; });
     if(rec.date) S.date = String(rec.date).slice(0, 10);
