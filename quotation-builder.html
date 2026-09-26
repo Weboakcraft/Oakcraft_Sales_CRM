@@ -577,14 +577,13 @@ body.exporting .page{visibility:visible !important; opacity:1 !important}
     </div>
     <div class="f" id="frAmtWrap" style="display:none"><label>Freight amount (₹, ex-GST — added to taxable value)</label><input type="number" id="inFreight" value="0" oninput="S.freight=parseFloat(this.value)||0; R()"></div>
     <div class="f"><label>Payment terms</label><input id="inPay" oninput="S.payTerms=this.value; R()"></div>
-    <div class="f" id="amcSec"><label>AMC Charges &amp; Rules</label>
-      <label class="amc-chk"><input type="checkbox" id="inAmcOn" onchange="S.amc.on=this.checked; document.getElementById('amcBody').style.display=(this.checked?'':'none'); R()"> Show AMC table in quotation</label>
+    <div class="f" id="amcSec"><label>AMC Charges &amp; Rules <b>*</b></label>
       <div id="amcBody">
         <div class="frow">
-          <div class="f"><label>Total AMC years</label><input type="number" id="inAmcYears" min="1" max="20" oninput="amcSet('years',this.value)"></div>
-          <div class="f"><label>Free years</label><input type="number" id="inAmcFree" min="0" max="20" oninput="amcSet('free',this.value)"></div>
+          <div class="f"><label>Total AMC years <b>*</b></label><input type="number" id="inAmcYears" min="1" max="20" oninput="this.classList.remove('err'); amcSet('years',this.value)"></div>
+          <div class="f"><label>Free years <b>*</b></label><input type="number" id="inAmcFree" min="0" max="20" oninput="this.classList.remove('err'); amcSet('free',this.value)"></div>
         </div>
-        <div class="f"><label>Default AMC % per year (of chair list price)</label><input type="number" id="inAmcPct" min="0" max="100" step="0.5" oninput="amcSet('pct',this.value)"></div>
+        <div class="f"><label>Same AMC % for all items (per year, of chair list price)</label><input type="number" id="inAmcPct" min="0" max="100" step="0.5" placeholder="e.g. 10 — sab items me bhar jaata hai" oninput="amcAll(this.value)"></div>
         <div id="amcList"></div>
         <div class="hint" id="amcHint"></div>
       </div>
@@ -706,7 +705,7 @@ let S = {
   warranty: "1 Year — manufacturing defects",
   payTerms: "40% advance with PO · Balance before dispatch",
   /* AMC: pehle `free` saal free, baaki (years - free) saal chargeable @ har item ka % (list price par, per year) */
-  amc: { on: true, years: 5, free: 1, pct: 10 },
+  amc: { on: true, years: 5, free: 1, pct: null },
   terms: [
     "All prices are in INR and exclusive of GST unless stated otherwise.",
     "Payment: 40% advance along with the purchase order; remaining balance before dispatch.",
@@ -817,37 +816,49 @@ function addItem(){
 function rmItem(i){ S.items.splice(i,1); renderItemsEditor(); R(); }
 
 /* ================= AMC ================= */
-function amcDefaults(){ return { on: true, years: 5, free: 1, pct: 10 }; }
+/* AMC mandatory hai: har item ka % bharna zaroori (0 bhi chalega). AMC service par GST hamesha 18%
+   (quotation ka GST rate chahe kuch bhi ho), isliye alag constant. */
+const AMC_GST = 18;
+let amcShowErr = false;   /* save/PDF ki koshish ke baad khaali % laal dikhein */
+function amcDefaults(){ return { on: true, years: 5, free: 1, pct: null }; }
 function amcNorm(){
   const a = S.amc || (S.amc = amcDefaults());
+  a.on = true;
   a.years = Math.max(1, Math.min(20, Math.round(+a.years || 0) || 1));
   a.free  = Math.max(0, Math.min(a.years, Math.round(+a.free || 0)));
-  a.pct   = Math.max(0, Math.min(100, +a.pct || 0));
   return a;
 }
 function amcSet(k, v){
   S.amc[k] = (v === '' ? 0 : parseFloat(v)) || 0;
   amcNorm(); R();
 }
-/* item ka % — khaali ho to default % */
-function amcPctOf(it){ return (it.amcPct === null || it.amcPct === undefined || it.amcPct === '') ? S.amc.pct : (+it.amcPct || 0); }
+function amcFilled(it){ return !(it.amcPct === null || it.amcPct === undefined || it.amcPct === '' || isNaN(+it.amcPct)); }
+function amcPctOf(it){ return amcFilled(it) ? +it.amcPct : null; }
 function amcSetItem(i, v){
   if(!S.items[i]) return;
   S.items[i].amcPct = (v === '') ? null : Math.max(0, Math.min(100, parseFloat(v) || 0));
   R();
 }
+/* upar wala "same %" — sab items ke box me wahi % bhar deta hai (baad me alag-alag badal sakte hain) */
+function amcAll(v){
+  S.amc.pct = (v === '') ? null : Math.max(0, Math.min(100, parseFloat(v) || 0));
+  if(v !== '') S.items.forEach(it => { it.amcPct = S.amc.pct; });
+  const w = document.getElementById('amcList'); if(w) w.innerHTML = '';   /* list naye % ke saath dobara bane */
+  R();
+}
 function amcCalc(){
   const a = amcNorm();
   const charge = Math.max(0, a.years - a.free);
-  let total = 0;
+  let total = 0, missing = 0;
   const rows = S.items.filter(it => (it.name||'').trim() || +it.price).map(it => {
     const pct = amcPctOf(it), qty = +it.qty || 0, price = +it.price || 0;
-    const perYr = price * qty * pct / 100;
-    const cost = perYr * charge;
+    if(pct === null){ missing++; return { name: it.name, price, qty, pct: null, cost: null }; }
+    const ex = price * qty * pct / 100 * charge;            /* ex-GST */
+    const cost = ex * (1 + AMC_GST / 100);                  /* incl. 18% GST */
     total += cost;
-    return { name: it.name, price, qty, pct, perYr, cost };
+    return { name: it.name, price, qty, pct, ex, cost };
   });
-  return { on: !!a.on, years: a.years, free: a.free, charge, pct: a.pct, rows, total };
+  return { on: true, years: a.years, free: a.free, charge, pct: a.pct, rows, total, missing };
 }
 function renderAmcEditor(){
   const w = document.getElementById('amcList'); if(!w) return;
@@ -856,18 +867,16 @@ function renderAmcEditor(){
   const ae = document.activeElement;
   if(yr && ae !== yr) yr.value = a.years;
   if(fr && ae !== fr) fr.value = a.free;
-  if(pc && ae !== pc) pc.value = a.pct;
-  const on = document.getElementById('inAmcOn'); if(on) on.checked = !!a.on;
-  const body = document.getElementById('amcBody'); if(body) body.style.display = a.on ? '' : 'none';
+  if(pc && ae !== pc) pc.value = (a.pct === null || a.pct === undefined) ? '' : a.pct;
   /* user % likh raha ho to list dobara mat banao, warna cursor chala jaata hai */
   if(ae && w.contains(ae)) { amcHintUpd(); return; }
   if(!S.items.length){ w.innerHTML = ''; amcHintUpd(); return; }
   w.innerHTML = `<div class="amc-ed">
-    <div class="amc-row hd"><span>Item</span><span style="text-align:right">List price</span><span style="text-align:right">% / yr</span></div>
+    <div class="amc-row hd"><span>Item</span><span style="text-align:right">List price</span><span style="text-align:right">% / yr *</span></div>
     ${S.items.map((it,i)=>`<div class="amc-row">
       <span class="nm" title="${esc(it.name)}">${esc(it.name) || '<i style="color:var(--muted)">Product '+(i+1)+'</i>'}${(+it.qty||0)>1?` <span style="color:var(--muted)">× ${+it.qty}</span>`:''}</span>
       <span class="pr">${inr(+it.price||0)}</span>
-      <input type="number" min="0" max="100" step="0.5" placeholder="${a.pct}" value="${(it.amcPct===null||it.amcPct===undefined||it.amcPct==='')?'':it.amcPct}" oninput="amcSetItem(${i},this.value)">
+      <input id="qb-amc-${i}" class="${(amcShowErr && !amcFilled(it)) ? 'err' : ''}" type="number" min="0" max="100" step="0.5" placeholder="%" value="${amcFilled(it) ? it.amcPct : ''}" oninput="this.classList.remove('err'); amcSetItem(${i},this.value)">
     </div>`).join('')}
   </div>`;
   amcHintUpd();
@@ -875,7 +884,9 @@ function renderAmcEditor(){
 function amcHintUpd(){
   const h = document.getElementById('amcHint'); if(!h) return;
   const A = amcCalc();
-  h.innerHTML = `Pehla ${A.free} saal AMC free · agle ${A.charge} saal chargeable. Item ka % khaali chhodne par default ${A.pct}% lagta hai. Total AMC: <b>${inr(A.total)}</b> (ex-GST).`;
+  h.innerHTML = `Pehla ${A.free} saal AMC free · agle ${A.charge} saal chargeable. Har item ka % bharna zaroori hai.`
+    + (A.missing ? ` <b style="color:var(--err)">${A.missing} item ka % baaki.</b>` : '')
+    + ` Total AMC: <b>${inr(A.total)}</b> (incl. ${AMC_GST}% GST).`;
 }
 function updItem(i, k, v){
   S.items[i][k] = (k==='qty'||k==='price'||k==='disc') ? (parseFloat(v)||0) : v;
@@ -1082,21 +1093,21 @@ function totalsMainHTML(C){
 }
 function amcHTML(){
   const A = amcCalc();
-  if(!A.on || !A.rows.length) return '';
+  if(!A.rows.length) return '';
   const body = A.rows.map(r=>`<tr>
-      <td><div class="an">${esc(r.name)||'—'}</div><div class="ad">${inr(r.price)} × ${r.qty} · ${r.pct}% per year</div></td>
+      <td><div class="an">${esc(r.name)||'—'}</div><div class="ad">Qty: ${r.qty}</div></td>
       <td class="c">${A.years} Year${A.years>1?'s':''}</td>
       <td class="c">${A.charge} Year${A.charge===1?'':'s'}</td>
-      <td class="r"><b>${inr(r.cost)}</b></td>
+      <td class="r"><b>${r.cost === null ? '—' : inr(r.cost)}</b></td>
     </tr>`).join('');
   return `
   <div class="amc-box">
     <div class="amc-h"><span class="lbl">AMC Charges &amp; Rules</span>
-      <span class="rule">First ${A.free} year${A.free===1?'':'s'} AMC free · thereafter charged per year on chair list price (ex-GST)</span></div>
+      <span class="rule">First ${A.free} year${A.free===1?'':'s'} AMC free · thereafter chargeable · AMC cost shown incl. ${AMC_GST}% GST</span></div>
     <table class="amc">
-      <thead><tr><th>Item Name</th><th class="c">Total AMC Year</th><th class="c">Chargeable AMC Year</th><th class="r">Total AMC Cost (₹)</th></tr></thead>
+      <thead><tr><th>Item Name</th><th class="c">Total AMC Year</th><th class="c">Chargeable AMC Year</th><th class="r">Total AMC Cost (₹, incl. ${AMC_GST}% GST)</th></tr></thead>
       <tbody>${body}
-        <tr class="amc-tot"><td colspan="3">Total AMC cost (${A.charge} chargeable year${A.charge===1?'':'s'}, GST extra)</td><td class="r">${inr(A.total)}</td></tr>
+        <tr class="amc-tot"><td colspan="3">Total AMC cost (${A.charge} chargeable year${A.charge===1?'':'s'}, incl. ${AMC_GST}% GST)</td><td class="r">${inr(A.total)}</td></tr>
       </tbody>
     </table>
   </div>`;
@@ -1465,6 +1476,14 @@ function repMissing(){
       if(!String(it.name || '').trim()) bad(document.getElementById('qb-name-' + i), 'Product ' + n + ': model name');
       if(!(parseFloat(it.qty) > 0))     bad(document.getElementById('qb-qty-' + i),  'Product ' + n + ': qty');
       if(!(parseFloat(it.price) > 0))   bad(document.getElementById('qb-price-' + i),'Product ' + n + ': price');
+    });
+    /* AMC Charges & Rules — mandatory */
+    const A = S.amc || {};
+    if(!(+A.years >= 1)) bad(document.getElementById('inAmcYears'), 'AMC: total years');
+    if(A.free === null || A.free === undefined || A.free === '' || +A.free < 0) bad(document.getElementById('inAmcFree'), 'AMC: free years');
+    amcShowErr = S.items.some(it => !amcFilled(it));
+    S.items.forEach(function(it, i){
+      if(!amcFilled(it)) bad(document.getElementById('qb-amc-' + i), 'AMC % (Product ' + (i + 1) + ')');
     });
   }
   if(names.length){
@@ -1947,7 +1966,7 @@ window.addEventListener('focus', ()=>{
       rep: S.rep, repPh: S.repPh, co: S.co, attn: S.attn, addr: S.addr, cgstin: S.cgstin,
       cph: S.cph, state: S.state, shipTo: S.shipTo, freight: S.freight, freightMode: S.freightMode,
       warranty: S.warranty, payTerms: S.payTerms, terms: S.terms,
-      amc: { on: !!(S.amc && S.amc.on), years: +S.amc.years || 5, free: +S.amc.free || 0, pct: +S.amc.pct || 0 },
+      amc: { on: true, years: +S.amc.years || 5, free: +S.amc.free || 0, pct: (S.amc.pct === null || S.amc.pct === undefined) ? null : +S.amc.pct },
       items: (S.items || []).map(function(it){
         return { photo: it.photo || '', thumb: it.thumb || '', name: it.name || '', desc: it.desc || '', hsn: it.hsn || '',
                  qty: +it.qty || 0, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
@@ -1967,8 +1986,9 @@ window.addEventListener('focus', ()=>{
     if(qb.gst     !== undefined) S.gst     = +qb.gst;
     if(qb.freight !== undefined) S.freight = +qb.freight || 0;
     /* AMC ke bina saved purani quotation me AMC table apne aap nahi judti */
-    S.amc = qb.amc ? { on: !!qb.amc.on, years: +qb.amc.years || 5, free: +qb.amc.free || 0, pct: +qb.amc.pct || 0 }
-                   : { on: false, years: 5, free: 1, pct: 10 };
+    S.amc = qb.amc ? { on: true, years: +qb.amc.years || 5, free: (qb.amc.free === undefined ? 1 : +qb.amc.free || 0),
+                       pct: (qb.amc.pct === null || qb.amc.pct === undefined) ? null : +qb.amc.pct }
+                   : amcDefaults();
     if(qb.items && qb.items.length){
       S.items = qb.items.map(function(it){
         return { photo: it.photo || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
@@ -1982,7 +2002,7 @@ window.addEventListener('focus', ()=>{
   }
   /* purani quotations (CRM form se bani, ya bina qb wali) bhi khul jaayein */
   function applyLegacy(rec){
-    S.amc = { on: false, years: 5, free: 1, pct: 10 };
+    S.amc = amcDefaults();
     S.co = rec.customer && rec.customer !== '—' ? rec.customer : '';
     ['attn','addr','cph','cgstin','shipTo'].forEach(function(k){ if(rec[k]) S[k] = rec[k]; });
     if(rec.date) S.date = String(rec.date).slice(0, 10);
