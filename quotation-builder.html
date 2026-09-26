@@ -971,9 +971,13 @@ function calc(){
   const sgst = isDelhi ? taxable * S.gst/200 : 0;
   const igst = isDelhi ? 0 : taxable * S.gst/100;
   const pre = taxable + cgst + sgst + igst;
-  const grand = Math.round(pre);
-  const roundoff = grand - pre;
-  return {rows, sub, fr, taxable, isDelhi, cgst, sgst, igst, roundoff, grand};
+  const goodsGrand = Math.round(pre);
+  const roundoff = goodsGrand - pre;
+  /* Grand Total = products (GST ke saath) + Total AMC cost (18% GST ke saath) */
+  let amc = 0;
+  try{ amc = Math.round(amcCalc().total || 0); }catch(e){ amc = 0; }
+  const grand = goodsGrand + amc;
+  return {rows, sub, fr, taxable, isDelhi, cgst, sgst, igst, roundoff, goodsGrand, amc, grand};
 }
 
 /* ================= HTML BUILDERS ================= */
@@ -1087,6 +1091,8 @@ function totalsMainHTML(C){
       <div class="tr"><span class="k">Taxable value</span><span class="v">${inr(C.taxable)}</span></div>
       ${taxRows}
       <div class="tr"><span class="k">Round off</span><span class="v">${C.roundoff>=0?'+':'−'} ${Math.abs(C.roundoff).toFixed(2)}</span></div>
+      ${C.amc > 0 ? `<div class="tr"><span class="k">Products total</span><span class="v">${inr(C.goodsGrand)}</span></div>
+      <div class="tr"><span class="k">AMC charges (incl. ${AMC_GST}% GST)</span><span class="v">${inr(C.amc)}</span></div>` : ''}
       <div class="grand"><span class="k">Grand Total</span><span class="v">${inr0(C.grand)}</span></div>
     </div>
   </div>`;
