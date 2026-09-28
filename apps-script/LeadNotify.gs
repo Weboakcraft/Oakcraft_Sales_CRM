@@ -30,7 +30,7 @@
 var NOTIFY_LOG_TAB   = 'Meta_Notify_Log';
 var NOTIFY_STATUS    = 'CREATED';          // sirf isi status wali leads ka mail
 var NOTIFY_SUBJECT   = 'New Meta Leads Assigned';
-var NOTIFY_FROM_NAME = 'OakCraft Sales CRM';
+var NOTIFY_FROM_NAME = 'LEVQORA Sales CRM Software';
 var NOTIFY_CRM_URL   = 'https://weboakcraft.github.io/Oakcraft_Sales_CRM/';
 var NOTIFY_MAX_ROWS  = 60;                 // email me itni rows, baaki "+N more"
 
@@ -128,7 +128,7 @@ function nfy_rowsHtml_(leads) {
       + '</tr>';
   }).join('');
   var more = leads.length > shown.length
-    ? '<tr><td colspan="6" style="' + tds + ';text-align:center;color:#8A7B65;font-style:italic">+ ' + (leads.length - shown.length) + ' aur leads — CRM me dekhein</td></tr>'
+    ? '<tr><td colspan="6" style="' + tds + ';text-align:center;color:#8A7B65;font-style:italic">+ ' + (leads.length - shown.length) + ' more leads — view them in the CRM</td></tr>'
     : '';
   return body + more;
 }
@@ -138,14 +138,14 @@ function nfy_html_(user, leads) {
   + '<div style="font-family:Helvetica,Arial,sans-serif;background:#F7F2E9;padding:22px">'
   +   '<div style="max-width:720px;margin:0 auto;background:#FFF;border:1px solid #E3D9C6">'
   +     '<div style="padding:18px 22px;border-bottom:3px solid #B4802F">'
-  +       '<div style="font-size:19px;color:#241A10;letter-spacing:.04em"><b>Oak</b>Craft <span style="color:#8A7B65;font-size:13px">· Sales CRM</span></div>'
+  +       '<div style="font-size:19px;color:#241A10;letter-spacing:.04em"><b>LEVQORA</b> <span style="color:#8A7B65;font-size:13px">· Sales CRM Software</span></div>'
   +       '<div style="font-size:15px;color:#B4802F;font-weight:700;margin-top:5px">' + NOTIFY_SUBJECT + '</div>'
   +     '</div>'
   +     '<div style="padding:18px 22px">'
   +       '<p style="margin:0 0 12px;font-size:14px;color:#241A10">Hello ' + nfy_esc_(user.name) + ',</p>'
   +       '<p style="margin:0 0 16px;font-size:14px;color:#4A3B28;line-height:1.6">'
-  +         '<b>' + leads.length + ' new lead' + (leads.length === 1 ? '' : 's') + '</b> aapko assign hui hain (status: <b>' + NOTIFY_STATUS + '</b>). '
-  +         'Details neeche hain — CRM me khol kar follow-up shuru kar dijiye.'
+  +         '<b>' + leads.length + ' new lead' + (leads.length === 1 ? '' : 's') + '</b> assigned to you (status: <b>' + NOTIFY_STATUS + '</b>). '
+  +         'Details are below — open the CRM and start the follow-up.'
   +       '</p>'
   +       '<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #E3D9C6">'
   +         '<thead><tr>'
@@ -158,7 +158,7 @@ function nfy_html_(user, leads) {
   +       '<p style="margin:18px 0 0"><a href="' + NOTIFY_CRM_URL + '" style="background:#B4802F;color:#FFF;text-decoration:none;padding:11px 20px;font-size:13px;letter-spacing:.06em;display:inline-block">OPEN META LEADS IN CRM</a></p>'
   +     '</div>'
   +     '<div style="padding:12px 22px;background:#F7F2E9;border-top:1px solid #E3D9C6;font-size:11px;color:#8A7B65">'
-  +       'Ye automatic notification OakCraft Sales CRM se bheja gaya hai. Reply karne ki zaroorat nahi.'
+  +       'This is an automatic notification from LEVQORA Sales CRM Software. No need to reply.'
   +     '</div>'
   +   '</div>'
   + '</div>';

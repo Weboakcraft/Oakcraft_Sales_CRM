@@ -35,10 +35,10 @@
  */
 
 var ASG_LOG_TAB     = 'Assign_Notify_Log';
-var ASG_SUBJECT_ENQ = 'Nayi Enquiry aapko assign hui — OakCraft CRM';
-var ASG_SUBJECT_ML  = 'Naya Meta Lead aapko assign hua — OakCraft CRM';
-var ASG_SUBJECT_MIX = 'Naye leads aapko assign hue — OakCraft CRM';
-var ASG_FROM_NAME   = 'OakCraft Sales CRM';
+var ASG_SUBJECT_ENQ = 'New enquiry assigned to you — LEVQORA Sales CRM';
+var ASG_SUBJECT_ML  = 'New Meta lead assigned to you — LEVQORA Sales CRM';
+var ASG_SUBJECT_MIX = 'New leads assigned to you — LEVQORA Sales CRM';
+var ASG_FROM_NAME   = 'LEVQORA Sales CRM Software';
 var ASG_CRM_URL     = 'https://weboakcraft.github.io/Oakcraft_Sales_CRM/';
 var ASG_MAX_ROWS    = 40;      // email me itne records, baaki "+N aur"
 var ASG_MINUTES     = 1;       // trigger ka interval
@@ -139,11 +139,11 @@ function asg_collect_(){
 function asg_card_(it){
   var r = it.rec, title, lines;
   if(it.kind === 'meta'){
-    title = asg_str_(r.full_name) || asg_str_(r.phone_number) || 'Naya lead';
+    title = asg_str_(r.full_name) || asg_str_(r.phone_number) || 'New lead';
     lines = [['Phone', r.phone_number], ['City', r.city_state], ['Platform', r.platform],
-             ['Status', r.lead_status], ['Aaya', r.created_time_ist]];
+             ['Status', r.lead_status], ['Received', r.created_time_ist]];
   } else {
-    title = asg_str_(r.customer) || asg_str_(r.product) || 'Nayi enquiry';
+    title = asg_str_(r.customer) || asg_str_(r.product) || 'New enquiry';
     lines = [['Product', r.product], ['Qty', r.qty], ['Source', r.source],
              ['Value', r.value], ['Stage', r.stage], ['Date', r.date]];
   }
@@ -163,17 +163,17 @@ function asg_card_(it){
 function asg_html_(name, items){
   var shown = items.slice(0, ASG_MAX_ROWS);
   var more  = items.length > shown.length
-    ? '<p style="font-size:13px;color:#667">+ ' + (items.length - shown.length) + ' aur record CRM me hain.</p>' : '';
+    ? '<p style="font-size:13px;color:#667">+ ' + (items.length - shown.length) + ' more record(s) are in the CRM.</p>' : '';
   return '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;color:#12181a">'
-       +   '<p style="font-size:15px;margin:0 0 4px">Namaste ' + asg_esc_(name) + ',</p>'
-       +   '<p style="font-size:14px;color:#4a5558;margin:0 0 16px">Aapke naam par <b>' + items.length + '</b> naya '
-       +     (items.length === 1 ? 'record' : 'records') + ' assign hua hai:</p>'
+       +   '<p style="font-size:15px;margin:0 0 4px">Hello ' + asg_esc_(name) + ',</p>'
+       +   '<p style="font-size:14px;color:#4a5558;margin:0 0 16px"><b>' + items.length + '</b> new '
+       +     (items.length === 1 ? 'record' : 'records') + ' assigned to you:</p>'
        +   shown.map(asg_card_).join('')
        +   more
        +   '<p style="margin:18px 0 0"><a href="' + ASG_CRM_URL + '" '
        +     'style="display:inline-block;background:#0e6f6b;color:#fff;text-decoration:none;'
-       +     'padding:10px 18px;border-radius:8px;font-size:14px;font-weight:600">CRM me kholein</a></p>'
-       +   '<p style="font-size:11.5px;color:#8b9699;margin-top:18px">OakCraft Sales CRM ka automatic alert.</p>'
+       +     'padding:10px 18px;border-radius:8px;font-size:14px;font-weight:600">Open in CRM</a></p>'
+       +   '<p style="font-size:11.5px;color:#8b9699;margin-top:18px">Automatic alert from LEVQORA Sales CRM Software.</p>'
        + '</div>';
 }
 
