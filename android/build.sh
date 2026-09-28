@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-#  OakCraft CRM — Android APK build (no Gradle / Android Studio needed)
+#  LEVQORA (Sales CRM Software) — Android APK build (no Gradle / Android Studio needed)
 #
 #  Packs ../index.html, ../quotation-builder.html, ../gp-*.js, ../lib, ../icons, logos into the
 #  APK (assets/www) and compiles the tiny WebView shell in src/.
@@ -10,7 +10,7 @@
 #            - Ubuntu/Debian:  apt install android-sdk-build-tools android-sdk-platform-23
 #            - Android Studio / GitHub Actions SDK ($ANDROID_HOME)
 #
-#  Usage:  ./build.sh                       -> android/build/OakCraft-CRM-<version>.apk (debug key)
+#  Usage:  ./build.sh                       -> android/build/LEVQORA-<version>.apk (debug key)
 #          KEYSTORE=release.jks KEYSTORE_PASS=xxx KEY_ALIAS=oakcraft ./build.sh   -> release-signed
 #
 #  Env overrides: ANDROID_HOME, BUILD_TOOLS (dir), ANDROID_JAR, VERSION_CODE, VERSION_NAME,
@@ -34,7 +34,7 @@ VERSION_CODE="${VERSION_CODE:-$(date +%y%m%d%H)}"     # yyMMddHH -> always incre
 OUT="${OUT_DIR:-build}"
 JAVA_TOOL_OPTIONS="" ; export JAVA_TOOL_OPTIONS
 
-echo "== OakCraft CRM APK  v$VERSION_NAME ($VERSION_CODE)"
+echo "== LEVQORA APK  v$VERSION_NAME ($VERSION_CODE)"
 echo "   build-tools: $BUILD_TOOLS"
 echo "   android.jar: $ANDROID_JAR"
 
@@ -79,14 +79,14 @@ if [ -z "$KS" ]; then
   KS=".local/debug.jks"; KEYSTORE_PASS="${KEYSTORE_PASS:-android}"; KEY_ALIAS="${KEY_ALIAS:-androiddebugkey}"
   if [ ! -f "$KS" ]; then
     keytool -genkeypair -v -keystore "$KS" -storepass "$KEYSTORE_PASS" -keypass "$KEYSTORE_PASS" \
-      -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=OakCraft CRM debug" >/dev/null 2>&1
+      -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=LEVQORA debug" >/dev/null 2>&1
   fi
   echo "   signing: DEBUG key ($KS) — set KEYSTORE=... for a release build"
 else
   echo "   signing: $KS (alias ${KEY_ALIAS:-oakcraft})"
 fi
 KEY_PASS="${KEY_PASS:-${KEYSTORE_PASS:-}}"
-APK="$OUT/OakCraft-CRM-$VERSION_NAME.apk"
+APK="$OUT/LEVQORA-$VERSION_NAME.apk"
 "$BUILD_TOOLS/apksigner" sign --ks "$KS" --ks-pass "pass:${KEYSTORE_PASS:-android}" --key-pass "pass:$KEY_PASS" \
   --ks-key-alias "${KEY_ALIAS:-oakcraft}" --out "$APK" "$OUT/app.aligned.apk"
 "$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed 's/^/   /' | head -4

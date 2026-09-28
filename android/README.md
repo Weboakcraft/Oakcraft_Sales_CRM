@@ -1,4 +1,4 @@
-# OakCraft CRM — Android app
+# LEVQORA (Sales CRM Software) — Android app
 
 Ye folder CRM ka Android shell hai: ek chhota WebView app jo `index.html`,
 `quotation-builder.html`, `lib/`, `icons/` ko APK ke andar pack karta hai aur
@@ -6,7 +6,7 @@ Google Sheet backend (Apps Script) se pehle jaise sync karta hai.
 
 * Package: `in.oakcraft.crm` · minSdk 23 (Android 6.0+) · targetSdk 34
 * Kya native hai: file picker + camera (item image / proofs), Excel & PDF download
-  seedha *Downloads/OakCraft CRM* me, WhatsApp / GST portal links system app me,
+  seedha *Downloads/LEVQORA* me, WhatsApp / GST portal links system app me,
   hardware back button (modal → drawer → dashboard → double-tap exit).
 * Gradle / Android Studio ki zaroorat nahi — `build.sh` sirf `aapt`, `javac`, `d8`/`dx`,
   `zipalign`, `apksigner` use karta hai.
