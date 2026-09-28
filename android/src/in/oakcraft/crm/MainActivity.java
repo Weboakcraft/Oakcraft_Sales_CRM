@@ -52,7 +52,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * OakCraft Sales CRM — Android shell.
+ * LEVQORA Sales CRM Software — Android shell.
  *
  * The web app (index.html, quotation-builder.html, lib/, icons/) is packed inside the APK under
  * assets/www and served to the WebView from a private https origin (APP_ORIGIN) through
@@ -145,8 +145,8 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT < 26) return;
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm == null || nm.getNotificationChannel(NOTIF_CHANNEL) != null) return;
-        NotificationChannel ch = new NotificationChannel(NOTIF_CHANNEL, "Naye leads", NotificationManager.IMPORTANCE_HIGH);
-        ch.setDescription("Nayi enquiry ya Meta lead assign hone par alert");
+        NotificationChannel ch = new NotificationChannel(NOTIF_CHANNEL, "New leads", NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription("Alert when a new enquiry or Meta lead is assigned to you");
         ch.enableVibration(true);
         ch.setVibrationPattern(new long[]{ 0, 300, 140, 300 });
         ch.enableLights(true);
@@ -166,7 +166,7 @@ public class MainActivity extends Activity {
             ensureNotifChannel();
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm == null) return;
-            String t = (title == null || title.length() == 0) ? "OakCraft CRM" : title;
+            String t = (title == null || title.length() == 0) ? "LEVQORA" : title;
             String b = body == null ? "" : body;
 
             Intent open = new Intent(this, MainActivity.class);
@@ -483,7 +483,7 @@ public class MainActivity extends Activity {
                 ContentValues v = new ContentValues();
                 v.put("_display_name", name);
                 v.put("mime_type", mime);
-                v.put("relative_path", Environment.DIRECTORY_DOWNLOADS + "/OakCraft CRM");
+                v.put("relative_path", Environment.DIRECTORY_DOWNLOADS + "/LEVQORA");
                 v.put("is_pending", 1);
                 Uri col = Uri.parse("content://media/external/downloads");
                 Uri item = getContentResolver().insert(col, v);
@@ -509,7 +509,7 @@ public class MainActivity extends Activity {
 
     private void saveLegacy(String name, String mime, byte[] bytes) {
         try {
-            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "OakCraft CRM");
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "LEVQORA");
             if (!dir.exists()) dir.mkdirs();
             File f = new File(dir, name);
             int n = 1; String base = name, ext = "";
@@ -544,7 +544,7 @@ public class MainActivity extends Activity {
 
     private void afterSaved(final String name, final String mime, final Uri uri) {
         ui.post(new Runnable() { @Override public void run() {
-            Toast.makeText(MainActivity.this, getString(R.string.saved_to, "Downloads/OakCraft CRM/" + name), Toast.LENGTH_LONG).show();
+            Toast.makeText(MainActivity.this, getString(R.string.saved_to, "Downloads/LEVQORA/" + name), Toast.LENGTH_LONG).show();
             try {
                 Intent view = new Intent(Intent.ACTION_VIEW);
                 view.setDataAndType(uri, mime);
