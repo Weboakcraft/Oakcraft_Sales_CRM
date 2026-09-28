@@ -1239,3 +1239,11 @@ hand is overwritten.
 engine changes), `gp-bridge.js` (cost master + panel), `gp-quotation.js` and
 `gp-order.js` (the glue for each page). After editing any of them bump the `?v=` on the
 script tag, and `OC_WEB_BUILD`, as usual.
+
+## v51 (build 2026.09.28.1)
+
+**Quotation Builder — AMC optional.** "AMC Charges & Rules" ab zaroori nahi: years / free years / % khaali chhod kar bhi quotation save aur PDF download hoti hai. Sirf jin items ka AMC % bhara hai wahi AMC table aur Grand Total me jaate hain; koi % na bhara ho to PDF me AMC table aati hi nahi.
+
+**IndiaMART — Date Range.** Meta Leads jaisa hi control IndiaMART toolbar me: All time / Day / Week / Month / Custom range (date = `query_time`). Range list, KPI cards aur Excel export teeno par lagti hai; toolbar me "Showing: … · N leads". Choice `oc_rangeIM` me yaad rehti hai (Meta se alag).
+
+**Follow-up again.** Jo lead pehle se Follow-up par hai, uske status dropdown (IndiaMART, Meta Leads, Qualified, Follow-ups) me "↻ Follow-up again" option aata hai. Chunte hi Remark + Next follow-up date wala modal khulta hai; status Follow-up hi rehta hai, `followUpDate` / `followUpNote` naye ho jaate hain, `followUpCount` +1, aur history (⏱) me "Follow-up → Follow-up · ↻ Follow-up again (#n)" line remark, date, naam aur time ke saath likhi jaati hai. SLA / TAT par asar nahi (`field:'update'`).

@@ -577,11 +577,11 @@ body.exporting .page{visibility:visible !important; opacity:1 !important}
     </div>
     <div class="f" id="frAmtWrap" style="display:none"><label>Freight amount (₹, ex-GST — added to taxable value)</label><input type="number" id="inFreight" value="0" oninput="S.freight=parseFloat(this.value)||0; R()"></div>
     <div class="f"><label>Payment terms</label><input id="inPay" oninput="S.payTerms=this.value; R()"></div>
-    <div class="f" id="amcSec"><label>AMC Charges &amp; Rules <b>*</b></label>
+    <div class="f" id="amcSec"><label>AMC Charges &amp; Rules <span style="color:var(--muted);font-weight:400">(optional)</span></label>
       <div id="amcBody">
         <div class="frow">
-          <div class="f"><label>Total AMC years <b>*</b></label><input type="number" id="inAmcYears" min="1" max="20" oninput="this.classList.remove('err'); amcSet('years',this.value)"></div>
-          <div class="f"><label>Free years <b>*</b></label><input type="number" id="inAmcFree" min="0" max="20" oninput="this.classList.remove('err'); amcSet('free',this.value)"></div>
+          <div class="f"><label>Total AMC years</label><input type="number" id="inAmcYears" min="1" max="20" oninput="this.classList.remove('err'); amcSet('years',this.value)"></div>
+          <div class="f"><label>Free years</label><input type="number" id="inAmcFree" min="0" max="20" oninput="this.classList.remove('err'); amcSet('free',this.value)"></div>
         </div>
         <div class="f"><label>Same AMC % for all items (per year, of chair list price)</label><input type="number" id="inAmcPct" min="0" max="100" step="0.5" placeholder="e.g. 10 — sab items me bhar jaata hai" oninput="amcAll(this.value)"></div>
         <div id="amcList"></div>
@@ -816,7 +816,7 @@ function addItem(){
 function rmItem(i){ S.items.splice(i,1); renderItemsEditor(); R(); }
 
 /* ================= AMC ================= */
-/* AMC mandatory hai: har item ka % bharna zaroori (0 bhi chalega). AMC service par GST hamesha 18%
+/* AMC optional hai: % khaali chhod sakte hain — sirf bhare hue items AMC table / total me jaate hain. AMC service par GST hamesha 18%
    (quotation ka GST rate chahe kuch bhi ho), isliye alag constant. */
 const AMC_GST = 18;
 let amcShowErr = false;   /* save/PDF ki koshish ke baad khaali % laal dikhein */
@@ -852,12 +852,12 @@ function amcCalc(){
   let total = 0, missing = 0;
   const rows = S.items.filter(it => (it.name||'').trim() || +it.price).map(it => {
     const pct = amcPctOf(it), qty = +it.qty || 0, price = +it.price || 0;
-    if(pct === null){ missing++; return { name: it.name, price, qty, pct: null, cost: null }; }
+    if(pct === null){ missing++; return null; }   /* AMC optional — bina % wala item AMC table me nahi */
     const ex = price * qty * pct / 100 * charge;            /* ex-GST */
     const cost = ex * (1 + AMC_GST / 100);                  /* incl. 18% GST */
     total += cost;
     return { name: it.name, price, qty, pct, ex, cost };
-  });
+  }).filter(Boolean);
   return { on: true, years: a.years, free: a.free, charge, pct: a.pct, rows, total, missing };
 }
 function renderAmcEditor(){
@@ -872,7 +872,7 @@ function renderAmcEditor(){
   if(ae && w.contains(ae)) { amcHintUpd(); return; }
   if(!S.items.length){ w.innerHTML = ''; amcHintUpd(); return; }
   w.innerHTML = `<div class="amc-ed">
-    <div class="amc-row hd"><span>Item</span><span style="text-align:right">List price</span><span style="text-align:right">% / yr *</span></div>
+    <div class="amc-row hd"><span>Item</span><span style="text-align:right">List price</span><span style="text-align:right">% / yr</span></div>
     ${S.items.map((it,i)=>`<div class="amc-row">
       <span class="nm" title="${esc(it.name)}">${esc(it.name) || '<i style="color:var(--muted)">Product '+(i+1)+'</i>'}${(+it.qty||0)>1?` <span style="color:var(--muted)">× ${+it.qty}</span>`:''}</span>
       <span class="pr">${inr(+it.price||0)}</span>
@@ -884,8 +884,8 @@ function renderAmcEditor(){
 function amcHintUpd(){
   const h = document.getElementById('amcHint'); if(!h) return;
   const A = amcCalc();
-  h.innerHTML = `Pehla ${A.free} saal AMC free · agle ${A.charge} saal chargeable. Har item ka % bharna zaroori hai.`
-    + (A.missing ? ` <b style="color:var(--err)">${A.missing} item ka % baaki.</b>` : '')
+  h.innerHTML = `Pehla ${A.free} saal AMC free · agle ${A.charge} saal chargeable. AMC optional hai — % khaali chhodne par wo item AMC me nahi aata.`
+    + (A.missing ? ` <span style="color:var(--muted)">${A.missing} item bina AMC.</span>` : '')
     + ` Total AMC: <b>${inr(A.total)}</b> (incl. ${AMC_GST}% GST).`;
 }
 function updItem(i, k, v){
@@ -1483,14 +1483,9 @@ function repMissing(){
       if(!(parseFloat(it.qty) > 0))     bad(document.getElementById('qb-qty-' + i),  'Product ' + n + ': qty');
       if(!(parseFloat(it.price) > 0))   bad(document.getElementById('qb-price-' + i),'Product ' + n + ': price');
     });
-    /* AMC Charges & Rules — mandatory */
-    const A = S.amc || {};
-    if(!(+A.years >= 1)) bad(document.getElementById('inAmcYears'), 'AMC: total years');
-    if(A.free === null || A.free === undefined || A.free === '' || +A.free < 0) bad(document.getElementById('inAmcFree'), 'AMC: free years');
-    amcShowErr = S.items.some(it => !amcFilled(it));
-    S.items.forEach(function(it, i){
-      if(!amcFilled(it)) bad(document.getElementById('qb-amc-' + i), 'AMC % (Product ' + (i + 1) + ')');
-    });
+    /* AMC Charges & Rules — ab OPTIONAL hai: khaali chhodne par save / PDF nahi rukta.
+       Jin items ka % bhara hai sirf wahi AMC table me jaate hain; koi % na bhara ho to AMC table PDF me aati hi nahi. */
+    amcShowErr = false;
   }
   if(names.length){
     const st = document.getElementById('storeStatus');

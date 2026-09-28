@@ -6590,8 +6590,9 @@ console.log('[oc v7] row-safe save active');
       var canEdit = (typeof canTouch === 'function') ? canTouch(l) : true;
       var st = statusCode(l.lead_status) || 'CREATED';
       var statusCell = canEdit
-        ? '<select class="inl" style="color:' + statusColor(st) + '" onchange="ML.setStatus(\'' + l.id + '\',this.value)">'
+        ? '<select class="inl" style="color:' + statusColor(st) + '" onchange="if(window.ocFuPick&&ocFuPick(this,\'metaLeads\',\'' + l.id + '\'))return;ML.setStatus(\'' + l.id + '\',this.value)">'
             + statusOptions().map(function(s){ return '<option value="' + esc(s) + '"' + (s === st ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
+            + (st === 'FOLLOW_UP' ? '<option value="__FU_AGAIN__">↻ Follow-up again</option>' : '')   /* v51 */
           + '</select>'
         : '<span class="chip ' + statusClass(st) + '">' + esc(st) + '</span>';
       var ownCell = admin
@@ -8140,7 +8141,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.25.13';
+var OC_WEB_BUILD = '2026.09.28.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -11627,6 +11628,9 @@ window.ocTrackHistory = function(coll, id){
       +   (+a.late === 1 ? 'var(--crit,#d03b3b)' : 'var(--brand,#2a78d6)') + '"></div></div>'
       + '<div style="flex:1;min-width:0">'
       +   '<div style="font-weight:600;font-size:13px">' + E(a.from || '—') + ' → ' + E(a.to || '—')
+      /* v51: status wahi raha (update) -- Follow-up par "Follow-up again" chip */
+      +     (a.field === 'update' ? ' <span class="chip ' + (/^follow[\s_\-]*up$/i.test(TR(a.to)) ? ((typeof ocToneClass === 'function') ? ocToneClass('FOLLOW_UP') : 'c-neutral') : 'c-neutral') + '" style="margin-left:6px">'
+            + (/^follow[\s_\-]*up$/i.test(TR(a.to)) ? '↻ Follow-up again' : 'Update') + '</span>' : '')
       +     (+a.late === 1 ? ' <span class="chip c-lost" style="margin-left:6px">late ' + E(fmtHrs(a.delayHrs)) + '</span>' : '')
       +   '</div>'
       +   (TR(a.remark) ? '<div style="font-size:12.5px;margin-top:3px">' + E(a.remark) + '</div>' : '')
@@ -14524,8 +14528,10 @@ window.renderIndiamart = function(){
     var st   = statusOf(l.lead_status);
     var statusCell = edit
       ? '<select class="field" style="padding:4px 8px;font-size:12px;font-weight:600;color:'
-          + ocToneInk(st) + '" onchange="IM.setStatus(\'' + A(l.id) + '\',this.value)">'
+          + ocToneInk(st) + '" onchange="if(window.ocFuPick&&ocFuPick(this,\'indiamartLeads\',\'' + A(l.id) + '\'))return;IM.setStatus(\'' + A(l.id) + '\',this.value)">'
           + STATUSES.map(function(s){ return '<option value="' + A(s) + '"' + (s === st ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>'; }).join('')
+          /* v51: pehle se Follow-up hai to dobara Follow-up (remark + nayi date) */
+          + (st === 'FOLLOW_UP' ? '<option value="__FU_AGAIN__">↻ Follow-up again</option>' : '')
         + '</select>'
       : '<span class="chip ' + statusChipClass(st) + '">' + E(STATUS_LABEL[st] || st) + '</span>';
     var ownCell = admin
@@ -15515,10 +15521,11 @@ window.renderQualified = function(){
     }catch(e){}
     var sel = canEdit
       ? '<select class="field" style="padding:4px 8px;font-size:12px;font-weight:600;color:'
-        + ocToneInk(r.bucket) + '" onchange="QL.setStatus(\'' + A(r.src) + '\',\'' + A(r.id) + '\',this.value)">'
+        + ocToneInk(r.bucket) + '" onchange="if(window.ocFuPick&&ocFuPick(this,\'' + A(r.src) + '\',\'' + A(r.id) + '\'))return;QL.setStatus(\'' + A(r.src) + '\',\'' + A(r.id) + '\',this.value)">'
         + BUCKETS.map(function(b){
             return '<option value="' + A(b.key) + '"' + (b.key === r.bucket ? ' selected' : '') + '>' + E(b.label) + '</option>';
           }).join('')
+        + (r.bucket === 'FOLLOW_UP' ? '<option value="__FU_AGAIN__">↻ Follow-up again</option>' : '')   /* v51 */
         + '</select>'
       : '<span class="chip ' + bucketChip(r.bucket) + '">' + E(bucketLabel(r.bucket)) + '</span>';
 
@@ -17602,8 +17609,9 @@ window.renderFollowUps = function(){
     var cur = s.cur(r.rec);
     var sel = edit
       ? '<select class="field" style="padding:4px 8px;font-size:12px;font-weight:600;color:' + ocToneInk(cur) + '" '
-        + 'onchange="FU.setStatus(\'' + A(r.src) + '\',\'' + A(r.id) + '\',this.value)">'
+        + 'onchange="if(window.ocFuPick&&ocFuPick(this,\'' + A(r.src) + '\',\'' + A(r.id) + '\'))return;FU.setStatus(\'' + A(r.src) + '\',\'' + A(r.id) + '\',this.value)">'
         + s.opts().map(function(o){ return '<option value="' + A(o[0]) + '"' + (code(o[0]) === code(cur) ? ' selected' : '') + '>' + E(o[1]) + '</option>'; }).join('')
+        + (code(cur) === 'FOLLOW_UP' ? '<option value="__FU_AGAIN__">↻ Follow-up again</option>' : '')   /* v51 */
         + '</select>'
       : '<span class="chip ' + ocToneClass(cur) + '">Follow-up</span>';
     return '<tr>'
@@ -18683,6 +18691,332 @@ if(typeof _pe === 'function'){
 }
 try{ refreshBadges(); }catch(e){}
 console.log('[oc v49] Enquiries badge = list count, Follow-ups badge = all follow-ups');
+})();
+</script>
+<script>
+/* ====================================================================== *
+ * 51. OAKCRAFT v51 — (a) DATE-RANGE FILTER for INDIAMART                 *
+ *                    (b) FOLLOW-UP AGAIN from the status dropdown        *
+ *                                                                        *
+ * (a) Meta Leads jaisa hi control IndiaMART toolbar me:                  *
+ *     All time / Day / Week / Month / Custom range. Chuni hui range      *
+ *     list, KPI cards aur Excel export teeno par lagti hai. Date =       *
+ *     query_time (DD-MM-YYYY HH:MM:SS), na ho to createdAt. Choice       *
+ *     localStorage 'oc_rangeIM' me yaad rehti hai (Meta se alag).        *
+ *     Status / owner / search filter, sort, paging, permissions --       *
+ *     sab pehle jaise.                                                   *
+ *                                                                        *
+ * (b) Lead pehle se Follow-up par hai aur customer phir bole "baad me    *
+ *     call karna" -- ab status dropdown (IndiaMART, Meta, Qualified,     *
+ *     Follow-ups) me "↻ Follow-up again" option aata hai. Chunte hi       *
+ *     wahi Remark + Next follow-up date modal khulta hai; status         *
+ *     Follow-up hi rehta hai, record par followUpDate / followUpNote     *
+ *     badalte hain, followUpCount +1, aur history me                     *
+ *     "Follow-up → Follow-up  ↻ Follow-up again" line (remark + date,    *
+ *     kisne, kab) likhi jaati hai. SLA / TAT par asar nahi ('update').   *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocV51) return; window.__ocV51 = true;
+
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function $$(id){ return document.getElementById(id); }
+function p2(n){ return (n < 10 ? '0' : '') + n; }
+function A(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function toast(m){ try{ if(typeof tell === 'function') return tell(m); if(typeof toastMsg === 'function') return toastMsg(m); }catch(e){} }
+
+/* ==================================================================== (a) */
+var MON  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
+var DAYN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function d2s(d){ return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+function s2d(s){ var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(s)); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; }
+function todayS(){ return d2s(new Date()); }
+function pretty(s){ var d = s2d(s); return d ? (p2(d.getDate()) + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear()) : '—'; }
+function mondayOf(d){ var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function isoWeekStr(d){
+  var mon = mondayOf(d), thu = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 3), jan1 = new Date(thu.getFullYear(), 0, 1);
+  return thu.getFullYear() + '-W' + p2(Math.floor((thu - jan1) / 864e5 / 7) + 1);
+}
+function weekStrToMonday(s){
+  var m = /^(\d{4})-W(\d{1,2})$/.exec(T(s)); if(!m) return mondayOf(new Date());
+  var mon1 = mondayOf(new Date(+m[1], 0, 4));
+  return new Date(mon1.getFullYear(), mon1.getMonth(), mon1.getDate() + (+m[2] - 1) * 7);
+}
+
+var KEY = 'oc_rangeIM', COLL = 'indiamartLeads', PAGE = 200;
+function defF(){ return { mode:'all', day:todayS(), week:isoWeekStr(new Date()), month:todayS().slice(0, 7), from:todayS().slice(0, 8) + '01', to:todayS() }; }
+var CACHE = null;
+function getF(){
+  if(CACHE) return CACHE;
+  var f = null, d = defF();
+  try{ f = JSON.parse(localStorage.getItem(KEY) || 'null'); }catch(e){ f = null; }
+  if(f && typeof f === 'object') ['mode','day','week','month','from','to'].forEach(function(k){ if(f[k]) d[k] = T(f[k]); });
+  if(['all','day','week','month','custom'].indexOf(d.mode) < 0) d.mode = 'all';
+  return (CACHE = d);
+}
+function setF(f){ CACHE = f; try{ localStorage.setItem(KEY, JSON.stringify(f)); }catch(e){} }
+
+function rangeOf(f){
+  if(f.mode === 'day'){ var d = s2d(f.day) || new Date(); return { from:d2s(d), to:d2s(d), label: DAYN[d.getDay()] + ', ' + pretty(d2s(d)) }; }
+  if(f.mode === 'week'){
+    var mon = weekStrToMonday(f.week), sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+    return { from:d2s(mon), to:d2s(sun), label: pretty(d2s(mon)) + ' – ' + pretty(d2s(sun)) };
+  }
+  if(f.mode === 'month'){
+    var m = /^(\d{4})-(\d{2})$/.exec(T(f.month)), y = m ? +m[1] : new Date().getFullYear(), mo = m ? (+m[2] - 1) : new Date().getMonth();
+    return { from:d2s(new Date(y, mo, 1)), to:d2s(new Date(y, mo + 1, 0)), label: MON[mo] + ' ' + y };
+  }
+  if(f.mode === 'custom'){
+    var fr = /^\d{4}-\d{2}-\d{2}$/.test(T(f.from)) ? T(f.from) : '', to = /^\d{4}-\d{2}-\d{2}$/.test(T(f.to)) ? T(f.to) : '';
+    if(fr && to && fr > to){ var t = fr; fr = to; to = t; }
+    var lab = (!fr && !to) ? 'All time' : (fr && to) ? (pretty(fr) + ' – ' + pretty(to)) : (fr ? ('From ' + pretty(fr)) : ('Up to ' + pretty(to)));
+    return { from:fr, to:to, label:lab };
+  }
+  return { from:'', to:'', label:'All time' };
+}
+function activeRange(){ return rangeOf(getF()); }
+window.ocImRangeOf = activeRange;
+
+/* lead ki date: query_time (DD-MM-YYYY ...), warna createdAt / updatedAt */
+function imDate(l){
+  if(!l) return '';
+  var cand = [l.query_time, l.createdAt, l.updatedAt];
+  for(var i = 0; i < cand.length; i++){
+    var v = TR(cand[i]); if(!v) continue;
+    var dmy = /^(\d{2})[-\/](\d{2})[-\/](\d{4})/.exec(v); if(dmy) return dmy[3] + '-' + dmy[2] + '-' + dmy[1];
+    var ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);        if(ymd) return ymd[1] + '-' + ymd[2] + '-' + ymd[3];
+  }
+  return '';
+}
+window.ocImLeadDate = imDate;
+function inRange(l, rg){
+  if(!rg.from && !rg.to) return true;
+  var d = imDate(l); if(!d) return false;
+  if(rg.from && d < rg.from) return false;
+  if(rg.to && d > rg.to) return false;
+  return true;
+}
+/* fn() chalte waqt scope(rows,'indiamartLeads') date se chhana hua */
+function withFilter(fn){
+  var rg = activeRange();
+  if(!rg.from && !rg.to) return fn();
+  var _scope = window.scope;
+  if(typeof _scope !== 'function') return fn();
+  window.scope = function(list, coll){
+    var out = _scope.apply(this, arguments);
+    if(coll !== COLL || !Array.isArray(out)) return out;
+    return out.filter(function(l){ return inRange(l, rg); });
+  };
+  try{ return fn(); } finally { window.scope = _scope; }
+}
+
+var MODES = [['all','All time'],['day','Day'],['week','Week'],['month','Month'],['custom','Custom range']];
+function ctrlHTML(){
+  var f = getF();
+  var opts = MODES.map(function(m){ return '<option value="' + m[0] + '"' + (f.mode === m[0] ? ' selected' : '') + '>' + m[1] + '</option>'; }).join('');
+  return '<span id="oc-imrng" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">'
+    + '<select class="field" id="oc-imrngmode" title="Filter leads by date (query time)" onchange="ocImRangeSet(\'mode\',this.value)" style="min-width:118px">' + opts + '</select>'
+    + '<input class="field" type="date"  id="oc-imrngday"   value="' + A(f.day)   + '" onchange="ocImRangeSet(\'day\',this.value)">'
+    + '<input class="field" type="week"  id="oc-imrngweek"  value="' + A(f.week)  + '" onchange="ocImRangeSet(\'week\',this.value)">'
+    + '<input class="field" type="month" id="oc-imrngmonth" value="' + A(f.month) + '" onchange="ocImRangeSet(\'month\',this.value)">'
+    + '<input class="field" type="date"  id="oc-imrngfrom"  value="' + A(f.from)  + '" title="From date" onchange="ocImRangeSet(\'from\',this.value)">'
+    + '<span id="oc-imrngsep" style="font-size:12px;color:var(--muted)">to</span>'
+    + '<input class="field" type="date"  id="oc-imrngto"    value="' + A(f.to)    + '" title="To date" onchange="ocImRangeSet(\'to\',this.value)">'
+    + '</span>';
+}
+function syncCtrl(){
+  var f = getF();
+  function put(id, v){ var el = $$(id); if(el && el.value !== v) el.value = v; }
+  put('oc-imrngmode', f.mode); put('oc-imrngday', f.day); put('oc-imrngweek', f.week);
+  put('oc-imrngmonth', f.month); put('oc-imrngfrom', f.from); put('oc-imrngto', f.to);
+}
+function showParts(){
+  var f = getF();
+  function vis(id, on){ var el = $$(id); if(el) el.style.display = on ? '' : 'none'; }
+  vis('oc-imrngday', f.mode === 'day'); vis('oc-imrngweek', f.mode === 'week'); vis('oc-imrngmonth', f.mode === 'month');
+  vis('oc-imrngfrom', f.mode === 'custom'); vis('oc-imrngsep', f.mode === 'custom'); vis('oc-imrngto', f.mode === 'custom');
+}
+/* range me kitni leads (poori list, sirf is page ki nahi) -- wahi jo "Total leads" card */
+function shownCount(){
+  var rg = activeRange(), arr = [];
+  try{ arr = (typeof window.ocIndiamartAll === 'function') ? (window.ocIndiamartAll() || []) : JSON.parse(localStorage.getItem(COLL) || '[]'); }catch(e){ return null; }
+  if(!Array.isArray(arr)) return null;
+  arr = arr.filter(function(l){
+    try{ if(window.ocImHidden && window.ocImHidden(l)) return false; }catch(e){}
+    try{ if(window.ocImTooOld && window.ocImTooOld(l)) return false; }catch(e){}
+    return true;
+  });
+  try{ if(typeof window.scope === 'function') arr = window.scope(arr, COLL) || []; }catch(e){}
+  return arr.filter(function(l){ return inRange(l, rg); }).length;
+}
+function updLabel(){
+  var el = $$('oc-imrnglbl'); if(!el) return;
+  var rg = activeRange(), n = shownCount();
+  el.textContent = 'Showing: ' + rg.label + (n == null ? '' : (' · ' + n + ' lead' + (n === 1 ? '' : 's')));
+  el.title = (!rg.from && !rg.to) ? 'No date filter — the list and the Excel include every lead.'
+                                  : 'The list, the KPI cards and the Excel all cover ' + rg.label + ' only.';
+}
+function inject(){
+  var si = $$('imSearch'); if(!si) return;
+  var tools = si.parentNode; if(!tools) return;
+  if(!$$('oc-imrng')){
+    var anchor = tools.querySelector('button[onclick^="IM.bulkBox"]') || tools.querySelector('button[onclick^="IM.exportXlsx"]');
+    if(anchor) anchor.insertAdjacentHTML('beforebegin', ctrlHTML()); else tools.insertAdjacentHTML('beforeend', ctrlHTML());
+    tools.insertAdjacentHTML('beforeend', '<span id="oc-imrnglbl" style="font-size:12px;color:var(--muted);white-space:nowrap"></span>');
+  }
+  syncCtrl(); showParts(); updLabel();
+}
+window.ocImRangeSet = function(part, value){
+  var f = getF();
+  f[part] = T(value);
+  if(part !== 'mode' && f.mode === 'all') f.mode = (part === 'from' || part === 'to') ? 'custom' : part;
+  setF(f);
+  syncCtrl(); showParts();
+  window.__imLim = PAGE;
+  try{ if(typeof window.renderIndiamart === 'function') window.renderIndiamart(); }catch(e){}
+};
+window.ocImRangeReset = function(){ window.ocImRangeSet('mode', 'all'); };
+
+function wrapRender(){
+  var orig = window.renderIndiamart;
+  if(typeof orig !== 'function' || orig.__v51) return false;
+  var w = function(){
+    var self = this, args = arguments;
+    var r = withFilter(function(){ return orig.apply(self, args); });
+    try{ inject(); }catch(e){}
+    return r;
+  };
+  /* purane wrappers ke nishaan (jaise __v46) saath le chalo, taaki wo dobara na lapete */
+  try{ Object.keys(orig).forEach(function(k){ w[k] = orig[k]; }); }catch(e){}
+  w.__v51 = true;
+  window.renderIndiamart = w;
+  return true;
+}
+function wrapExport(){
+  var IM = window.IM;
+  if(!IM || typeof IM.exportXlsx !== 'function' || IM.exportXlsx.__v51) return;
+  var orig = IM.exportXlsx;
+  function stampName(rg){
+    var _w; try{ if(typeof XLSX === 'undefined' || !XLSX.writeFile) return; _w = XLSX.writeFile; }catch(e){ return; }
+    var done = false;
+    function restore(){ if(done) return; done = true; try{ XLSX.writeFile = _w; }catch(e){} }
+    XLSX.writeFile = function(wb, name){
+      var nm = T(name);
+      if(/^oakcraft-indiamart-/i.test(nm)) nm = nm.replace(/\.xlsx$/i, '') + '-' + (rg.from || 'start') + '_to_' + (rg.to || 'today') + '.xlsx';
+      restore();
+      return _w.call(XLSX, wb, nm);
+    };
+    setTimeout(restore, 15000);
+  }
+  var w = function(){
+    var self = this, args = arguments, rg = activeRange();
+    if(!rg.from && !rg.to) return orig.apply(self, args);
+    stampName(rg);
+    return withFilter(function(){ return orig.apply(self, args); });
+  };
+  w.__v51 = true;
+  IM.exportXlsx = w;
+}
+function install(){
+  try{
+    wrapRender(); wrapExport();
+    if(typeof state !== 'undefined' && state && state.view === 'indiamart' && !$$('oc-imrng')) window.renderIndiamart();
+  }catch(e){ console.warn('[oc v51] install', e); }
+}
+install(); setTimeout(install, 900); setTimeout(install, 3200);
+
+/* ==================================================================== (b) */
+function fuCode(v){ return TR(v).toUpperCase().replace(/[\s\-]+/g, '_'); }
+function lsArr(k){ try{ var a = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function recOf(src, id){
+  var a = (src === 'enquiries') ? (function(){ try{ return DB.enquiries() || []; }catch(e){ return lsArr('enquiries'); } })() : lsArr(src);
+  for(var i = 0; i < a.length; i++) if(a[i] && T(a[i].id) === T(id)) return a[i];
+  return null;
+}
+function nameOfRec(src, r){
+  if(!r) return '';
+  if(src === 'enquiries') return TR(r.customer);
+  if(src === 'metaLeads') return TR(r.full_name) || TR(r.name) || TR(r.phone_number);
+  return TR(r.sender_name) || TR(r.company) || TR(r.sender_mobile);
+}
+function spOf(src, r){ return r ? (TR(r.salesperson) || TR(r.assigned_to)) : ''; }
+function curOf(src, r){ return r ? TR(src === 'enquiries' ? r.stage : (r.lead_status || r.stage)) : ''; }
+function rerender(){
+  try{
+    var v = (typeof state !== 'undefined' && state) ? state.view : '';
+    if(v === 'indiamart' && typeof window.renderIndiamart === 'function') window.renderIndiamart();
+    else if(v === 'metaLeads' && typeof window.renderMetaLeads === 'function') window.renderMetaLeads();
+    else if(v === 'qualified' && typeof window.renderQualified === 'function') window.renderQualified();
+    else if(v === 'followups' && typeof window.renderFollowUps === 'function') window.renderFollowUps();
+  }catch(e){}
+  try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+}
+/* followUpCount +1 -- record wahi raaste se likho jo baaki app likhta hai */
+function bumpCount(src, id){
+  try{
+    if(src === 'enquiries'){
+      var ea = DB.enquiries() || [];
+      for(var i = 0; i < ea.length; i++) if(ea[i] && T(ea[i].id) === T(id)){ ea[i].followUpCount = (+ea[i].followUpCount || 0) + 1; DB.save('enquiries', ea); return ea[i].followUpCount; }
+      return 0;
+    }
+    var arr = lsArr(src);
+    for(var j = 0; j < arr.length; j++) if(arr[j] && T(arr[j].id) === T(id)){
+      arr[j].followUpCount = (+arr[j].followUpCount || 0) + 1;
+      arr[j].updatedAt = new Date().toISOString();
+      if(src === 'indiamartLeads' && typeof window.ocIndiamartSave === 'function') window.ocIndiamartSave(arr);
+      else if(typeof store !== 'undefined' && store && typeof store.set === 'function') store.set(src, arr);
+      else localStorage.setItem(src, JSON.stringify(arr));
+      return arr[j].followUpCount;
+    }
+  }catch(e){ console.warn('[oc v51] followUpCount', e); }
+  return 0;
+}
+
+/* dropdown se "↻ Follow-up again" chuna -> select ko Follow-up par wapas rakho, modal kholo */
+window.ocFuPick = function(sel, src, id){
+  if(!sel || sel.value !== '__FU_AGAIN__') return false;
+  try{
+    for(var i = 0; i < sel.options.length; i++){
+      if(sel.options[i].value !== '__FU_AGAIN__' && fuCode(sel.options[i].value) === 'FOLLOW_UP'){ sel.selectedIndex = i; break; }
+    }
+  }catch(e){}
+  window.ocFuAgain(src, id);
+  return true;
+};
+
+window.ocFuAgain = function(src, id){
+  if(typeof window.ocGate !== 'function'){ toast('Follow-up modal abhi load nahi hua — page refresh kijiye.'); return; }
+  var rec = recOf(src, id);
+  if(!rec){ toast('Record nahi mila.'); return; }
+  if(fuCode(curOf(src, rec)) !== 'FOLLOW_UP'){ toast('Ye lead Follow-up par nahi hai.'); rerender(); return; }
+  try{ if(typeof canTouch === 'function' && !canTouch(rec, src)){ toast('Ye lead aapki nahi hai.'); rerender(); return; } }catch(e){}
+  var to = (src === 'enquiries') ? 'Follow-up' : 'FOLLOW_UP';
+  var name = nameOfRec(src, rec) || '—';
+  var n = (+rec.followUpCount || 0) + 1;
+  window.ocGate(src, id, to, {
+    title: 'Follow-up again — remark + next follow-up date',
+    sub: name + '  ·  ' + id + '  ·  follow-up #' + (n + 1),
+    onCancel: rerender
+  }, function(){
+    var rem = '';
+    try{ rem = window.ocTakePend(src, id, to) || ''; }catch(e){}
+    var cnt = bumpCount(src, id);
+    try{
+      var after = recOf(src, id) || rec;
+      if(typeof window.ocLogChange === 'function'){
+        window.ocLogChange({ coll:src, recId:id, recName:name, field:'update',
+                             from:curOf(src, after) || to, to:curOf(src, after) || to,
+                             remark:'↻ Follow-up again' + (cnt ? ' (#' + (cnt + 1) + ')' : '') + ' · ' + rem,
+                             owner:after.owner, sp:spOf(src, after), createdAt:after.createdAt || '' });
+      }
+    }catch(e){ console.warn('[oc v51] history', e); }
+    toast('Follow-up updated — next date saved ✓');
+    rerender();
+  });
+};
+
+console.log('[oc v51] IndiaMART date range + Follow-up again from dropdown');
 })();
 </script>
 </body>
