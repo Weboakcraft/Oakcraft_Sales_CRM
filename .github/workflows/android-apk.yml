@@ -70,7 +70,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: OakCraft-CRM-apk
+          name: LEVQORA-apk
           path: android/build/*.apk
           if-no-files-found: error
 
@@ -78,7 +78,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-${{ github.run_number }}
-          name: OakCraft CRM APK build ${{ github.run_number }}
+          name: LEVQORA APK build ${{ github.run_number }}
           body: |
             versionCode: ${{ env.VERSION_CODE }}
             versionName: ${{ env.VERSION_NAME }}
