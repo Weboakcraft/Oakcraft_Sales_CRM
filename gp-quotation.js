@@ -76,7 +76,7 @@
     if (typeof syncInputs === 'function') syncInputs();
     if (typeof R === 'function') R();
     var h = el('gpCustHint');
-    if (h) h.textContent = 'CRM se auto-fill: ' + c.name + (st ? ' · ' + st : '');
+    if (h) h.textContent = 'Auto-filled from CRM: ' + c.name + (st ? ' · ' + st : '');
   }
   function mountCustomer() {
     var inp = el('inCo'); if (!inp) return;
@@ -92,7 +92,7 @@
     if (!el('gpCustHint')) {
       var h = document.createElement('div');
       h.id = 'gpCustHint'; h.className = 'hint';
-      h.textContent = 'CRM ke customers me se naam chuno — address, GSTIN, phone aur state apne aap bhar jayenge.';
+      h.textContent = 'Choose a name from the CRM customers — address, GSTIN, phone and state will be filled in automatically.';
       inp.parentNode.appendChild(h);
     }
   }
@@ -120,10 +120,10 @@
     if (!out || !out.res) { c.style.display = 'none'; return; }
     var t = out.res.totals, gp = t.grossProfit;
     var full = (window.OCGP.visibility() === 'full');
-    var word = gp > 0 ? 'FAYDA' : (gp < 0 ? 'GHATA' : 'BARABAR');
+    var word = gp > 0 ? 'PROFIT' : (gp < 0 ? 'LOSS' : 'BREAK-EVEN');
     if (out.uncosted && !out.costed) { word = 'COST ?'; }
     c.textContent = full
-      ? (word + ' \u00b7 ' + window.OCGP.fmt.pct(t.grossProfitPct) + (out.uncosted ? ' (adhoora)' : ''))
+      ? (word + ' \u00b7 ' + window.OCGP.fmt.pct(t.grossProfitPct) + (out.uncosted ? ' (incomplete)' : ''))
       : word;
     c.style.background = gp > 0 ? '#12704A' : (gp < 0 ? '#A32020' : '#5A5A5A');
     c.style.color = '#fff';
@@ -214,7 +214,7 @@
     var models = ready() ? window.OCGP.modelList() : [];
     /* cost master hi nahi mila to purana behaviour: sirf free text */
     if (!models.length) manual = true;
-    var box = '<label class="gp-chk" title="GP list me na ho to tick kijiye">'
+    var box = '<label class="gp-chk" title="Tick this if the item is not in the GP list">'
       + '<input type="checkbox" ' + (manual ? 'checked' : '') + ' ' + (models.length ? '' : 'disabled')
       + ' onchange="ocGPNotInList(' + i + ', this.checked)"> Not in list</label>';
     var ctrl;
@@ -224,7 +224,7 @@
     } else {
       var sel = String(it.gpModel || '');
       ctrl = '<select id="qb-name-' + i + '" onchange="ocGPPickModel(' + i + ', this.value)">'
-        + '<option value=""' + (sel ? '' : ' selected') + '>— model chuniye —</option>'
+        + '<option value=""' + (sel ? '' : ' selected') + '>— choose model —</option>'
         + models.map(function (p) {
             var v = String(p.sku || p.name);
             return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(p.name) + '</option>';
@@ -244,26 +244,26 @@
     injectCardCSS();
     var it = S.items[i] || {};
     if (!ready()) {
-      return '<div class="gp-linesum">GP cost master connected nahi hai — parts aur GP tabhi aayenge jab Admin Panel me GP Calculator ka URL + token set ho.</div>';
+      return '<div class="gp-linesum">The GP cost master is not connected — parts and GP will appear once the GP Calculator URL + token are set in the Admin Panel.</div>';
     }
     var chosen = it.gpParts || {};
     var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
     var std = model ? window.OCGP.costOf(model) : null;
-    var h = '<div class="gp-sectitle">Parts &amp; cost (GP ke liye — quotation me print nahi hota)</div><div class="gp-parts">';
+    var h = '<div class="gp-sectitle">Parts &amp; cost (for GP — not printed on the quotation)</div><div class="gp-parts">';
     ['arm', 'seat', 'base', 'wheels'].forEach(function (k) {
       var list = window.OCGP.partsFor(k);
       var cur = chosen[k] || (std ? std.names[k] : '') || '';
       var rate = cur ? window.OCGP.compRate(window.OCGP.PART_TYPE[k], cur) : 0;
       h += '<div class="gp-part"><label>' + PART_LABEL[k] + '</label>'
         + '<select onchange="ocGPPickPart(' + i + ', \'' + k + '\', this.value)">'
-        + '<option value="">— nahi chuna —</option>'
+        + '<option value="">— not selected —</option>'
         + list.map(function (c) {
             return '<option value="' + esc(c.name) + '"' + (c.name === cur ? ' selected' : '') + '>'
               + esc(c.name) + ' — ' + inr(c.rate) + '</option>';
           }).join('')
         + '</select>'
         + '<span class="gp-rate' + (cur && !rate ? ' zero' : '') + '">'
-        + (cur ? inr(rate) + (rate ? '' : ' — sheet me rate 0 hai') : 'koi part nahi chuna')
+        + (cur ? inr(rate) + (rate ? '' : ' — rate is 0 in the sheet') : 'no part selected')
         + '</span></div>';
     });
     h += '</div>';
@@ -281,13 +281,13 @@
     var lr = out.res.lines[0] || {};
     var costed = out.meta[0] && out.meta[0].costed;
     if (!costed) {
-      return '<div class="gp-linesum">Is line ka cost nahi mila — model chuniye ya chaaron part chun lijiye, tabhi GP sahi aayega.</div>';
+      return '<div class="gp-linesum">No cost found for this line — choose a model or select all four parts to get an accurate GP.</div>';
     }
     var loss = num(lr.gp) < 0;
     return '<div class="gp-linesum' + (loss ? ' loss' : '') + '">'
       + 'Cost/pc ' + inr(lr.unitCogs) + ' · Net rate/pc ' + inr(lr.unitNetPrice)
       + ' · GP ' + inr(lr.gp) + ' (' + window.OCGP.fmt.pct(lr.gpPct) + ')'
-      + (loss ? ' — GHATA' : '') + '</div>';
+      + (loss ? ' — LOSS' : '') + '</div>';
   }
 
   /* ---- handlers ---- */
@@ -362,13 +362,13 @@
 
       var what = lossLines.length
         ? 'Ghata: ' + lossLines.join(', ')
-        : 'Poore order par ghata ' + inr(Math.abs(t.grossProfit));
+        : 'Loss on the whole order ' + inr(Math.abs(t.grossProfit));
       if (isBoss()) {
         _override = Date.now() + 25000;
-        say('⚠ ' + what + ' — quotation roki gayi. Phir bhi banani hai to 25 second ke andar dobara dabaiye.');
+        say('⚠ ' + what + ' — quotation blocked. To create it anyway, press again within 25 seconds.');
       } else {
         _override = 0;
-        say('⚠ ' + what + ' — is rate par quotation nahi ban sakti. Rate badhaiye ya discount kam kijiye.');
+        say('⚠ ' + what + ' — a quotation cannot be created at this rate. Increase the rate or reduce the discount.');
       }
       return false;
     } catch (e) { return true; }   /* GP ki apni galti se kaam kabhi na ruke */

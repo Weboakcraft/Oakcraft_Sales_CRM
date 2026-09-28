@@ -128,7 +128,7 @@
 
   function load(force) {
     var c = cfg();
-    if (!c.url) { _lastErr = 'GP calculator ka Apps Script URL set nahi hai.'; return Promise.reject(new Error(_lastErr)); }
+    if (!c.url) { _lastErr = 'The GP calculator\'s Apps Script URL is not set.'; return Promise.reject(new Error(_lastErr)); }
     if (!force && fresh()) return Promise.resolve(masters());
     if (_loading) return _loading;
     _loading = fetch(c.url, {
@@ -136,9 +136,9 @@
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'bootstrap', token: c.token, payload: {} })
     })
-      .then(function (r) { if (!r.ok) throw new Error('GP sheet ne ' + r.status + ' bheja'); return r.json(); })
+      .then(function (r) { if (!r.ok) throw new Error('GP sheet returned status ' + r.status); return r.json(); })
       .then(function (j) {
-        if (!j.ok) throw new Error(j.error || 'GP sheet ne request reject kar di');
+        if (!j.ok) throw new Error(j.error || 'GP sheet rejected the request');
         _masters = { at: Date.now(), data: j.data };
         try { lsSet(LS_MASTERS, JSON.stringify(_masters)); } catch (e) {}
         buildIndex(); _lastErr = ''; _loading = null;
@@ -152,7 +152,7 @@
   }
   /* cache purana ho to background me chupchap refresh kar lo */
   function ensure() {
-    if (!cfg().url) return Promise.reject(new Error('GP sheet connected nahi hai.'));
+    if (!cfg().url) return Promise.reject(new Error('The GP sheet is not connected.'));
     if (masters() && fresh()) return Promise.resolve(masters());
     return load(true);
   }
@@ -358,18 +358,18 @@
     return 'ocgp-grey';
   }
   function verdictWord(gp) {
-    if (num(gp) > 0) return 'FAYDA';
-    if (num(gp) < 0) return 'GHATA';
-    return 'BARABAR';
+    if (num(gp) > 0) return 'PROFIT';
+    if (num(gp) < 0) return 'LOSS';
+    return 'BREAK-EVEN';
   }
 
   function cfgFormHTML() {
-    return '<div class="ocgp-note">GP cost master connected nahi hai. Sales GP Calculator ka Apps Script '
-      + '<b>/exec</b> URL aur token ek baar daal do — wahi sheet cost ka source rahegi.'
+    return '<div class="ocgp-note">The GP cost master is not connected. Enter the Sales GP Calculator\'s Apps Script '
+      + '<b>/exec</b> URL and token once — that sheet will be the cost source.'
       + '<div class="ocgp-cfg">'
       + '<input data-gp="url" placeholder="https://script.google.com/macros/s/.../exec">'
       + '<input data-gp="token" placeholder="Shared token">'
-      + '<div><button class="ocgp-btn" data-gp="save">Connect &amp; cost laao</button></div>'
+      + '<div><button class="ocgp-btn" data-gp="save">Connect &amp; load cost</button></div>'
       + '</div></div>';
   }
 
@@ -383,9 +383,9 @@
     /* verdict-only view: koi rupaya, koi percentage nahi */
     if (mode !== 'full') {
       var msg = out.uncosted
-        ? 'Kuch product ka cost master me nahi hai — GP adhoora hai. Admin se cost add karwa lo.'
-        : (word === 'FAYDA' ? 'Is order me fayda hai.' : word === 'GHATA' ? 'Is rate par ghata ho raha hai — rate ya discount dekho.' : 'Na fayda na ghata.');
-      return '<div class="ocgp-big ' + (out.uncosted ? 'ocgp-grey' : cls) + '"><b>' + (out.uncosted ? 'ADHOORA' : word) + '</b>'
+        ? 'Some products are missing from the cost master — GP is incomplete. Ask an admin to add the cost.'
+        : (word === 'PROFIT' ? 'This order is profitable.' : word === 'LOSS' ? 'This rate is making a loss — check the rate or discount.' : 'Break-even — no profit, no loss.');
+      return '<div class="ocgp-big ' + (out.uncosted ? 'ocgp-grey' : cls) + '"><b>' + (out.uncosted ? 'INCOMPLETE' : word) + '</b>'
         + '<span class="ocgp-sub">' + esc(msg) + '</span></div>'
         + (v.level ? '<div class="ocgp-note">Approval: <b>' + esc(v.level) + '</b>' + (v.who ? ' · ' + esc(v.who) : '') + '</div>' : '');
     }
@@ -394,26 +394,26 @@
     h += '<div class="ocgp-big ' + cls + '">'
       + '<b>' + pct(gpp) + '</b>'
       + '<span><b style="font-size:15px">' + word + ' ' + inr(Math.abs(gp)) + '</b>'
-      + '<span class="ocgp-sub"> · ' + inr(t.nsv) + ' ki sale value par</span></span>'
+      + '<span class="ocgp-sub"> · ' + inr(t.nsv) + ' on sale value</span></span>'
       + '</div>';
 
     if (v.level) {
       h += '<div class="ocgp-note">Approval: <b>' + esc(v.level) + '</b>'
         + (v.who ? ' — ' + esc(v.who) : '')
         + ' · target ' + pct(out.res.solver.targetPct)
-        + (out.res.solver.priceGapPct > 0.05 ? ' · target tak pahunchne ke liye rate ' + pct(out.res.solver.priceGapPct) + ' badhana padega' : ' · target se upar')
+        + (out.res.solver.priceGapPct > 0.05 ? ' · to reach the target, the rate must increase by ' + pct(out.res.solver.priceGapPct) + '' : ' · above target')
         + '</div>';
     }
 
     /* per line */
     var models = modelList();
     function optsFor(sel) {
-      var o = '<option value=""' + (sel ? '' : ' selected') + '>— model chuno —</option>';
+      var o = '<option value=""' + (sel ? '' : ' selected') + '>— choose model —</option>';
       models.forEach(function (p) {
         var v = String(p.sku || p.name);
         o += '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(p.name) + '</option>';
       });
-      o += '<option value="__manual"' + (sel === '__manual' ? ' selected' : '') + '>— cost khud bharo —</option>';
+      o += '<option value="__manual"' + (sel === '__manual' ? ' selected' : '') + '>— enter cost manually —</option>';
       return o;
     }
 
@@ -427,11 +427,11 @@
       var bad = lr.belowCost || (num(lr.qty) > 0 && !x.costed);
       var cellSel = opts.editable
         ? '<select data-gp="model" data-i="' + i + '">' + optsFor(sel) + '</select>'
-        : esc(x.model ? x.model.name : (x.how === 'manual' ? 'manual cost' : 'cost nahi mila'));
+        : esc(x.model ? x.model.name : (x.how === 'manual' ? 'manual cost' : 'cost not found'));
       var tag = x.how === 'auto' ? '<div class="ocgp-mini">auto-matched</div>'
-        : x.how === 'chosen' ? '<div class="ocgp-mini">aapne chuna</div>'
+        : x.how === 'chosen' ? '<div class="ocgp-mini">chosen by you</div>'
         : x.how === 'manual' ? '<div class="ocgp-mini">manual</div>'
-        : '<div class="ocgp-mini ocgp-warn">cost master me nahi mila</div>';
+        : '<div class="ocgp-mini ocgp-warn">not found in cost master</div>';
       var manualBoxes = (opts.editable && x.how === 'manual')
         ? '<div class="ocgp-cfg" style="grid-template-columns:repeat(2,1fr)">'
           + ['arm', 'seat', 'base', 'wheels'].map(function (k) {
@@ -460,8 +460,8 @@
       + '</div>';
 
     if (out.uncosted) {
-      h += '<div class="ocgp-note ocgp-warn"><b>' + out.uncosted + ' product</b> ka cost nahi mila, is liye GP itna hi bharosemand hai. '
-        + 'GP sheet ke M_Products me model add karo, ya upar se model chuno / cost khud bharo.</div>';
+      h += '<div class="ocgp-note ocgp-warn"><b>' + out.uncosted + ' product(s)</b> have no cost, so the GP is only partly reliable. '
+        + 'Add the model to M_Products in the GP sheet, or choose a model above / enter the cost manually.</div>';
     }
     var msgs = (out.res.issues || []).filter(function (x) { return x.sev !== 'info'; });
     if (msgs.length) {
@@ -471,7 +471,7 @@
     }
     var m = masters();
     h += '<div class="ocgp-head" style="margin-top:9px">'
-      + '<span class="ocgp-mini">Cost master: ' + (m ? ((m.products || []).length + ' model · ' + (m.components || []).length + ' component · ' + new Date(_masters.at).toLocaleString('en-IN')) : 'load nahi hua') + '</span>'
+      + '<span class="ocgp-mini">Cost master: ' + (m ? ((m.products || []).length + ' model · ' + (m.components || []).length + ' component · ' + new Date(_masters.at).toLocaleString('en-IN')) : 'not loaded') + '</span>'
       + '<span><button class="ocgp-btn" data-gp="refresh">Cost refresh</button></span></div>';
     return h;
   }
@@ -510,7 +510,7 @@
       });
       var rb = el.querySelector('[data-gp="refresh"]');
       if (rb) rb.addEventListener('click', function () {
-        rb.disabled = true; rb.textContent = 'laa raha hoon…';
+        rb.disabled = true; rb.textContent = 'loading…';
         load(true).then(function () { renderPanel(el, input, opts); })
           .catch(function (e) { rb.disabled = false; rb.textContent = 'Cost refresh'; el.insertAdjacentHTML('beforeend', '<div class="ocgp-note ocgp-warn">' + esc(e.message) + '</div>'); });
       });
@@ -524,14 +524,14 @@
         var u = (el.querySelector('[data-gp="url"]') || {}).value || '';
         var t = (el.querySelector('[data-gp="token"]') || {}).value || '';
         if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(u.trim())) {
-          el.insertAdjacentHTML('beforeend', '<div class="ocgp-note ocgp-warn">URL /exec par khatam hona chahiye.</div>');
+          el.insertAdjacentHTML('beforeend', '<div class="ocgp-note ocgp-warn">The URL must end with /exec.</div>');
           return;
         }
         setCfg(u, t);
-        b.disabled = true; b.textContent = 'connect kar raha hoon…';
+        b.disabled = true; b.textContent = 'connecting…';
         load(true).then(function () { renderPanel(el, input, opts); })
           .catch(function (e) {
-            b.disabled = false; b.textContent = 'Connect & cost laao';
+            b.disabled = false; b.textContent = 'Connect & load cost';
             el.insertAdjacentHTML('beforeend', '<div class="ocgp-note ocgp-warn">' + esc(e.message) + '</div>');
           });
       });
@@ -541,16 +541,16 @@
     if (!c.url) {
       el.innerHTML = (mode === 'full')
         ? cfgFormHTML()
-        : '<div class="ocgp-note">GP cost master connected nahi hai — admin se kehna padega.</div>';
+        : '<div class="ocgp-note">The GP cost master is not connected — please ask an admin.</div>';
       wireCfg();
       return null;
     }
     if (!masters()) {
-      el.innerHTML = '<div class="ocgp-note">GP cost master laa raha hoon…</div>';
+      el.innerHTML = '<div class="ocgp-note">Loading GP cost master…</div>';
       load(false).then(function () { renderPanel(el, input, opts); })
         .catch(function (e) {
-          el.innerHTML = '<div class="ocgp-note ocgp-warn">Cost master nahi mila: ' + esc(e.message)
-            + '<div><button class="ocgp-btn" data-gp="again">Dobara koshish</button></div></div>';
+          el.innerHTML = '<div class="ocgp-note ocgp-warn">Cost master not found: ' + esc(e.message)
+            + '<div><button class="ocgp-btn" data-gp="again">Try again</button></div></div>';
           var a = el.querySelector('[data-gp="again"]');
           if (a) a.addEventListener('click', function () { renderPanel(el, input, opts); });
         });
@@ -560,7 +560,7 @@
 
     var nlines = (input.lines || []).filter(function (l) { return num(l.qty) > 0 && (l.name || l.model); });
     if (!nlines.length) {
-      el.innerHTML = '<div class="ocgp-note">Product line bharo — GP apne aap aa jayega.</div>';
+      el.innerHTML = '<div class="ocgp-note">Fill in a product line — GP will appear automatically.</div>';
       return null;
     }
     var out = compute(input);

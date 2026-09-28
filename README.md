@@ -1,4 +1,4 @@
-# OakCraft Sales CRM
+# LEVQORA Sales CRM Software
 
 Enquiry → Quotation → Order → Dispatch pipeline for OakCraft. Single-file web app
 (`index.html`) + Pro-forma Quotation Builder (`quotation-builder.html`), data in a

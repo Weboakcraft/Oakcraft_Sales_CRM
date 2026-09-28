@@ -1,22 +1,23 @@
-<!DOCTYPE html><!-- build 2026-08-29 v9 -->
+<!DOCTYPE html><!-- build 2026-09-28 v53 -->
 
 <html lang="en" data-theme="light">
 <head>
 <script>try{var _t=localStorage.getItem('oc_theme');if(_t==='dark'||_t==='light'){document.documentElement.setAttribute('data-theme',_t);}}catch(e){}</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OakCraft Sales CRM — Enquiry to Dispatch</title>
+<title>LEVQORA Sales CRM Software — Enquiry to Dispatch</title>
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
 <meta name="theme-color" content="#0f1729">
+<meta name="application-name" content="LEVQORA">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="OakCraft CRM">
+<meta name="apple-mobile-web-app-title" content="LEVQORA">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
-<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png?v=52">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=52">
+<link rel="apple-touch-icon" href="icons/icon-180.png?v=52">
 <!-- Chart.js is bundled locally (lib/) so the app also works inside the Android APK / offline;
      the CDN copy is only a fallback. It is deferred so it never blocks HTML parsing. -->
 <script defer src="lib/chart.umd.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';document.head.appendChild(s)"></script>
@@ -260,8 +261,8 @@ td .sub{color:var(--muted);font-size:12px}
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">
-      <img class="logo" src="icons/icon-48.png" alt="CRM" width="38" height="38" style="object-fit:cover;background:#0b0b0b">
-      <div><h1>OakCraft CRM</h1><span>Sales Pipeline Suite</span></div>
+      <img class="logo" src="icons/icon-192.png?v=52" alt="LEVQORA" width="38" height="38" style="object-fit:contain;background:#fff;padding:2px">
+      <div><h1>LEVQORA</h1><span>Sales CRM Software</span></div>
     </div>
     <nav class="nav" id="nav">
       <div class="nav-label">Overview</div>
@@ -291,7 +292,7 @@ td .sub{color:var(--muted);font-size:12px}
   <div class="main">
     <header class="topbar">
       <button class="icon-btn menu-btn" id="menuBtn" title="Menu" aria-label="Open menu"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-      <img src="logo-sm.png" alt="OakCraft" width="40" height="40" decoding="async" fetchpriority="low" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:8px;padding:3px;margin-right:6px;flex:none;">
+      <img src="logo-sm.png?v=52" alt="LEVQORA" width="40" height="40" decoding="async" fetchpriority="low" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:8px;padding:3px;margin-right:6px;flex:none;">
       <div class="page-title" id="pageTitle">Dashboard<small id="pageSub">Sales performance overview</small></div>
       <div class="search" id="searchBox"><input id="globalSearch" placeholder="Search customers, orders…"></div>
       <button class="icon-btn" id="themeBtn" title="Toggle theme"></button>
@@ -819,6 +820,74 @@ window.ocToneOf    = ocToneOf;
 window.ocToneClass = function(v){ return OC_TONE_CLASS[ocToneOf(v)] || 'c-new'; };
 window.ocToneInk   = function(v){ return OC_TONE_INK[ocToneOf(v)]   || 'var(--brand)'; };
 
+/* ====================================================================== *
+ *  v52 — STATUS DROPDOWN: SIRF "Qualified" aur "Not Qualified"           *
+ *  Meta Leads, IndiaMART aur Enquiries -- teeno ke Status dropdown me ab *
+ *  sirf yahi do option hain. Lead abhi kisi aur status par ho (New,      *
+ *  Contacted, System Master ...) to wo naam dropdown band hone par       *
+ *  dikhta hai (chhupa hua, chuna nahi ja sakta), taaki pata rahe lead    *
+ *  abhi kahan hai.                                                       *
+ *    Qualified      -> wahi Remark + Customer Type + Purchase Quantity   *
+ *                      wala modal, phir lead Qualified section me.       *
+ *    Not Qualified  -> Remark likhna zaroori (wahi remark modal).        *
+ *  q / nq = [value, label] -- har section apni likhawat bhejta hai       *
+ *  (IndiaMART/Meta: QUALIFIED, Enquiries: 'Qualified').                  *
+ * ====================================================================== */
+function ocQnqOptions(cur, curLabel, q, nq){
+  function e(v){ return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  var c = String(cur == null ? '' : cur).trim(), h = '';
+  if(c !== q[0] && c !== nq[0]){
+    h += '<option value="' + e(c) + '" selected disabled hidden>' + e(curLabel || c || 'Select status') + '</option>';
+  }
+  h += '<option value="' + e(q[0]) + '"' + (c === q[0] ? ' selected' : '') + '>' + e(q[1]) + '</option>';
+  h += '<option value="' + e(nq[0]) + '"' + (c === nq[0] ? ' selected' : '') + '>' + e(nq[1]) + '</option>';
+  return h;
+}
+window.ocQnqOptions = ocQnqOptions;
+/* IndiaMART / Meta (lead_status code) ke liye */
+window.ocLeadQnqOptions = function(code){
+  var c = String(code == null ? '' : code).trim().toUpperCase().replace(/[\s\-]+/g, '_') || 'CREATED';
+  var lab = '';
+  try{ lab = (window.OC_LEAD_STATUS_LABEL || {})[c] || ''; }catch(e){}
+  if(!lab) lab = ({ CREATED:'New', CONTACTED:'Contacted', FOLLOW_UP:'Follow-up', PROPOSAL:'Proposal' })[c] || c.replace(/_/g, ' ');
+  return ocQnqOptions(c, lab, ['QUALIFIED', 'Qualified'], ['NOT_QUALIFIED', 'Not Qualified']);
+};
+/* Remark modal Cancel hua to dropdown galat value par na atka rahe:
+   modal band hote hi section dobara bana do (Save par bhi -- nayi value dikhe). */
+window.ocQnqAfterModal = function(redraw){
+  function go(){ setTimeout(function(){ try{ redraw(); }catch(e){} }, 60); }
+  var w = document.getElementById('oc-rem-wrap');
+  if(!w || w.style.display === 'none'){ go(); return; }
+  try{
+    var mo = new MutationObserver(function(){
+      if(w.style.display === 'none'){ mo.disconnect(); go(); }
+    });
+    mo.observe(w, { attributes:true, attributeFilter:['style'] });
+  }catch(e){ go(); }
+};
+/* Enquiries ki Stage column -- ab dropdown (edit permission ho to) */
+function ocEnqStageCell(e){
+  var st = String((e && e.stage) || 'New');
+  var edit = true;
+  try{ if(typeof can === 'function' && !can('enquiries', 'edit')) edit = false; }catch(x){}
+  try{ if(edit && typeof canTouch === 'function' && !canTouch(e, 'enquiries')) edit = false; }catch(x){}
+  if(!edit) return stageChip(st);
+  var id = String(e.id).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  return '<select class="field" style="width:auto;min-width:0;max-width:150px;padding:4px 8px;font-size:12px;font-weight:600;color:' + ocToneInk(st) + '" '
+    + 'onchange="ocEnqStagePick(this,\'' + id + '\')">'
+    + ocQnqOptions(st, st, ['Qualified', 'Qualified'], ['Not Qualified', 'Not Qualified'])
+    + '</select>';
+}
+window.ocEnqStageCell = ocEnqStageCell;
+window.ocEnqStagePick = function(sel, id){
+  var v = sel && sel.value;
+  if(!v || typeof window.ocMoveEnq !== 'function') return;
+  window.ocMoveEnq(id, v);
+  window.ocQnqAfterModal(function(){
+    if(typeof state !== 'undefined' && state.view === 'enquiries' && typeof window.paintEnq === 'function') window.paintEnq();
+  });
+};
+
 function stageChip(s){return `<span class="chip ${ocToneClass(s)}">${s}</span>`;}
 function orderChip(s){const m={Confirmed:'c-new','In Production':'c-prog',Ready:'c-quo',Dispatched:'c-ship',Delivered:'c-won',Cancelled:'c-lost'};return `<span class="chip ${m[s]||'c-neutral'}">${s}</span>`;}
 function quoChip(s){const m={Draft:'c-neutral',Sent:'c-new',Accepted:'c-won',Rejected:'c-lost'};return `<span class="chip ${m[s]||'c-neutral'}">${s}</span>`;}
@@ -857,7 +926,7 @@ function paintEnq(){
     <td class="strong tabular">${e.id}</td><td class="sub tabular">${e.date}</td>
     <td>${userCell(e.customer)}</td><td>${e.product}</td><td class="tabular">${e.qty}</td>
     <td>${e.source}</td><td>${e.salesperson}</td><td class="strong tabular">${money(e.value)}</td>
-    <td>${prioTag(e.priority)}</td><td>${stageChip(e.stage)}</td>
+    <td>${prioTag(e.priority)}</td><td>${ocEnqStageCell(e)}</td>
     <td><div class="row-actions" style="display:flex"><button onclick="openEnqModal('${e.id}')" title="Edit">${I.edit}</button><button onclick="delRow('enquiries','${e.id}')" title="Delete">${I.trash}</button></div></td>
   </tr>`).join(''):`<tr><td colspan="11" class="empty">No enquiries match your filters.</td></tr>`;
 }
@@ -1022,7 +1091,7 @@ function advanceOrder(id){
    no-op guard ke roop me rakha gaya hai taaki purani koi call
    (bookmark / old markup) bhi order create na kar sake. */
 function convertQuote(id){
-  toast('Quote to Order conversion band hai — quotation sirf Quotations me rahegi');
+  toast('Quote to Order conversion is disabled — the quotation stays in Quotations only');
 }
 function delRow(key,id){
   if(!confirm('Delete this record?'))return;
@@ -1408,7 +1477,7 @@ function openUserModal(email){
   const u = email ? DB_users().find(x=>x.email===email) : {};
   openModal(`<div class="modal-head"><h3>${email?'Edit':'Add'} User Login</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
-      <div style="font-size:12.5px;color:#b06a00;background:rgba(237,161,0,.12);padding:10px 12px;border-radius:10px;margin-bottom:14px">User Google Sheet (users tab) me save hota hai. Password yahin set / reset kar sakte hain — user apna password baad me sidebar ke <b>Change password</b> se bhi badal sakta hai.</div>
+      <div style="font-size:12.5px;color:#b06a00;background:rgba(237,161,0,.12);padding:10px 12px;border-radius:10px;margin-bottom:14px">Users are saved in the Google Sheet (users tab). You can set / reset the password here — users can also change their own password later from <b>Change password</b> in the sidebar.</div>
       <div class="form-row two"><div><label>Full Name</label><input id="u-name" value="${u.name||''}"></div><div><label>Mobile Number</label><input id="u-phone" value="${u.phone||''}"></div></div>
       <div class="form-row"><label>Login Email / ID</label><input id="u-email" type="email" value="${u.email||''}" ${email?'readonly':''} placeholder="user@oakcraft.in"></div>
       <div class="form-row two"><div><label>Password ${email?'(leave blank to keep)':''}</label><div style="position:relative"><input id="u-pass" type="password" minlength="6" placeholder="••••••" style="width:100%;padding-right:38px"><button type="button" onclick="togglePw('u-pass',this)" title="Show password" aria-label="Show password" style="position:absolute;top:50%;right:6px;transform:translateY(-50%);width:30px;height:30px;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:none;cursor:pointer;color:var(--muted)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button></div></div>
@@ -1860,7 +1929,7 @@ function savePermsFor(email){
 function exportData(){
   const data={enquiries:DB.enquiries(),quotations:DB.quotations(),orders:DB.orders(),dispatch:DB.dispatch(),customers:DB.customers(),products:DB.products()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='oakcraft-crm-data.json';a.click();
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='levqora-crm-data.json';a.click();
   toast('Data exported ✓');
 }
 function resetDemo(){
@@ -1911,9 +1980,9 @@ function ensureXLSX(){
 }
 async function awaitXLSX(){
   if(xlsxReady()) return true;
-  toast('Excel taiyaar ho rahi hai\u2026');
+  toast('Preparing Excel…');
   try{ await ensureXLSX(); return true; }
-  catch(e){ toast('Excel library load nahi hui \u2014 internet check kijiye'); return false; }
+  catch(e){ toast('Excel library did not load — please check your internet connection'); return false; }
 }
 /* ===== Excel: append custom form-builder answers as extra columns ===== */
 function appendCustomColumns(section, rows){
@@ -2015,7 +2084,7 @@ function orderWaText(o){
   var L = [];
   L.push('Namaste ' + (cust.contact || o._cContact || o.customer || 'Sir/Madam') + ',');
   L.push('');
-  L.push('OakCraft se aapke order ki update:');
+  L.push('Update on your order from OakCraft:');
   L.push('');
   L.push('Order ID: ' + o.id);
   L.push('Order Date: ' + (o.date || '-'));
@@ -2034,7 +2103,7 @@ function orderWaText(o){
     L.push('Delivery Status: ' + (disp.status || '-'));
   }
   L.push('');
-  L.push('Kisi bhi jaankari ke liye isi number par reply kijiye.');
+  L.push('For any information, please reply on this number.');
   L.push('Team OakCraft');
   return L.join('\n');
 }
@@ -2045,10 +2114,10 @@ function waOrder(id, ev){
   var cust = DB.customers().find(function(c){ return c.id === o.custId; }) || {};
   var num = waNumber(cust.phone || o._cPhone);   /* _cPhone: server hint, jab customer record scope me na ho */
   if(!num){
-    var typed = prompt('Is customer ka WhatsApp number save nahi hai.\nNumber likhiye (10 digit ya +91...):', '');
+    var typed = prompt('This customer\'s WhatsApp number is not saved.\nEnter the number (10 digits or +91...):', '');
     if(typed === null) return;
     num = waNumber(typed);
-    if(!num){ toast('Valid WhatsApp number daaliye'); return; }
+    if(!num){ toast('Enter a valid WhatsApp number'); return; }
   }
   window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(orderWaText(o)), '_blank', 'noopener');
 }
@@ -2156,7 +2225,7 @@ function renderLogin(msg){
   let ov=document.getElementById('loginOverlay'); if(!ov){ ov=document.createElement('div'); ov.id='loginOverlay'; document.body.appendChild(ov); }
   ov.setAttribute('style', 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f1729,#1a2540);padding:20px');
   ov.innerHTML = `<div style="width:100%;max-width:380px;background:#fff;border-radius:16px;padding:30px;box-shadow:0 20px 60px rgba(0,0,0,.4)">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><img src="icons/icon-48.png" alt="CRM" width="42" height="42" style="width:42px;height:42px;border-radius:10px;object-fit:cover;background:#0b0b0b"><div><div style="font-weight:800;font-size:18px;color:#111">OakCraft CRM</div><div style="font-size:12px;color:#888">Sales Pipeline Suite</div></div></div>
+    <div style="text-align:center;margin-bottom:6px"><img src="logo.png?v=52" alt="LEVQORA Sales CRM Software" style="width:100%;max-width:260px;height:auto;display:inline-block"></div>
     <h3 style="margin:18px 0 4px;color:#111">Sign in</h3>
     <div id="loginMsg" style="font-size:12.5px;color:#d03b3b;min-height:18px;margin-bottom:6px">${msg||''}</div>
     <label style="font-size:12px;color:#888">Email</label>
@@ -2571,11 +2640,11 @@ function bindAppEvents(){
       msg.textContent = t;
       msg.style.color = bad ? '#c0392b' : '';
     }
-    if(!email || !pw){ say('Email aur password dono zaroori hain.', true); return; }
+    if(!email || !pw){ say('Both email and password are required.', true); return; }
 
     var h;
     try{ h = await AUTH.hash(pw); }
-    catch(e){ say('Password process nahi ho paaya.', true); return; }
+    catch(e){ say('Could not process the password.', true); return; }
 
     say('Checking\u2026');
     try{
@@ -2634,18 +2703,18 @@ function bindAppEvents(){
 
       if(!res || !res.ok){
         SRV.clear();
-        say(String((res && res.error) || 'Login fail hua.'), true);
+        say(String((res && res.error) || 'Login failed.'), true);
         return;
       }
 
       SRV.set(res.sid || (res.data && res.data.sid) || '');
-      say('Aapka data load ho raha hai\u2026');
+      say('Data Loading…');
       await CLOUD.pull();
       AUTH.setSession(email);
       bootApp();
     }catch(e){
       console.error('login failed', e);
-      say('Server se baat nahi ho paayi \u2014 internet check kijiye.', true);
+      say('Could not reach the server — please check your internet connection.', true);
     }
   };
 
@@ -2781,7 +2850,7 @@ function bindAppEvents(){
       var out = _origDelRow(key, id);
       if(countOf(key) < before){
         CLOUD.remove(key, id).then(function(ok){
-          if(!ok) toast('Sheet se delete nahi ho paaya \u2014 internet check kijiye');
+          if(!ok) toast('Could not delete from the sheet — please check your internet connection');
         });
       }
       return out;
@@ -2852,7 +2921,7 @@ function bindAppEvents(){
           });
           return Promise.all(ids.map(function(id){ return CLOUD.remove('users', id); }));
         }).catch(function(){
-          toast('Sheet se user delete nahi ho paaya \u2014 internet check kijiye');
+          toast('Could not delete the user from the sheet — please check your internet connection');
         });
       }
       return out;
@@ -3046,7 +3115,7 @@ function bindAppEvents(){
     var open = list.length - won - lost;
 
     var bar = '<div class="ml-bar">'
-      + '<input class="ml-s" id="mlSearch" placeholder="Search naam / phone / city / campaign\u2026" value="' + esc(window.__mlQ || '') + '">'
+      + '<input class="ml-s" id="mlSearch" placeholder="Search name / phone / city / campaign…" value="' + esc(window.__mlQ || '') + '">'
       + (admin ? '<button class="btn" onclick="ML.importBox()">Import from Meta</button>' : '')
       + (admin ? '<button class="btn" onclick="ML.stageBox()">Stages</button>' : '')
       + '</div>';
@@ -3068,20 +3137,20 @@ function bindAppEvents(){
           + (l.campaign ? '<span class="lc-tag">' + esc(l.campaign) + '</span>' : '')
           + (admin ? '<div class="lc-meta" style="margin-top:6px">Owner: ' + esc(l.owner ? nameOf(l.owner) : 'Unassigned') + '</div>' : '')
           + '<div class="lc-act">'
-          + (si > 0 ? '<button title="Peeche" onclick="ML.move(\'' + l.id + '\',-1)">\u25c0</button>' : '')
-          + (si < cfg.stages.length - 1 ? '<button title="Aage" onclick="ML.move(\'' + l.id + '\',1)">\u25b6</button>' : '')
+          + (si > 0 ? '<button title="Move back" onclick="ML.move(\'' + l.id + '\',-1)">\u25c0</button>' : '')
+          + (si < cfg.stages.length - 1 ? '<button title="Move forward" onclick="ML.move(\'' + l.id + '\',1)">\u25b6</button>' : '')
           + '<button onclick="ML.form(\'' + l.id + '\')">Edit</button>'
           + '</div></div>';
       }).join('');
       return '<div class="stage-col"><h4>' + esc(st) + ' <span>' + items.length + '</span></h4>'
         + '<div class="stage-body">'
-        + (cards || '<div style="color:var(--muted,#898781);font-size:12px;padding:6px 0">Koi lead nahi</div>')
+        + (cards || '<div style="color:var(--muted,#898781);font-size:12px;padding:6px 0">No leads</div>')
         + '</div></div>';
     }).join('') + '</div>';
 
     var note = visible.length ? '' :
       '<div style="background:var(--surface,#1a1a19);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:10px;padding:16px;margin-bottom:14px;font-size:13px;color:var(--muted,#898781)">'
-      + 'Abhi koi Meta lead nahi hai. Leads apne aap aati hain; turant chahiye to <b>Import from Meta</b> se apna Lead Ads CSV paste kar dijiye.'
+      + 'There are no Meta leads yet. Leads arrive automatically; if you need them right away, paste your Lead Ads CSV using <b>Import from Meta</b>.'
       + '</div>';
 
     content.innerHTML = bar + kpi + note + board;
@@ -3106,7 +3175,7 @@ function bindAppEvents(){
       var cfg = metaCfg(), arr = mlAll();
       var l = arr.filter(function(x){ return x.id === id; })[0];
       if(!l) return;
-      if(!canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+      if(!canTouch(l)){ toast('This lead is not yours.'); return; }
       var i = cfg.stages.indexOf(l.stage || 'New');
       if(i < 0) i = 0;
       var n = i + dir;
@@ -3120,7 +3189,7 @@ function bindAppEvents(){
       var arr = mlAll();
       var l = id ? arr.filter(function(x){ return x.id === id; })[0] : null;
       if(id && !l) return;
-      if(l && !canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+      if(l && !canTouch(l)){ toast('This lead is not yours.'); return; }
       var cfg = metaCfg(), admin = meIsAdmin();
       l = l || { stage: cfg.stages[0], platform: 'Facebook' };
       var ownSel = admin
@@ -3164,19 +3233,19 @@ function bindAppEvents(){
       rec.campaign = v('mlCamp'); rec.adForm = v('mlForm'); rec.stage = v('mlStage');
       rec.note = v('mlNote');
       rec.updatedAt = new Date().toISOString();
-      if(!rec.name && !rec.phone && !rec.email){ toast('Name, phone ya email me se kuch to daaliye.'); return; }
+      if(!rec.name && !rec.phone && !rec.email){ toast('Enter at least a name, phone or email.'); return; }
       if(admin) rec.owner = v('mlOwner');
       else if(!rec.owner) rec.owner = meEmail();
       if(isNew) arr.unshift(rec);
       mlSave(arr);
       closeModal();
-      toast(isNew ? 'Lead add ho gaya' : 'Lead update ho gaya');
+      toast(isNew ? 'Lead added' : 'Lead updated');
       renderMetaLeads();
     },
     importBox: function(){
       openModal(
         '<h3 style="margin:0 0 6px">Import Meta Leads</h3>'
-        + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted,#898781)">Meta Ads Manager se Lead Ads CSV download kijiye aur yahan paste kar dijiye. Header row rakhna zaroori hai. JSON bhi chalega.</p>'
+        + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted,#898781)">Download the Lead Ads CSV from Meta Ads Manager and paste it here. The header row is required. JSON also works.</p>'
         + '<textarea id="mlPaste" rows="10" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border,rgba(255,255,255,.12));border-radius:8px;font:12px/1.5 monospace;background:var(--bg,#0d0d0d);color:inherit" placeholder="full_name,phone_number,email,city,campaign_name"></textarea>'
         + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
         + '<button class="btn" onclick="closeModal()">Cancel</button>'
@@ -3187,7 +3256,7 @@ function bindAppEvents(){
     doImport: function(){
       var el = document.getElementById('mlPaste');
       var rows = mlParse(el ? el.value : '');
-      if(!rows.length){ toast('Koi valid lead nahi mila \u2014 header row check kijiye.'); return; }
+      if(!rows.length){ toast('No valid lead found — please check the header row.'); return; }
       var arr = mlAll(), admin = meIsAdmin(), my = meEmail();
       var seen = {};
       arr.forEach(function(l){ var k = _lc(l.phone) || _lc(l.email); if(k) seen[k] = 1; });
@@ -3202,7 +3271,7 @@ function bindAppEvents(){
       });
       mlSave(arr);
       closeModal();
-      toast(added + ' lead import hue' + (dup ? ', ' + dup + ' duplicate chhode' : ''));
+      toast(added + ' leads imported' + (dup ? ', ' + dup + ' duplicates skipped' : ''));
       renderMetaLeads();
     },
     stageBox: function(){
@@ -3210,7 +3279,7 @@ function bindAppEvents(){
       var cfg = metaCfg();
       openModal(
         '<h3 style="margin:0 0 6px">Pipeline Stages</h3>'
-        + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted,#898781)">Ek line me ek stage. Order wahi rahega jo aap likhenge.</p>'
+        + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted,#898781)">One stage per line. The order will be exactly as you write it.</p>'
         + '<textarea id="mlStages" rows="8" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border,rgba(255,255,255,.12));border-radius:8px;font:inherit;background:var(--bg,#0d0d0d);color:inherit">' + esc(cfg.stages.join('\n')) + '</textarea>'
         + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
         + '<button class="btn" onclick="closeModal()">Cancel</button>'
@@ -3221,18 +3290,18 @@ function bindAppEvents(){
     saveStages: function(){
       var el = document.getElementById('mlStages');
       var st = String(el ? el.value : '').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
-      if(st.length < 2){ toast('Kam se kam 2 stage chahiye.'); return; }
+      if(st.length < 2){ toast('At least 2 stages are required.'); return; }
       metaCfgSave({ stages: st });
       closeModal();
-      toast('Stages save ho gaye');
+      toast('Stages saved');
       renderMetaLeads();
     },
     convert: function(id){
       var arr = mlAll();
       var l = arr.filter(function(x){ return x.id === id; })[0];
       if(!l) return;
-      if(!canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
-      if(l.enquiryId){ toast('Is lead ki enquiry pehle hi ban chuki hai (' + l.enquiryId + ')'); return; }
+      if(!canTouch(l)){ toast('This lead is not yours.'); return; }
+      if(l.enquiryId){ toast('An enquiry has already been created for this lead (' + l.enquiryId + ')'); return; }
       var owner = l.owner || meEmail();
       var enq = {
         id: enqId(),
@@ -3258,7 +3327,7 @@ function bindAppEvents(){
       l.stage = 'Qualified';
       l.updatedAt = new Date().toISOString();
       mlSave(arr);
-      toast('Enquiry ban gayi: ' + enq.id);
+      toast('Enquiry created: ' + enq.id);
       renderMetaLeads();
     }
   };
@@ -3426,18 +3495,18 @@ function bindAppEvents(){
   }
 
   window.deleteOrderAdmin = function(id){
-    if(!isAdminNow()){ toast('Sirf Administrator / Owner order delete kar sakta hai'); return; }
+    if(!isAdminNow()){ toast('Only an Administrator / Owner can delete orders'); return; }
     var o = DB.orders().find(function(x){ return x.id === id; });
     if(!o){ toast('Order not found'); return; }
     var disp = DB.dispatch().find(function(d){ return d.orderId === o.id; });
-    var msg = 'Ye order permanently delete karna hai?\n\n'
+    var msg = 'Delete this order permanently?\n\n'
             + 'Order ID: ' + o.id + '\n'
             + 'Customer: ' + (o.customer || '-') + '\n'
             + 'Product : ' + (o.product || '-') + '\n'
             + 'Value   : ' + money(o.amount) + '\n'
             + 'Status  : ' + (o.status || '-') + '\n\n'
-            + (disp ? 'Note: is order ki Dispatch entry (' + disp.id + ') apne aap nahi hategi -- use Dispatch section se alag delete kijiye.\n\n' : '')
-            + 'Ye action undo nahi ho sakta.';
+            + (disp ? 'Note: this order\'s Dispatch entry (' + disp.id + ') will not be removed automatically -- delete it separately from the Dispatch section.\n\n' : '')
+            + 'This action cannot be undone.';
     if(!confirm(msg)) return;
     DB.save('orders', DB.orders().filter(function(x){ return x.id !== o.id; }));
     try{ refreshBadges(); }catch(e){}
@@ -3448,7 +3517,7 @@ function bindAppEvents(){
     try{
       if(typeof CLOUD !== 'undefined' && typeof CLOUD.remove === 'function'){
         CLOUD.remove('orders', o.id).then(function(ok){
-          if(!ok) toast('Sheet se delete nahi ho paaya \u2014 internet check kijiye');
+          if(!ok) toast('Could not delete from the sheet — please check your internet connection');
         });
       }
     }catch(e){}
@@ -5725,7 +5794,7 @@ function lockProducts(){
     var d = document.createElement('div');
     d.id = 'oc-plock';
     d.style.cssText = 'margin:0 0 8px;padding:7px 10px;border:1px solid var(--border);border-left:3px solid var(--warn);border-radius:8px;background:var(--surface-2);font-size:11.5px;color:var(--muted)';
-    d.textContent = 'Products locked. Order banate waqt jo products bhare gaye the wahi final hain - ab naya product add, remove ya change nahi ho sakta.';
+    d.textContent = 'Products locked. The products entered when the order was created are final - products can no longer be added, removed or changed.';
     box.insertBefore(d, wrap);
   }
 }
@@ -5740,14 +5809,14 @@ if(typeof _rend === 'function'){
 var _addItem = window.addOrderItem;
 if(typeof _addItem === 'function'){
   window.addOrderItem = function(){
-    if(window.__ocOrderEditId){ try{ toast('Is order me naya product add nahi kar sakte'); }catch(e){} return; }
+    if(window.__ocOrderEditId){ try{ toast('You cannot add a new product to this order'); }catch(e){} return; }
     return _addItem.apply(this, arguments);
   };
 }
 var _rmItem = window.removeOrderItem;
 if(typeof _rmItem === 'function'){
   window.removeOrderItem = function(){
-    if(window.__ocOrderEditId){ try{ toast('Is order se product hata nahi sakte'); }catch(e){} return; }
+    if(window.__ocOrderEditId){ try{ toast('You cannot remove a product from this order'); }catch(e){} return; }
     return _rmItem.apply(this, arguments);
   };
 }
@@ -5918,11 +5987,11 @@ console.log('[oc v7] row-safe save active');
               window.__ocRejSeen = window.__ocRejSeen || {};
               if(!window.__ocRejSeen[sig]){
                 window.__ocRejSeen[sig] = 1;
-                toast('Order Google Sheet par save nahi hua — zaroori field baaki hai: '
-                      + miss.slice(0, 4).join(', ') + (miss.length > 4 ? ' +' + (miss.length - 4) + ' aur' : ''));
+                toast('Order was not saved to the Google Sheet — required field missing: '
+                      + miss.slice(0, 4).join(', ') + (miss.length > 4 ? ' +' + (miss.length - 4) + ' more' : ''));
               }
             } else {
-              toast('Order sync pending — internet check kijiye');
+              toast('Order sync pending — please check your internet connection');
             }
           }catch(e){}
         }
@@ -6020,7 +6089,7 @@ console.log('[oc v7] row-safe save active');
 })();
 </script>
 
-<script>(function(){if(window.__ocEditFix2)return;window.__ocEditFix2=true;function isHttp(v){return typeof v==='string'&&/^https?:\/\//i.test(v);}function isFake(v){return typeof v==='string'&&v.indexOf('fakepath')>-1;}function realVal(v){return v&&!isFake(v);}function fldFileList(which){try{var ff=JSON.parse(localStorage.getItem('formfields'));return (ff[which]||[]).filter(function(f){return f.type==='file';});}catch(e){return [];}}function fname(v){if(typeof v!=='string')return '';var m=v.match(/;name=([^;]+);base64,/);if(m){try{return decodeURIComponent(m[1]);}catch(e){return m[1];}}if(isHttp(v))return (v.split('/').pop().split('?')[0])||'file';if(isFake(v))return v.split('\\').pop().split('/').pop();return '';}var base=window.readCustomFields;if(typeof base==='function'){window.readCustomFields=function(which){var out=base.apply(this,arguments)||{};try{var rec=window.__ocEditRec;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id)||document.getElementById('cf-'+f.id);if(el&&el.__ocData){out[f.id]=el.__ocData;return;}var saved=rec&&rec.custom?rec.custom[f.id]:undefined;if(realVal(saved)){out[f.id]=saved;return;}if(isFake(out[f.id]))out[f.id]='';});}catch(e){}return out;};}function decorate(){var modal=document.getElementById('modal');if(!modal)return;var which=modal.querySelector('[id^="cf-order-"]')?'order':(modal.querySelector('[id^="cf-enquiry-"]')?'enquiry':null);if(!which)return;var rec=window.__ocEditRec;if(!rec||!rec.custom)return;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id);if(!el)return;var saved=rec.custom[f.id];if(realVal(saved))el.__ocData=saved;if(el.parentNode.querySelector('.oc-prev-hint'))return;var nm=fname(saved);if(!saved&&!nm)return;var h=document.createElement('div');h.className='oc-prev-hint';h.style.cssText='font-size:12px;margin-top:4px;color:#006300;word-break:break-all';if(isHttp(saved)){h.innerHTML='\u2713 Pehle uploaded: <a href="'+saved+'" target="_blank" style="color:#1a73e8;text-decoration:underline">'+(nm||'file dekhein')+'</a> <span style="color:#888">(nayi file chunne par replace hogi)</span>';}else if(nm){h.innerHTML='\u2713 Pehle: '+nm+' <span style="color:#888">(preserve rahega; nayi file chunne par replace hogi)</span>';}else{return;}el.parentNode.appendChild(h);});}['openOrderModal','openEnqModal','openEnquiryModal'].forEach(function(fn){if(typeof window[fn]!=='function')return;var orig=window[fn];window[fn]=function(id){try{if(!id){window.__ocEditRec=null;}else{var recs=(fn==='openOrderModal')?DB.orders():((DB.enquiries?DB.enquiries():(DB.leads?DB.leads():[])));window.__ocEditRec=recs.find(function(x){return x.id===id;})||null;}}catch(e){window.__ocEditRec=null;}var r=orig.apply(this,arguments);setTimeout(decorate,60);setTimeout(decorate,250);return r;};});try{var mo=new MutationObserver(function(){if(window.__ocEditRec)decorate();});mo.observe(document.getElementById('modal')||document.body,{childList:true,subtree:true});}catch(e){}})();</script><script>(function(){if(window.__ocFileGuard)return;window.__ocFileGuard=true;function isFake(v){return typeof v==='string'&&(v.indexOf('fakepath')>-1||/^[A-Za-z]:\\/.test(v));}function cleanStore(key){try{var arr=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(arr))return 0;var n=0;arr.forEach(function(o){if(isFake(o.image)){o.image='';n++;}(o.items||[]).forEach(function(it){if(isFake(it.image)){it.image='';n++;}});var c=o.custom||{};Object.keys(c).forEach(function(k){if(isFake(c[k])){c[k]='';n++;}});});if(n)localStorage.setItem(key,JSON.stringify(arr));return n;}catch(e){return 0;}}window.__ocCleanFakepaths=function(){return cleanStore('orders')+cleanStore('enquiries');};function guard(origName){var orig=window[origName];if(typeof orig!=='function'||orig.__ocGuarded)return;var wrapped=function(){var pending=[];document.querySelectorAll('#modal input[type=file]').forEach(function(inp){var picked=inp.files&&inp.files.length>0;if(picked&&!inp.__ocData){var lbl=(inp.closest('label')||inp.parentNode);pending.push((lbl&&lbl.textContent||'').trim().slice(0,40)||'a file field');}});if(pending.length){if(window.toast)window.toast('Please wait \u2014 file abhi Google Drive par upload ho rahi hai: '+pending.join(', '));else alert('File abhi upload ho rahi hai, thodi der ruko.');return false;}return orig.apply(this,arguments);};wrapped.__ocGuarded=true;window[origName]=wrapped;}guard('saveOrder');guard('saveEnq');try{window.__ocCleanFakepaths();}catch(e){}})();</script><script>(function(){if(window.__ocKeepLocal)return;window.__ocKeepLocal=true;var KEYS={orders:'__ocPend_orders',enquiries:'__ocPend_enq'};var WINDOW_MS=24*60*60*1000;var __rawSet=localStorage.setItem.bind(localStorage);function load(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}function jset(k,o){try{__rawSet(k,JSON.stringify(o));}catch(e){}}function idOf(r){return r&&(r.id||r.enqId||r.leadId);}function prevIds(kind){try{var a=JSON.parse(localStorage.getItem(kind)||'[]');var m={};a.forEach(function(r){var id=idOf(r);if(id)m[id]=r;});return m;}catch(e){return {};}}localStorage.setItem=function(k,v){if(k==='orders'||k==='enquiries'){try{var incoming=JSON.parse(v);if(Array.isArray(incoming)){var before=prevIds(k);var reg=load(KEYS[k]);var now=Date.now();var incIds={};var changed=false;incoming.forEach(function(r){var id=idOf(r);if(id)incIds[id]=true;});Object.keys(before).forEach(function(id){if(!incIds[id]&&!reg[id]){reg[id]={rec:before[id],t:now};changed=true;}});Object.keys(reg).forEach(function(id){var e=reg[id];if(now-e.t>WINDOW_MS){delete reg[id];changed=true;return;}if(incIds[id]){delete reg[id];changed=true;return;}incoming.push(e.rec);});if(changed)jset(KEYS[k],reg);v=JSON.stringify(incoming);}}catch(e){}}return __rawSet(k,v);};window.__ocKeepLocalRestore=function(){localStorage.setItem=__rawSet;};})();</script>
+<script>(function(){if(window.__ocEditFix2)return;window.__ocEditFix2=true;function isHttp(v){return typeof v==='string'&&/^https?:\/\//i.test(v);}function isFake(v){return typeof v==='string'&&v.indexOf('fakepath')>-1;}function realVal(v){return v&&!isFake(v);}function fldFileList(which){try{var ff=JSON.parse(localStorage.getItem('formfields'));return (ff[which]||[]).filter(function(f){return f.type==='file';});}catch(e){return [];}}function fname(v){if(typeof v!=='string')return '';var m=v.match(/;name=([^;]+);base64,/);if(m){try{return decodeURIComponent(m[1]);}catch(e){return m[1];}}if(isHttp(v))return (v.split('/').pop().split('?')[0])||'file';if(isFake(v))return v.split('\\').pop().split('/').pop();return '';}var base=window.readCustomFields;if(typeof base==='function'){window.readCustomFields=function(which){var out=base.apply(this,arguments)||{};try{var rec=window.__ocEditRec;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id)||document.getElementById('cf-'+f.id);if(el&&el.__ocData){out[f.id]=el.__ocData;return;}var saved=rec&&rec.custom?rec.custom[f.id]:undefined;if(realVal(saved)){out[f.id]=saved;return;}if(isFake(out[f.id]))out[f.id]='';});}catch(e){}return out;};}function decorate(){var modal=document.getElementById('modal');if(!modal)return;var which=modal.querySelector('[id^="cf-order-"]')?'order':(modal.querySelector('[id^="cf-enquiry-"]')?'enquiry':null);if(!which)return;var rec=window.__ocEditRec;if(!rec||!rec.custom)return;fldFileList(which).forEach(function(f){var el=document.getElementById('cf-'+which+'-'+f.id);if(!el)return;var saved=rec.custom[f.id];if(realVal(saved))el.__ocData=saved;if(el.parentNode.querySelector('.oc-prev-hint'))return;var nm=fname(saved);if(!saved&&!nm)return;var h=document.createElement('div');h.className='oc-prev-hint';h.style.cssText='font-size:12px;margin-top:4px;color:#006300;word-break:break-all';if(isHttp(saved)){h.innerHTML='✓ Previously uploaded: <a href="'+saved+'" target="_blank" style="color:#1a73e8;text-decoration:underline">'+(nm||'view file')+'</a> <span style="color:#888">(will be replaced if you choose a new file)</span>';}else if(nm){h.innerHTML='✓ Previously: '+nm+' <span style="color:#888">(will be kept; replaced if you choose a new file)</span>';}else{return;}el.parentNode.appendChild(h);});}['openOrderModal','openEnqModal','openEnquiryModal'].forEach(function(fn){if(typeof window[fn]!=='function')return;var orig=window[fn];window[fn]=function(id){try{if(!id){window.__ocEditRec=null;}else{var recs=(fn==='openOrderModal')?DB.orders():((DB.enquiries?DB.enquiries():(DB.leads?DB.leads():[])));window.__ocEditRec=recs.find(function(x){return x.id===id;})||null;}}catch(e){window.__ocEditRec=null;}var r=orig.apply(this,arguments);setTimeout(decorate,60);setTimeout(decorate,250);return r;};});try{var mo=new MutationObserver(function(){if(window.__ocEditRec)decorate();});mo.observe(document.getElementById('modal')||document.body,{childList:true,subtree:true});}catch(e){}})();</script><script>(function(){if(window.__ocFileGuard)return;window.__ocFileGuard=true;function isFake(v){return typeof v==='string'&&(v.indexOf('fakepath')>-1||/^[A-Za-z]:\\/.test(v));}function cleanStore(key){try{var arr=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(arr))return 0;var n=0;arr.forEach(function(o){if(isFake(o.image)){o.image='';n++;}(o.items||[]).forEach(function(it){if(isFake(it.image)){it.image='';n++;}});var c=o.custom||{};Object.keys(c).forEach(function(k){if(isFake(c[k])){c[k]='';n++;}});});if(n)localStorage.setItem(key,JSON.stringify(arr));return n;}catch(e){return 0;}}window.__ocCleanFakepaths=function(){return cleanStore('orders')+cleanStore('enquiries');};function guard(origName){var orig=window[origName];if(typeof orig!=='function'||orig.__ocGuarded)return;var wrapped=function(){var pending=[];document.querySelectorAll('#modal input[type=file]').forEach(function(inp){var picked=inp.files&&inp.files.length>0;if(picked&&!inp.__ocData){var lbl=(inp.closest('label')||inp.parentNode);pending.push((lbl&&lbl.textContent||'').trim().slice(0,40)||'a file field');}});if(pending.length){if(window.toast)window.toast('Please wait — the file is still uploading to Google Drive: '+pending.join(', '));else alert('The file is still uploading, please wait a moment.');return false;}return orig.apply(this,arguments);};wrapped.__ocGuarded=true;window[origName]=wrapped;}guard('saveOrder');guard('saveEnq');try{window.__ocCleanFakepaths();}catch(e){}})();</script><script>(function(){if(window.__ocKeepLocal)return;window.__ocKeepLocal=true;var KEYS={orders:'__ocPend_orders',enquiries:'__ocPend_enq'};var WINDOW_MS=24*60*60*1000;var __rawSet=localStorage.setItem.bind(localStorage);function load(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}function jset(k,o){try{__rawSet(k,JSON.stringify(o));}catch(e){}}function idOf(r){return r&&(r.id||r.enqId||r.leadId);}function prevIds(kind){try{var a=JSON.parse(localStorage.getItem(kind)||'[]');var m={};a.forEach(function(r){var id=idOf(r);if(id)m[id]=r;});return m;}catch(e){return {};}}localStorage.setItem=function(k,v){if(k==='orders'||k==='enquiries'){try{var incoming=JSON.parse(v);if(Array.isArray(incoming)){var before=prevIds(k);var reg=load(KEYS[k]);var now=Date.now();var incIds={};var changed=false;incoming.forEach(function(r){var id=idOf(r);if(id)incIds[id]=true;});Object.keys(before).forEach(function(id){if(!incIds[id]&&!reg[id]){reg[id]={rec:before[id],t:now};changed=true;}});Object.keys(reg).forEach(function(id){var e=reg[id];if(now-e.t>WINDOW_MS){delete reg[id];changed=true;return;}if(incIds[id]){delete reg[id];changed=true;return;}incoming.push(e.rec);});if(changed)jset(KEYS[k],reg);v=JSON.stringify(incoming);}}catch(e){}}return __rawSet(k,v);};window.__ocKeepLocalRestore=function(){localStorage.setItem=__rawSet;};})();</script>
 <script>
 /* ===== OAKCRAFT STICKY-DELETE PATCH (2026-08-12) =====
    Problem: keep-local layer kisi bhi gaayab hue record ko 24h tak wapas inject kar deti thi,
@@ -6271,7 +6340,7 @@ console.log('[oc v7] row-safe save active');
     var seen = {}, out = [];
     function add(s){ s = statusCode(s); if(s && !seen[s]){ seen[s] = 1; out.push(s); } }
     metaCfg().stages.forEach(function(s){ add(stageToStatus(s)); });
-    ['CREATED','CONTACTED','FOLLOW_UP','QUALIFIED','PROPOSAL','WON','LOST'].forEach(add);
+    ['CREATED','CONTACTED','FOLLOW_UP','QUALIFIED','NOT_QUALIFIED','PROPOSAL','WON','LOST'].forEach(add);
     mlAll().forEach(function(l){ add(l && l.lead_status); });
     _memo.so = out;
     return out;
@@ -6520,14 +6589,14 @@ console.log('[oc v7] row-safe save active');
            + '<div class="lbl">' + esc(label) + '</div></div>';
     }
     var kpi = '<div class="kpi-grid" style="margin-bottom:16px">'
-      + kpiCard(!fs && !fo, base.length, 'Total leads', "ML.tab('')", 'Saari leads dikhao')
+      + kpiCard(!fs && !fo, base.length, 'Total leads', "ML.tab('')", 'Show all leads')
       + statusOptions().filter(function(s){ return byStatus[s]; }).map(function(s){
           return kpiCard(fs === s && !fo, byStatus[s], kpiLabel(s),
-                         "ML.tab('" + esc(s) + "')", 'Sirf ' + kpiLabel(s) + ' waali leads', s);
+                         "ML.tab('" + esc(s) + "')", 'Only ' + kpiLabel(s) + ' leads', s);
         }).join('')
       /* v41: Unassigned card sabko (IndiaMART jaisa) */
       + kpiCard(fo === '__none__', unassigned, 'Unassigned', "ML.tab('__none__')",
-                'Jin par kisi ka naam nahi', 'UNASSIGNED')
+                'Leads not assigned to anyone', 'UNASSIGNED')
       + '</div>';
 
     /* ---- toolbar ---- */
@@ -6562,7 +6631,7 @@ console.log('[oc v7] row-safe save active');
     if(selIds.length){
       bulkbar = '<div class="mls-bulkbar"><b>' + selIds.length + ' selected</b>'
         + '<select class="mls-f" id="mlSelStat"><option value="">Set lead_status…</option>'
-          + statusOptions().map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('')
+          + '<option value="QUALIFIED">Qualified</option><option value="NOT_QUALIFIED">Not Qualified</option>'   /* v52 */
         + '</select>'
         + (admin ? '<select class="mls-f" id="mlSelOwn"><option value="">Assign to…</option><option value="__none__">— Unassign —</option>'
             + roster().map(function(u){ return '<option value="' + esc(u.email) + '">' + esc(u.name || u.email) + '</option>'; }).join('')
@@ -6590,9 +6659,9 @@ console.log('[oc v7] row-safe save active');
       var canEdit = (typeof canTouch === 'function') ? canTouch(l) : true;
       var st = statusCode(l.lead_status) || 'CREATED';
       var statusCell = canEdit
-        ? '<select class="inl" style="color:' + statusColor(st) + '" onchange="if(window.ocFuPick&&ocFuPick(this,\'metaLeads\',\'' + l.id + '\'))return;ML.setStatus(\'' + l.id + '\',this.value)">'
-            + statusOptions().map(function(s){ return '<option value="' + esc(s) + '"' + (s === st ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
-            + (st === 'FOLLOW_UP' ? '<option value="__FU_AGAIN__">↻ Follow-up again</option>' : '')   /* v51 */
+        ? '<select class="inl" style="color:' + statusColor(st) + '" onchange="ML.setStatus(\'' + l.id + '\',this.value);if(window.ocQnqAfterModal)ocQnqAfterModal(function(){if(state.view===\'metaLeads\'&&typeof renderMetaLeads===\'function\')renderMetaLeads();})">'
+            /* v52: sirf Qualified / Not Qualified */
+            + window.ocLeadQnqOptions(st)
           + '</select>'
         : '<span class="chip ' + statusClass(st) + '">' + esc(st) + '</span>';
       var ownCell = admin
@@ -6605,7 +6674,7 @@ console.log('[oc v7] row-safe save active');
             + (l.assigned_to && !emailOfName(l.assigned_to) ? '<option value="" selected>' + esc(l.assigned_to) + ' (not in team)</option>' : '')
           + '</select>'
         : (mlMineToTake(l)
-            ? '<select class="inl" title="Ye lead apne naam kar lijiye" onchange="ML.setAssign(\'' + l.id + '\',this.value)">'
+            ? '<select class="inl" title="Assign this lead to yourself" onchange="ML.setAssign(\'' + l.id + '\',this.value)">'
                 + '<option value="">— Unassigned —</option>'
                 + '<option value="' + esc(mlMyMail()) + '">' + esc(nameOf(mlMyMail()) || mlMyMail()) + '</option>'
               + '</select>'
@@ -6636,8 +6705,8 @@ console.log('[oc v7] row-safe save active');
       ? '<div class="mls-wrap"><table class="mls">' + head + '<tbody>' + body + '</tbody></table></div>'
       : '<div class="mls-wrap"><table class="mls">' + head + '</table>'
         + '<div class="mls-empty">' + (all.length
-            ? 'Is filter par koi lead nahi mili.'
-            : 'Abhi koi Meta lead nahi hai. Leads apne aap aati hain; turant chahiye to <b>Bulk Upload</b> se apni sheet ka Excel / CSV / Google Sheet link daal dijiye.')
+            ? 'No leads match this filter.'
+            : 'There are no Meta leads yet. Leads arrive automatically; if you need them right away, add your sheet\'s Excel / CSV / Google Sheet link using <b>Bulk Upload</b>.')
         + '</div></div>';
 
     var foot = '<div class="mls-foot"><div>Showing <b>' + rows.length + '</b> of <b>' + list.length + '</b> leads'
@@ -6700,7 +6769,7 @@ console.log('[oc v7] row-safe save active');
   ML.setStatus = function(id, val){
     var arr = mlAll(), l = findLead(arr, id);
     if(!l) return;
-    if(typeof canTouch === 'function' && !canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+    if(typeof canTouch === 'function' && !canTouch(l)){ toast('This lead is not yours.'); return; }
     l.lead_status = statusCode(val);
     l.stage       = statusToStage(l.lead_status);      /* auto-link */
     l.updatedAt   = new Date().toISOString();
@@ -6742,7 +6811,7 @@ console.log('[oc v7] row-safe save active');
     if(!meIsAdmin()){
       if(!mlMineToTake(l)) return;
       if(!email){ renderMetaLeads(); return; }        /* "— Unassigned —" = kuch nahi badla */
-      if(_lc(email) !== mlMyMail()){ toast('Aap sirf apna naam laga sakte hain.'); renderMetaLeads(); return; }
+      if(_lc(email) !== mlMyMail()){ toast('You can only assign a lead to yourself.'); renderMetaLeads(); return; }
     }
     l.owner       = _lc(email);
     l.assigned_to = email ? nameOf(email) : '';
@@ -6752,11 +6821,11 @@ console.log('[oc v7] row-safe save active');
   ML.del = function(id){
     var arr = mlAll(), l = findLead(arr, id);
     if(!l) return;
-    if(typeof canTouch === 'function' && !canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
-    if(!confirm('Ye lead delete kar dein?\n\n' + (l.full_name || l.phone_number || l.id))) return;
+    if(typeof canTouch === 'function' && !canTouch(l)){ toast('This lead is not yours.'); return; }
+    if(!confirm('Delete this lead?\n\n' + (l.full_name || l.phone_number || l.id))) return;
     mlSave(arr.filter(function(x){ return x.id !== id; }));
     delete window.__mlSel[id];
-    toast('Lead delete ho gaya'); renderMetaLeads();
+    toast('Lead deleted'); renderMetaLeads();
   };
   ML.selStatus = function(val){
     var ids = selectedIds(); if(!ids.length) return;
@@ -6769,7 +6838,7 @@ console.log('[oc v7] row-safe save active');
       l.updatedAt   = new Date().toISOString();
       n++;
     });
-    mlSave(arr); toast(n + ' leads ka status ' + statusCode(val) + ' hua'); renderMetaLeads();
+    mlSave(arr); toast(n + ' leads — status set to ' + statusCode(val) + ''); renderMetaLeads();
   };
   ML.selAssign = function(email){
     if(!meIsAdmin()) return;
@@ -6780,11 +6849,11 @@ console.log('[oc v7] row-safe save active');
       l.owner = _lc(email); l.assigned_to = email ? nameOf(email) : '';
       l.updatedAt = new Date().toISOString(); n++;
     });
-    mlSave(arr); toast(n + ' leads ' + (email ? 'assign hue ' + nameOf(email) + ' ko' : 'unassign hue')); renderMetaLeads();
+    mlSave(arr); toast(n + ' leads ' + (email ? 'assigned to ' + nameOf(email) + '' : 'unassigned')); renderMetaLeads();
   };
   ML.selDelete = function(){
     var ids = selectedIds(); if(!ids.length) return;
-    if(!confirm(ids.length + ' leads delete kar dein? Ye wapas nahi aayenge.')) return;
+    if(!confirm(ids.length + ' leads will be deleted. This cannot be undone. Continue?')) return;
     var arr = mlAll();
     var keep = arr.filter(function(l){
       if(ids.indexOf(l.id) < 0) return true;
@@ -6793,20 +6862,20 @@ console.log('[oc v7] row-safe save active');
     });
     var gone = arr.length - keep.length;
     mlSave(keep); window.__mlSel = {};
-    toast(gone + ' leads delete ho gaye'); renderMetaLeads();
+    toast(gone + ' leads deleted'); renderMetaLeads();
   };
   ML.selConvert = function(){
     var ids = selectedIds(); if(!ids.length) return;
     var n = 0;
     ids.forEach(function(id){ try{ ML.convert(id); n++; }catch(e){} });
     window.__mlSel = {};
-    toast(n + ' leads ki enquiry ban gayi'); renderMetaLeads();
+    toast(n + ' leads converted to enquiries'); renderMetaLeads();
   };
   ML.syncSheet = function(){
     if(!meIsAdmin()) return;
     var arr = mlNormAll(true);
-    try{ CLOUD.push('metaLeads', arr); toast('Backend sheet par ' + arr.length + ' leads push ho rahe hain…'); }
-    catch(e){ toast('Sync fail hua — internet check kijiye'); }
+    try{ CLOUD.push('metaLeads', arr); toast(arr.length + ' leads are being pushed to the backend sheet…'); }
+    catch(e){ toast('Sync failed — please check your internet connection'); }
   };
 
   /* ---------------------------------------------------------------- *
@@ -6816,13 +6885,13 @@ console.log('[oc v7] row-safe save active');
     /* Naya lead manually banane ka raasta band hai -- Meta se leads apne aap aati hain.
        Purani lead ka EDIT waise ka waisa chalta hai (id ke saath call hota hai).
        Ye guard isliye hai ki koi purana button ya shortcut reh gaya ho to bhi form na khule. */
-    if(!id){ try{ toast('Meta leads apne aap aati hain \u2014 manually add band hai. Turant chahiye to Bulk Upload use kijiye.'); }catch(e){} return; }
+    if(!id){ try{ toast('Meta leads arrive automatically — manual add is disabled. Use Bulk Upload if you need them right away.'); }catch(e){} return; }
     sheetStyle();
     memoReset();
     var arr = mlAll();
     var l = id ? findLead(arr, id) : null;
     if(id && !l) return;
-    if(l && typeof canTouch === 'function' && !canTouch(l)){ toast('Ye lead aapka nahi hai.'); return; }
+    if(l && typeof canTouch === 'function' && !canTouch(l)){ toast('This lead is not yours.'); return; }
     var cfg = metaCfg(), admin = meIsAdmin();
     l = mlNorm(l || { platform:'fb', stage: cfg.stages[0], lead_status:'CREATED', created_time_ist: fmtIST(new Date()) });
 
@@ -6836,7 +6905,7 @@ console.log('[oc v7] row-safe save active');
 
     openModal(
       '<h3 style="margin:0 0 4px">' + (id ? 'Edit Meta Lead' : 'New Meta Lead') + '</h3>'
-      + '<p class="bu-note">Sheet wale columns upar hain, purane Meta fields neeche — dono save hote hain.</p>'
+      + '<p class="bu-note">Sheet columns are at the top, older Meta fields below — both are saved.</p>'
       + '<div class="ml-f">'
       + '<div><label>created_time_ist</label><input id="mlCreated" value="' + esc(l.created_time_ist) + '" placeholder="DD-MM-YYYY HH:MM:SS"></div>'
       + '<div><label>platform</label><select id="mlPlat">'
@@ -6846,11 +6915,11 @@ console.log('[oc v7] row-safe save active');
       + '<div><label>full_name</label><input id="mlName" value="' + esc(l.full_name) + '"></div>'
       + '<div><label>phone_number</label><input id="mlPhone" value="' + esc(l.phone_number) + '"></div>'
       + '<div><label>city_state</label><input id="mlCity" value="' + esc(l.city_state) + '"></div>'
-      + '<div><label>lead_status</label><select id="mlStatus">'
-        + statusOptions().map(function(s){ return '<option value="' + esc(s) + '"' + (s === statusCode(l.lead_status) ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
+      + '<div><label>Status</label><select id="mlStatus">'
+        + window.ocLeadQnqOptions(statusCode(l.lead_status) || 'CREATED')   /* v52 */
         + '</select></div>'
       + ownSel
-      + '<div><label>Stage (pipeline)</label><select id="mlStage">'
+      + '<div style="display:none"><label>Stage (pipeline)</label><select id="mlStage">'
         + cfg.stages.map(function(s){ return '<option' + (s === (l.stage || cfg.stages[0]) ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
         + '</select></div>'
       + '<div><label>Email</label><input id="mlEmail" value="' + esc(l.email) + '"></div>'
@@ -6904,7 +6973,7 @@ console.log('[oc v7] row-safe save active');
     rec.note    = v('mlNote');
     rec.updatedAt = new Date().toISOString();
 
-    if(!rec.full_name && !rec.phone_number && !rec.email){ toast('Name, phone ya email me se kuch to daaliye.'); return; }
+    if(!rec.full_name && !rec.phone_number && !rec.email){ toast('Enter at least a name, phone or email.'); return; }
 
     if(admin){ rec.owner = _lc(v('mlOwner')); rec.assigned_to = rec.owner ? nameOf(rec.owner) : ''; }
     else if(!rec.owner){ rec.owner = meEmail(); rec.assigned_to = nameOf(rec.owner); }
@@ -6932,7 +7001,7 @@ console.log('[oc v7] row-safe save active');
     }catch(e){}
     ML.__fromStatus = null;
     closeModal();
-    toast(isNew ? 'Lead add ho gaya' : 'Lead update ho gaya');
+    toast(isNew ? 'Lead added' : 'Lead updated');
     renderMetaLeads();
   };
 
@@ -7045,10 +7114,10 @@ console.log('[oc v7] row-safe save active');
     var admin = meIsAdmin();
     openModal(
       '<h3 style="margin:0 0 6px">Bulk Lead Upload</h3>'
-      + '<p class="bu-note">Sheet ka structure: <code>created_time_ist, platform, full_name, phone_number, city_state, lead_status, assigned_to</code>.'
-      + ' Column ke naam apne aap match ho jaate hain — order alag ho ya extra columns hon, koi dikkat nahi.</p>'
+      + '<p class="bu-note">Sheet structure: <code>created_time_ist, platform, full_name, phone_number, city_state, lead_status, assigned_to</code>.'
+      + ' Column names are matched automatically — a different order or extra columns are fine.</p>'
       + '<div class="bu-tpl">'
-        + '<div><b>Pehli baar?</b> Ready-made template download kijiye — saare 7 columns aur 2 SAMPLE rows ke saath. Excel wale me <b>&ldquo;Kaise bharein&rdquo;</b> guide sheet bhi hai jisme har column ka matlab likha hai. SAMPLE rows hata kar apne leads bhariye.</div>'
+        + '<div><b>First time?</b> Download the ready-made template — with all 7 columns and 2 SAMPLE rows. The Excel version also has a <b>&ldquo;How to fill&rdquo;</b> guide sheet explaining every column. Remove the SAMPLE rows and fill in your leads.</div>'
         + '<div class="bu-tpl-btns">'
         + '<button type="button" class="btn sm primary" onclick="ML.buTemplate(\'xlsx\')">&#11015; Excel template</button>'
         + '<button type="button" class="btn sm" onclick="ML.buTemplate(\'csv\')">&#11015; CSV template</button>'
@@ -7061,8 +7130,8 @@ console.log('[oc v7] row-safe save active');
       + '<div id="buFile">'
         + '<input type="file" id="buInput" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt" style="display:none">'
         + '<div class="bu-drop" id="buDrop" onclick="document.getElementById(\'buInput\').click()">'
-          + '<b>Excel ya CSV file yahan chhodiye</b>'
-          + '<span>ya click karke choose kijiye · .xlsx  .xls  .csv  .tsv</span>'
+          + '<b>Drop an Excel or CSV file here</b>'
+          + '<span>or click to choose · .xlsx  .xls  .csv  .tsv</span>'
         + '</div>'
       + '</div>'
       + '<div id="buUrl" style="display:none">'
@@ -7071,18 +7140,18 @@ console.log('[oc v7] row-safe save active');
           + '<input id="buUrlIn" placeholder="https://docs.google.com/spreadsheets/d/…" style="flex:1;padding:9px 11px;border:1px solid var(--border);border-radius:9px;font:inherit;background:var(--surface-2);color:var(--text)">'
           + '<button class="btn" onclick="ML.buFetch()">Fetch</button>'
         + '</div>'
-        + '<p class="bu-note" style="margin-top:8px">Sheet <b>&ldquo;Anyone with the link – Viewer&rdquo;</b> honi chahiye (ya File → Share → Publish to web). Jis tab ka link hoga wahi tab padha jaayega.</p>'
+        + '<p class="bu-note" style="margin-top:8px">The sheet must be shared as <b>&ldquo;Anyone with the link – Viewer&rdquo;</b> (or File → Share → Publish to web). The tab in the link is the one that will be read.</p>'
       + '</div>'
       + '<div id="buBody"></div>'
       + '<div class="bu-row" id="buOpts" style="display:none">'
-        + (admin ? '<div><label>Assign all to</label><select id="buOwn"><option value="">— sheet ka assigned_to use karo —</option>'
+        + (admin ? '<div><label>Assign all to</label><select id="buOwn"><option value="">— use the sheet\'s assigned_to —</option>'
             + roster().map(function(u){ return '<option value="' + esc(u.email) + '">' + esc(u.name || u.email) + '</option>'; }).join('')
             + '</select></div>' : '')
         + '<div><label>Default lead_status</label><select id="buStat">'
             + statusOptions().map(function(s){ return '<option value="' + esc(s) + '"' + (s === 'CREATED' ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('')
           + '</select></div>'
         + '<div class="wide" style="grid-column:1/-1"><label style="text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--text-2)">'
-            + '<input type="checkbox" id="buDedup" checked style="width:auto;margin-right:6px;vertical-align:-1px">Duplicate phone / email wale leads skip karo</label></div>'
+            + '<input type="checkbox" id="buDedup" checked style="width:auto;margin-right:6px;vertical-align:-1px">Skip leads with a duplicate phone / email</label></div>'
       + '</div>'
       + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
         + '<button class="btn" onclick="closeModal()">Cancel</button>'
@@ -7122,7 +7191,7 @@ console.log('[oc v7] row-safe save active');
     if(isCsv){
       var fr = new FileReader();
       fr.onload = function(){ buSetRows(parseDelimited(String(fr.result || ''))); };
-      fr.onerror = function(){ buErr('File padhi nahi ja saki.'); };
+      fr.onerror = function(){ buErr('Could not read the file.'); };
       fr.readAsText(file);
       return;
     }
@@ -7134,27 +7203,27 @@ console.log('[oc v7] row-safe save active');
           var ws = wb.Sheets[wb.SheetNames[0]];
           var rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'', blankrows:false });
           buSetRows(rows.map(function(r){ return (r || []).map(function(c){ return c == null ? '' : String(c); }); }));
-        }catch(e){ buErr('Excel padhi nahi ja saki — file check kijiye.'); }
+        }catch(e){ buErr('Could not read the Excel file — please check the file.'); }
       };
-      fr.onerror = function(){ buErr('File padhi nahi ja saki.'); };
+      fr.onerror = function(){ buErr('Could not read the file.'); };
       fr.readAsArrayBuffer(file);
-    }).catch(function(){ buErr('Excel library load nahi hui — internet check kijiye, ya CSV try kijiye.'); });
+    }).catch(function(){ buErr('Excel library did not load — check your internet connection, or try a CSV.'); });
   };
 
   ML.buFetch = function(){
     var el = document.getElementById('buUrlIn');
     var url = el ? el.value.trim() : '';
-    if(!url){ toast('Sheet ka link daaliye.'); return; }
+    if(!url){ toast('Enter the sheet link.'); return; }
     var cands = sheetCsvCandidates(url);
-    if(!cands.length){ buErr('Ye Google Sheet ka link nahi lag raha.'); return; }
+    if(!cands.length){ buErr('This does not look like a Google Sheet link.'); return; }
     BU.srcName = 'Google Sheet';
     var body = document.getElementById('buBody');
-    if(body) body.innerHTML = '<p class="bu-note" style="margin-top:14px">Sheet fetch ho rahi hai…</p>';
+    if(body) body.innerHTML = '<p class="bu-note" style="margin-top:14px">Fetching sheet…</p>';
 
     (function tryNext(i){
       if(i >= cands.length){
-        buErr('Sheet fetch nahi hui. Sheet ko <b>Anyone with the link – Viewer</b> kijiye, ya <b>File → Share → Publish to web → CSV</b> ka link paste kijiye. '
-            + 'Ya phir sheet ko CSV/Excel download karke <b>file wala tab</b> use kar lijiye.');
+        buErr('Could not fetch the sheet. Share it as <b>Anyone with the link – Viewer</b>, or paste a <b>File → Share → Publish to web → CSV</b> link. '
+            + 'Or download the sheet as CSV/Excel and use the <b>file tab</b>.');
         return;
       }
       fetch(cands[i], { redirect:'follow' })
@@ -7192,9 +7261,9 @@ console.log('[oc v7] row-safe save active');
 
     if(!p.leads.length){
       buErr(tplSkip
-          ? 'Is file me sirf template ki SAMPLE rows mili (' + tplSkip + '). SAMPLE rows ki jagah apne asli leads bhar kar dobara upload kijiye.'
-          : 'Koi lead nahi mili. Pehli row me column headers hone chahiye — kam se kam <code>full_name</code> ya <code>phone_number</code>.'
-          + (p.head && p.head.length ? '<br>Jo headers mile: <code>' + esc(p.head.slice(0, 12).join(', ')) + '</code>' : ''));
+          ? 'This file only contains the template\'s SAMPLE rows (' + tplSkip + '). Replace the SAMPLE rows with your real leads and upload again.'
+          : 'No leads found. The first row must contain column headers — at least <code>full_name</code> or <code>phone_number</code>.'
+          + (p.head && p.head.length ? '<br>Headers found: <code>' + esc(p.head.slice(0, 12).join(', ')) + '</code>' : ''));
       return;
     }
 
@@ -7225,7 +7294,7 @@ console.log('[oc v7] row-safe save active');
         + (BU.tplSkip ? '<span class="dup">' + BU.tplSkip + ' SAMPLE row skip</span>' : '')
         + '<span>mapped: ' + esc(p.cols.filter(function(c){ return SHEET_COLS.indexOf(c) >= 0; }).join(', ') || 'none') + '</span>'
       + '</div>'
-      + (missing.length ? '<p class="bu-note" style="margin-top:10px">In columns ka data nahi mila, default bhar diya jaayega: <code>' + esc(missing.join(', ')) + '</code></p>' : '')
+      + (missing.length ? '<p class="bu-note" style="margin-top:10px">No data found for these columns; defaults will be filled in: <code>' + esc(missing.join(', ')) + '</code></p>' : '')
       + '<div class="bu-prev"><table><thead><tr>' + prevCols.map(function(c){ return '<th>' + c + '</th>'; }).join('') + '<th>&nbsp;</th></tr></thead><tbody>'
       + prev.map(function(o){
           return '<tr>' + prevCols.map(function(c){
@@ -7237,7 +7306,7 @@ console.log('[oc v7] row-safe save active');
           }).join('') + '<td>' + (o.__dup ? '<span class="chip c-lost">dup</span>' : '<span class="chip c-won">new</span>') + '</td></tr>';
         }).join('')
       + '</tbody></table></div>'
-      + (p.leads.length > prev.length ? '<p class="bu-note" style="margin-top:8px">…aur ' + (p.leads.length - prev.length) + ' rows</p>' : '');
+      + (p.leads.length > prev.length ? '<p class="bu-note" style="margin-top:8px">…and ' + (p.leads.length - prev.length) + ' rows</p>' : '');
 
     if(opts) opts.style.display = '';
     if(go){ go.disabled = false; go.style.opacity = 1; go.textContent = 'Upload ' + p.leads.length + ' rows'; }
@@ -7245,7 +7314,7 @@ console.log('[oc v7] row-safe save active');
 
   ML.buApply = function(){
     var p = BU.parsed;
-    if(!p || !p.leads.length){ toast('Pehle file ya sheet load kijiye.'); return; }
+    if(!p || !p.leads.length){ toast('Load a file or sheet first.'); return; }
     var admin  = meIsAdmin(), my = meEmail();
     var forceOwn = admin ? (document.getElementById('buOwn') ? document.getElementById('buOwn').value : '') : my;
     var defStat  = document.getElementById('buStat') ? document.getElementById('buStat').value : 'CREATED';
@@ -7298,7 +7367,7 @@ console.log('[oc v7] row-safe save active');
     mlSave(arr);
     closeModal();
     window.__mlLim = PAGE;
-    toast(added + ' leads upload hue' + (skipped ? ', ' + skipped + ' duplicate skip kiye' : ''));
+    toast(added + ' leads uploaded' + (skipped ? ', ' + skipped + ' duplicates skipped' : ''));
     renderMetaLeads();
   };
 
@@ -7310,16 +7379,16 @@ console.log('[oc v7] row-safe save active');
     ['04-08-2026 15:19:39','ig','SAMPLE Priya Sharma','+919000000002','Indore, MP','CONTACTED','Amira Sheikh']
   ];
   var TPL_GUIDE = [
-    ['column','zaroori ya optional','kya bharna hai','example'],
-    ['created_time_ist','optional','Lead aane ka date-time, DD-MM-YYYY HH:MM:SS format me. Khali chhodenge to upload ka time lag jayega.','03-08-2026 14:12:10'],
-    ['platform','optional','fb / ig / wa / ms (Facebook, Instagram, WhatsApp, Messenger). Khali = fb.','ig'],
-    ['full_name','in dono me se EK zaroori','Lead ka poora naam.','Ramesh Kumar'],
-    ['phone_number','in dono me se EK zaroori','Mobile number, +91 ke saath ya bina. Duplicate check isi number se hota hai.','+919876543210'],
+    ['column','required or optional','what to enter','example'],
+    ['created_time_ist','optional','Date-time the lead came in, in DD-MM-YYYY HH:MM:SS format. If left blank, the upload time is used.','03-08-2026 14:12:10'],
+    ['platform','optional','fb / ig / wa / ms (Facebook, Instagram, WhatsApp, Messenger). Blank = fb.','ig'],
+    ['full_name','ONE of these two is required','Lead\'s full name.','Ramesh Kumar'],
+    ['phone_number','ONE of these two is required','Mobile number, with or without +91. Duplicates are checked using this number.','+919876543210'],
     ['city_state','optional','City ya state.','Jaipur, Rajasthan'],
-    ['lead_status','optional','CREATED / CONTACTED / QUALIFIED / PROPOSAL / WON / LOST. Khali = CREATED.','CREATED'],
-    ['assigned_to','optional','Jis team member ko lead deni hai uska naam (wahi jo CRM users me hai). Khali = unassigned.','Ujala Rajput'],
+    ['lead_status','optional','CREATED / CONTACTED / QUALIFIED / PROPOSAL / WON / LOST. Blank = CREATED.','CREATED'],
+    ['assigned_to','optional','Name of the team member to assign the lead to (as listed in CRM users). Blank = unassigned.','Ujala Rajput'],
     ['','','',''],
-    ['NOTE','','SAMPLE wali 2 rows hata kar apne leads bhariye. Extra columns (email, product, campaign, note) bhi rakh sakte hain — wo bhi save ho jaate hain.','']
+    ['NOTE','','Remove the 2 SAMPLE rows and fill in your leads. You can also keep extra columns (email, product, campaign, note) — they are saved too.','']
   ];
   ML.buTemplate = function(fmt){
     var aoa = [SHEET_COLS.slice()].concat(TPL_ROWS.map(function(r){ return r.slice(); }));
@@ -7329,7 +7398,7 @@ console.log('[oc v7] row-safe save active');
       a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFF' + csv);
       a.download = 'meta_leads_template.csv';
       a.click();
-      toast('CSV template download ho gaya — SAMPLE rows hata kar apne leads bhariye.');
+      toast('CSV template downloaded — remove the SAMPLE rows and fill in your leads.');
       return;
     }
     ensureXLSX().then(function(){
@@ -7339,9 +7408,9 @@ console.log('[oc v7] row-safe save active');
       XLSX.utils.book_append_sheet(wb, ws, 'Leads');
       var gs = XLSX.utils.aoa_to_sheet(TPL_GUIDE);
       gs['!cols'] = [{wch:17},{wch:26},{wch:72},{wch:20}];
-      XLSX.utils.book_append_sheet(wb, gs, 'Kaise bharein');
+      XLSX.utils.book_append_sheet(wb, gs, 'How to fill');
       XLSX.writeFile(wb, 'meta_leads_template.xlsx');
-      toast('Excel template download ho gaya — andar "Kaise bharein" sheet me har column ki hint hai.');
+      toast('Excel template downloaded — the "How to fill" sheet inside explains every column.');
     }).catch(function(){ ML.buTemplate('csv'); });
   };
 
@@ -7350,7 +7419,7 @@ console.log('[oc v7] row-safe save active');
    * ---------------------------------------------------------------- */
   ML.exportSheet = function(){
     var list = sortList(visibleLeads());
-    if(!list.length){ toast('Export karne ke liye koi lead nahi hai.'); return; }
+    if(!list.length){ toast('There are no leads to export.'); return; }
     var aoa = [SHEET_COLS.slice()].concat(list.map(function(l){
       return [l.created_time_ist || '', l.platform || '', l.full_name || '', l.phone_number || '',
               l.city_state || '', statusCode(l.lead_status) || '', l.assigned_to || nameOf(l.owner) || ''];
@@ -7362,14 +7431,14 @@ console.log('[oc v7] row-safe save active');
       XLSX.utils.book_append_sheet(wb, ws, 'Meta');
       var d = new Date();
       XLSX.writeFile(wb, 'meta_leads_' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '.xlsx');
-      toast(list.length + ' leads export ho gaye');
+      toast(list.length + ' leads exported');
     }).catch(function(){
       /* xlsx na chale to CSV fallback */
       var csv = aoa.map(function(r){ return r.map(function(c){ return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); }).join('\n');
       var a = document.createElement('a');
       a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
       a.download = 'meta_leads.csv'; a.click();
-      toast(list.length + ' leads CSV me export ho gaye');
+      toast(list.length + ' leads exported to CSV');
     });
   };
 
@@ -7470,8 +7539,8 @@ window.can = function(section, action){
 window.ocPermsFor = permsFor;
 
 function permToast(action){
-  say({ view:'Is section ko dekhne ki permission nahi hai', create:'Naya record banane ki permission nahi hai',
-        edit:'Edit karne ki permission nahi hai', delete:'Delete karne ki permission nahi hai' }[action] || 'Permission nahi hai');
+  say({ view:'You don\'t have permission to view this section', create:'You don\'t have permission to create new records',
+        edit:'You don\'t have permission to edit', delete:'You don\'t have permission to delete' }[action] || 'Permission denied');
 }
 
 /* nav items hide */
@@ -7567,7 +7636,7 @@ window.openDisModal = function(id, orderId){
   var list = DB.dispatch() || [];
   var d = id ? list.filter(function(x){ return x.id === id; })[0] : null;
   if(id && !d){ say('Dispatch record not found'); return; }
-  if(d && typeof canTouch === 'function' && !canTouch(d, 'dispatch')){ say('Ye dispatch aapka nahi hai.'); return; }
+  if(d && typeof canTouch === 'function' && !canTouch(d, 'dispatch')){ say('This dispatch is not yours.'); return; }
   d = d || {};
   var orders = scope(DB.orders(), 'orders').filter(function(o){ return o && o.status !== 'Cancelled'; });
   var dispatched = {}; list.forEach(function(x){ if(x && x.orderId) dispatched[x.orderId] = 1; });
@@ -7608,8 +7677,8 @@ window.saveDis = function(id){
   if(!o){ say('Select an order'); return; }
   var courier = S(($('d-courier') || {}).value).trim();
   var on = S(($('d-on') || {}).value);
-  if(!courier){ say('Courier / transporter naam likhein'); return; }
-  if(!on){ say('Dispatched-on date chahiye'); return; }
+  if(!courier){ say('Enter the courier / transporter name'); return; }
+  if(!on){ say('Dispatched-on date is required'); return; }
   var list = DB.dispatch() || [];
   var rec = { orderId:o.id, customer:o.customer, custId:o.custId || '', product:o.product, qty:o.qty,
               courier:courier, tracking:S(($('d-tracking') || {}).value).trim(), dispatchedOn:on,
@@ -7700,7 +7769,7 @@ window.paintTable = function(bodyId){
 window.advanceOrder = function(id){
   var ord = DB.orders(), o = ord.filter(function(x){ return x.id === id; })[0];
   if(!o) return;
-  if(typeof canTouch === 'function' && !canTouch(o, 'orders')){ say('Ye order aapka nahi hai.'); return; }
+  if(typeof canTouch === 'function' && !canTouch(o, 'orders')){ say('This order is not yours.'); return; }
   var i = ORDER_FLOW.indexOf(o.status);
   if(i < 0 || i >= ORDER_FLOW.length - 1) return;
   o.status = ORDER_FLOW[i + 1];
@@ -7716,7 +7785,7 @@ window.advanceOrder = function(id){
             createdAt:new Date().toISOString() };
       dis.unshift(d); DB.save('dispatch', dis);
     }
-    say('Order dispatched — courier & tracking details bharein');
+    say('Order dispatched — enter the courier & tracking details');
     try{ refreshBadges(); paintTable('ord-body'); }catch(e){}
     setTimeout(function(){ try{ openDisModal(d.id); }catch(e){} }, 80);
     return;
@@ -7758,20 +7827,20 @@ function quoRecalc(){
   var qty = +(($('q-qty') || {}).value) || 0, rate = +(($('q-rate') || {}).value) || 0, disc = +(($('q-disc') || {}).value) || 0;
   var amt = Math.round(qty * rate * (1 - disc / 100) * 100) / 100;
   var a = $('q-amount'); if(a && !a.dataset.manual) a.value = amt;
-  var h = $('q-amount-hint'); if(h) h.textContent = qty && rate ? ('Auto: ' + qty + ' × ' + money(rate) + (disc ? ' - ' + disc + '%' : '') + ' = ' + money(amt) + ' (excl. GST). Amount ko manually bhi badal sakte hain.') : '';
+  var h = $('q-amount-hint'); if(h) h.textContent = qty && rate ? ('Auto: ' + qty + ' × ' + money(rate) + (disc ? ' - ' + disc + '%' : '') + ' = ' + money(amt) + ' (excl. GST). You can also change the amount manually.') : '';
 }
 window.quoRecalc = quoRecalc;
 window.openQuoModal = function(id, pre){
   var q = id ? (DB.quotations() || []).filter(function(x){ return x.id === id; })[0] : null;
   if(id && !q){ say('Quotation not found'); return; }
-  if(q && typeof canTouch === 'function' && !canTouch(q, 'quotations')){ say('Ye quotation aapki nahi hai.'); return; }
+  if(q && typeof canTouch === 'function' && !canTouch(q, 'quotations')){ say('This quotation is not yours.'); return; }
   q = q || pre || {};
   var rate = (q.rate != null) ? q.rate : (q.qty && q.amount ? Math.round((q.amount / q.qty) / (1 - (+q.discount || 0) / 100) * 100) / 100 : 0);
   var date = q.date || localToday();
   var fromBuilder = q.source === 'Quotation Builder';
   openModal('<div class="modal-head"><h3>' + (id ? 'Edit' : 'New') + ' Quotation' + (q.enqId ? ' <span class="chip c-neutral" style="font-size:10.5px;margin-left:6px">from ' + esc(q.enqId) + '</span>' : '') + '</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'
     + '<div class="modal-body">'
-    + (fromBuilder ? '<div style="padding:9px 12px;margin-bottom:12px;border:1px solid var(--border);border-left:3px solid var(--brand);border-radius:9px;background:var(--surface-2);font-size:12.5px;color:var(--text-2)">Ye quotation <b>Quotation Builder</b> se bani hai (' + esc(q.id) + '). Line items PDF me hain — yahan status, validity, note waghera update karein.</div>' : '')
+    + (fromBuilder ? '<div style="padding:9px 12px;margin-bottom:12px;border:1px solid var(--border);border-left:3px solid var(--brand);border-radius:9px;background:var(--surface-2);font-size:12.5px;color:var(--text-2)">This quotation was created in the <b>Quotation Builder</b> (' + esc(q.id) + '). Line items are in the PDF — update status, validity, notes etc. here.</div>' : '')
     + '<div class="form-row"><label>Customer <span style="color:var(--crit)">*</span></label>' + customerSelectHTML('q-cust', 'quoc', q.custId) + '</div>'
     + '<div class="form-row two"><div><label>Product <span style="color:var(--crit)">*</span></label><div class="oi-ac" style="position:relative"><input id="q-prod" placeholder="Type to search or enter product..." autocomplete="off" value="' + attr(q.product) + '" oninput="onQuoProdSearch(this.value)" onfocus="onQuoProdSearch(this.value)" onblur="hideQuoSuggest()" style="width:100%"><div id="q-prod-suggest" style="display:none"></div></div></div>'
     + '<div><label>Quantity <span style="color:var(--crit)">*</span></label><input id="q-qty" type="number" min="1" value="' + attr(q.qty || 1) + '" oninput="quoRecalc()"></div></div>'
@@ -7828,7 +7897,7 @@ window.saveQuo = function(id, enqId){
 window.ocQuoteFromEnq = function(id){
   var e = (DB.enquiries() || []).filter(function(x){ return x.id === id; })[0];
   if(!e){ say('Enquiry not found'); return; }
-  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('Ye enquiry aapki nahi hai.'); return; }
+  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('This enquiry is not yours.'); return; }
   var exist = (DB.quotations() || []).filter(function(q){ return q.enqId === id; })[0];
   if(exist){ openQuoModal(exist.id); return; }
   var prod = (DB.products() || []).filter(function(p){ return p.id === e.prodId; })[0];
@@ -7869,7 +7938,7 @@ window.paintEnq = function(){
 /* ====================================================================== *
  * 5. PIPELINE BOARD — drag & drop + move buttons + click to edit          *
  * ====================================================================== */
-var PIPE_STAGES = ['New','Contacted','Follow-up','Qualified','System Master','Quoted','Won','Lost'];
+var PIPE_STAGES = ['New','Contacted','Follow-up','Qualified','Not Qualified','System Master','Quoted','Won','Lost'];
 /* v31: 'System Master' Qualified section ka ek sub-status hai ('Quoted' = Quotation Sent).
    PIPE_STAGES is block ke andar band tha, isliye use bahar bhi de dete hain — Qualified
    section aur baaki naye module isi ek hi list ko maanein. */
@@ -7878,7 +7947,7 @@ window.ocMoveEnq = function(id, stage){
   var list = DB.enquiries() || [], e = list.filter(function(x){ return x.id === id; })[0];
   if(!e) return;
   if(!can('enquiries', 'edit')){ permToast('edit'); return; }
-  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('Ye enquiry aapki nahi hai.'); return; }
+  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('This enquiry is not yours.'); return; }
   if(PIPE_STAGES.indexOf(stage) < 0 || e.stage === stage) return;
   e.stage = stage; e.stageChangedAt = new Date().toISOString();
   DB.save('enquiries', list);
@@ -7895,7 +7964,7 @@ window.ocMoveEnqBy = function(id, dir){
 window.renderPipeline = function(){
   var enq = scope(DB.enquiries(), 'enquiries') || [];
   var canEdit = can('enquiries', 'edit');
-  content.innerHTML = '<div class="sub" style="margin-bottom:10px;font-size:12px;color:var(--muted)">' + (canEdit ? 'Card ko drag karke doosre stage me chhodo, ya ◀ ▶ se move karo. Card par click = edit.' : 'Read-only view') + '</div>'
+  content.innerHTML = '<div class="sub" style="margin-bottom:10px;font-size:12px;color:var(--muted)">' + (canEdit ? 'Drag a card to another stage, or move it with ◀ ▶. Click a card to edit.' : 'Read-only view') + '</div>'
     + '<div class="pipeline" id="pipeBoard">' + PIPE_STAGES.map(function(st, si){
     var items = enq.filter(function(e){ return (e.stage || 'New') === st; }).sort(function(a,b){ return S(b.date).localeCompare(S(a.date)); });
     var val = items.reduce(function(s,e){ return s + (+e.value || 0); }, 0);
@@ -7945,25 +8014,25 @@ window.doChangePw = async function(){
   var msg = $('cp-msg'), btn = $('cp-btn');
   var old = S(($('cp-old') || {}).value), nw = S(($('cp-new') || {}).value), nw2 = S(($('cp-new2') || {}).value);
   function m(t, ok){ if(msg){ msg.textContent = t; msg.style.color = ok ? 'var(--good-ink)' : 'var(--crit)'; } }
-  if(!old || !nw){ m('Dono password bharein.'); return; }
-  if(nw.length < 6){ m('Naya password kam se kam 6 characters ka ho.'); return; }
-  if(nw !== nw2){ m('Naya password aur confirm password match nahi karte.'); return; }
-  if(old === nw){ m('Naya password purane jaisa hi hai.'); return; }
+  if(!old || !nw){ m('Fill in both passwords.'); return; }
+  if(nw.length < 6){ m('The new password must be at least 6 characters.'); return; }
+  if(nw !== nw2){ m('The new password and confirm password do not match.'); return; }
+  if(old === nw){ m('The new password is the same as the old one.'); return; }
   var email = LC(me().email);
   if(btn) btn.disabled = true;
   try{
     m('Verifying…', true);
     var h0 = await AUTH.hash(old), h1 = await AUTH.hash(nw);
     var r = await SRV.login(email, h0);
-    if(!r || !r.ok){ m('Current password galat hai.'); if(btn) btn.disabled = false; return; }
+    if(!r || !r.ok){ m('The current password is incorrect.'); if(btn) btn.disabled = false; return; }
     if(r.sid) SRV.set(r.sid);
     var s = await SRV.setPassword(email, h1);
-    if(!s || !s.ok){ m('Password change nahi ho paaya: ' + ((s && s.error) || 'server error')); if(btn) btn.disabled = false; return; }
+    if(!s || !s.ok){ m('Could not change the password: ' + ((s && s.error) || 'server error')); if(btn) btn.disabled = false; return; }
     try{ var r2 = await SRV.login(email, h1); if(r2 && r2.ok && r2.sid) SRV.set(r2.sid); }catch(e){}
     try{ AUTH.setSession(email); }catch(e){}
-    closeModal(); say('Password badal gaya ✓');
+    closeModal(); say('Password changed ✓');
   }catch(e){
-    console.error(e); m('Server se baat nahi ho paayi — internet check kijiye.'); if(btn) btn.disabled = false;
+    console.error(e); m('Could not reach the server — please check your internet connection.'); if(btn) btn.disabled = false;
   }
 };
 
@@ -7996,7 +8065,7 @@ var QUICK = { enquiries:['enquiry','New Enquiry'], orders:['order','New Order'],
 var _setView = window.setView;
 window.setView = function(v){
   var sec = SECTION_OF_VIEW[v] || v;
-  if(v === 'admin' && !isAdm()){ say('Admin Panel sirf admin ke liye hai'); v = 'dashboard'; }
+  if(v === 'admin' && !isAdm()){ say('The Admin Panel is for admins only'); v = 'dashboard'; }
   else if(v !== 'dashboard' && !can(sec, 'view')){ permToast('view'); v = 'dashboard'; }
   var r = _setView.call(this, v);
   try{
@@ -8105,9 +8174,9 @@ guardDelete('bulkDeleteProducts', 'products');
     var old = $('ocUpdateBar'); if(old) old.remove();
     var b = document.createElement('div'); b.id = 'ocUpdateBar';
     b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:300;background:#0f1729;color:#fff;padding:10px 14px;font:600 13px var(--sans);display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 4px 14px rgba(0,0,0,.35)';
-    b.innerHTML = '<span style="flex:1;min-width:160px">\ud83d\udd14 App ka naya version available hai <b>v' + esc(info.versionName) + '</b></span>'
+    b.innerHTML = '<span style="flex:1;min-width:160px">🔔 A new app version is available <b>v' + esc(info.versionName) + '</b></span>'
       + '<button class="btn primary sm" id="ocUpdGo">Download & Update</button>'
-      + '<button class="btn sm" id="ocUpdLater" style="background:transparent;color:#cdd5e6;border-color:rgba(255,255,255,.25)">Baad me</button>';
+      + '<button class="btn sm" id="ocUpdLater" style="background:transparent;color:#cdd5e6;border-color:rgba(255,255,255,.25)">Later</button>';
     document.body.appendChild(b);
     document.body.style.paddingTop = b.offsetHeight + 'px';
     $('ocUpdGo').onclick = function(){ try{ A.openExternal(info.url); }catch(e){} };
@@ -8122,8 +8191,8 @@ guardDelete('bulkDeleteProducts', 'products');
       var info = (m && apk && /release keystore/i.test(body)) ? { code: +m[1], versionName: n ? n[1] : S(rel.tag_name), url: apk.browser_download_url } : null;
       save({ t: now, info: info, snooze: st.snooze });
       if(info && info.code > mine() && !(st.snooze && st.snooze > now)) banner(info);
-      else if(force) say(info && info.code <= mine() ? 'App already latest hai (v' + S(A.getVersion()) + ')' : 'Koi release-signed update nahi mila');
-    }).catch(function(){ if(force) say('Update check fail — internet check kijiye'); });
+      else if(force) say(info && info.code <= mine() ? 'The app is already up to date (v' + S(A.getVersion()) + ')' : 'No release-signed update found');
+    }).catch(function(){ if(force) say('Update check failed — please check your internet connection'); });
   };
   setTimeout(function(){ try{ window.ocCheckUpdate(false); }catch(e){} }, 5000);
   /* sidebar me version + manual check */
@@ -8141,7 +8210,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.28.1';
+var OC_WEB_BUILD = '2026.09.28.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -8152,9 +8221,9 @@ var OC_WEB_BUILD = '2026.09.28.1';
     if($('ocWebUpdateBar') || $('ocUpdateBar')) return;
     var b = document.createElement('div'); b.id = 'ocWebUpdateBar';
     b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:300;background:#0f1729;color:#fff;padding:10px 14px;font:600 13px var(--sans);display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 4px 14px rgba(0,0,0,.35)';
-    b.innerHTML = '<span style="flex:1;min-width:160px">🔔 CRM ka naya version available hai <b>' + esc(build) + '</b> — reload karke update karein</span>'
+    b.innerHTML = '<span style="flex:1;min-width:160px">🔔 A new CRM version is available <b>' + esc(build) + '</b> — reload to update</span>'
       + '<button class="btn primary sm" id="ocWebUpdGo">Reload &amp; Update</button>'
-      + '<button class="btn sm" id="ocWebUpdLater" style="background:transparent;color:#cdd5e6;border-color:rgba(255,255,255,.25)">Baad me</button>';
+      + '<button class="btn sm" id="ocWebUpdLater" style="background:transparent;color:#cdd5e6;border-color:rgba(255,255,255,.25)">Later</button>';
     document.body.appendChild(b);
     document.body.style.paddingTop = b.offsetHeight + 'px';
     $('ocWebUpdGo').onclick = function(){ try{ location.reload(); }catch(e){} };
@@ -8169,10 +8238,10 @@ var OC_WEB_BUILD = '2026.09.28.1';
     fetch(url + '?_oc=' + now, { cache: 'no-store', credentials: 'same-origin' }).then(function(r){ return r.ok ? r.text() : ''; }).then(function(html){
       var m = /OC_WEB_BUILD\s*=\s*'([^']+)'/.exec(html || ''); if(!m) return;
       var remote = m[1], st = ls();
-      if(remote === OC_WEB_BUILD){ if(force) say('CRM already latest hai (' + OC_WEB_BUILD + ')'); return; }
+      if(remote === OC_WEB_BUILD){ if(force) say('The CRM is already up to date (' + OC_WEB_BUILD + ')'); return; }
       if(!force && st.snooze && st.snooze > now && st.snoozed === remote) return;
       banner(remote);
-    }).catch(function(){ if(force) say('Update check fail — internet check kijiye'); });
+    }).catch(function(){ if(force) say('Update check failed — please check your internet connection'); });
   };
   setTimeout(function(){ try{ window.ocCheckWebUpdate(false); }catch(e){} }, 8000);
   setInterval(function(){ try{ window.ocCheckWebUpdate(false); }catch(e){} }, EVERY);
@@ -8241,7 +8310,7 @@ window.openQuoModal = function(id, pre){
   if(id){
     var q = quoById(id);
     if(!q){ say('Quotation not found'); return; }
-    if(typeof canTouch === 'function' && !canTouch(q, 'quotations')){ say('Ye quotation aapki nahi hai.'); return; }
+    if(typeof canTouch === 'function' && !canTouch(q, 'quotations')){ say('This quotation is not yours.'); return; }
     qbOpen('#edit=' + encodeURIComponent(id));
     return;
   }
@@ -8266,7 +8335,7 @@ window.renderQuotations = function(){
     + (stat.Sent ? '<span class="chip c-new">' + stat.Sent + ' sent</span>' : '')
     + dlBtn('quotations')
     + '<button class="btn primary sm" onclick="openQuoModal()">' + I.plus + 'New Quotation</button>')
-    + '<div style="padding:0 20px 14px;font-size:12px;color:var(--muted);margin-top:-6px">Quotation Builder me hi quotation banti hai — <b>View</b> se uski PDF khulti hai, <b>Edit</b> se wahi quotation dobara khulti hai.</div>';
+    + '<div style="padding:0 20px 14px;font-size:12px;color:var(--muted);margin-top:-6px">Quotations are created in the Quotation Builder — <b>View</b> opens the PDF, <b>Edit</b> reopens the same quotation.</div>';
   paintTable('quo-body');
 };
 
@@ -8332,7 +8401,7 @@ window.paintTable = function(bodyId){
 window.ocQuoteFromEnq = function(id){
   var e = (DB.enquiries() || []).filter(function(x){ return x.id === id; })[0];
   if(!e){ say('Enquiry not found'); return; }
-  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('Ye enquiry aapki nahi hai.'); return; }
+  if(typeof canTouch === 'function' && !canTouch(e, 'enquiries')){ say('This enquiry is not yours.'); return; }
   var exist = (DB.quotations() || []).filter(function(q){ return q && q.enqId === id; })[0];
   if(exist){ openQuoModal(exist.id); return; }
   var prod = (DB.products() || []).filter(function(p){ return p.id === e.prodId; })[0];
@@ -8411,7 +8480,7 @@ function applyProdEdit(){
   var used = prodUsed(o), left = prodLeft(o);
   var note = $('oc-plock');
   if(left <= 0){
-    if(note) note.innerHTML = '<b>Products locked</b> — dono product edits (' + PROD_MAX + '/' + PROD_MAX + ') use ho chuke hain. Ab is order ke products nahi badle ja sakte.';
+    if(note) note.innerHTML = '<b>Products locked</b> — both product edits (' + PROD_MAX + '/' + PROD_MAX + ') have been used. This order\'s products can no longer be changed.';
     return;
   }
   /* v7 ne sab kuch disable kar diya hai; sirf teen cheezein wapas khol do */
@@ -8420,9 +8489,9 @@ function applyProdEdit(){
   });
   if(note){
     note.style.borderLeftColor = 'var(--brand)';
-    note.innerHTML = 'Product edit <b>' + (used + 1) + ' of ' + PROD_MAX + '</b> — sirf <b>Item Image</b>, <b>Qty</b> aur <b>Rate</b> badal sakte hain. '
-      + 'Naya product add/remove ya naam, type, specification change nahi ho sakta. '
-      + (left === 1 ? 'Ye <b>aakhri</b> product edit hai — save karte hi products lock ho jaayenge.' : 'Save karne par 1 edit use hoga (' + left + ' bache hain).');
+    note.innerHTML = 'Product edit <b>' + (used + 1) + ' of ' + PROD_MAX + '</b> — only <b>Item Image</b>, <b>Qty</b> and <b>Rate</b> can be changed. '
+      + 'Products cannot be added/removed and name, type or specification cannot be changed. '
+      + (left === 1 ? 'This is the <b>last</b> product edit — products will lock as soon as you save.' : 'Saving will use 1 edit (' + left + ' left).');
   }
 }
 window.ocApplyProdEdit = applyProdEdit;
@@ -8483,8 +8552,8 @@ window.saveOrder = function(id){
         rec.productsLockedAt = rec.productEditCount >= PROD_MAX ? new Date().toISOString() : rec.productsLockedAt;
         DB.save('orders', list);
         say(rec.productEditCount >= PROD_MAX
-          ? 'Product details update ho gaye — ab products lock hain (' + PROD_MAX + '/' + PROD_MAX + ' edits used)'
-          : 'Product details update ho gaye — ' + (PROD_MAX - rec.productEditCount) + ' product edit baaki hai');
+          ? 'Product details updated — products are now locked (' + PROD_MAX + '/' + PROD_MAX + ' edits used)'
+          : 'Product details updated — ' + (PROD_MAX - rec.productEditCount) + ' product edit(s) left');
       }
     }catch(e){}
   }
@@ -9070,8 +9139,8 @@ window.refreshBadges = function(){
   put('nb-enq',  c.enq);
   put('nb-quo',  c.quo);
   put('nb-meta', c.meta);
-  put('nb-ord',  c.ord,  'Orders section me abhi itne orders hain (dispatch ho chuke orders Dispatch me ginte hain)');
-  put('nb-dis',  c.dis,  'Dispatch section me abhi itni entries hain');
+  put('nb-ord',  c.ord,  'Orders currently in the Orders section (dispatched orders are counted under Dispatch)');
+  put('nb-dis',  c.dis,  'Entries currently in the Dispatch section');
 };
 
 /* har view change par bhi ek baar sync kar do — agar kisi rare raste se data
@@ -9201,8 +9270,8 @@ function ensureCancelBox(){
     box.className = 'form-row';
     box.style.cssText = 'margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--crit);border-radius:9px;background:var(--surface-2)';
     box.innerHTML = '<label class="lbl" style="font-size:11.5px">Cancellation Remarks <span style="color:var(--crit)">*</span></label>'
-      + '<textarea id="o-cancel-note" rows="2" placeholder="Order cancel karne ki wajah likhiye (customer ne mana kiya, duplicate order, payment nahi aaya...)" style="width:100%"></textarea>'
-      + '<div class="sub" style="font-size:11px;color:var(--muted);margin-top:4px">Bina wajah likhe order cancel nahi hoga. Ye wajah order ke saath save hoti hai.</div>';
+      + '<textarea id="o-cancel-note" rows="2" placeholder="Enter the reason for cancelling the order (customer declined, duplicate order, payment not received...)" style="width:100%"></textarea>'
+      + '<div class="sub" style="font-size:11px;color:var(--muted);margin-top:4px">An order cannot be cancelled without a reason. The reason is saved with the order.</div>';
     var host = cell.parentNode || cell;
     if(host.nextSibling) host.parentNode.insertBefore(box, host.nextSibling);
     else host.parentNode.appendChild(box);
@@ -9242,7 +9311,7 @@ window.saveOrder = function(id){
       ensureCancelBox();
       var r = remarkEl(), txt = S(r && r.value).trim();
       if(txt.length < 3){
-        say('Order cancel karne ki wajah (Cancellation Remarks) likhna zaroori hai');
+        say('A reason (Cancellation Remarks) is required to cancel the order');
         if(r){ r.focus(); try{ r.scrollIntoView({ block: 'center' }); }catch(e){} }
         return;
       }
@@ -9333,12 +9402,12 @@ var FLOW     = (typeof ORDER_FLOW !== 'undefined' && ORDER_FLOW.length)
                  ? ORDER_FLOW.slice() : ['Confirmed','In Production','Ready','Dispatched','Delivered'];
 var ALL      = FLOW.concat([CANCEL]);
 var NOTE = {
-  'Confirmed'     : 'Order confirm hai, production abhi shuru nahi hui.',
-  'In Production' : 'Factory me banna shuru ho gaya hai.',
-  'Ready'         : 'Maal taiyaar hai, dispatch hona baaki hai.',
-  'Dispatched'    : 'Order Orders se hat kar Dispatch section me chala jayega.',
-  'Delivered'     : 'Customer tak pahunch gaya — Dispatch me bhi Delivered ho jayega.',
-  'Cancelled'     : 'Wajah (Cancellation Remarks) likhna zaroori hai.'
+  'Confirmed'     : 'Order is confirmed; production has not started yet.',
+  'In Production' : 'Manufacturing has started in the factory.',
+  'Ready'         : 'Goods are ready; dispatch is pending.',
+  'Dispatched'    : 'The order will move from Orders to the Dispatch section.',
+  'Delivered'     : 'Delivered to the customer — it will also be marked Delivered in Dispatch.',
+  'Cancelled'     : 'A reason (Cancellation Remarks) is required.'
 };
 var PICK = null;   /* jis order ka picker khula hai */
 
@@ -9369,7 +9438,7 @@ function rowHTML(s, cur){
     + '<input type="radio" name="oc-st" value="' + E(s) + '"' + (on ? ' checked' : '') + ' onchange="ocStatusPick(this.value)" style="margin-top:3px;flex-shrink:0">'
     + '<span style="flex:1;min-width:0">'
     +   '<span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' + chip
-    +     (on ? '<span style="font-size:11px;color:var(--muted)">— abhi yahi status hai</span>' : '') + '</span>'
+    +     (on ? '<span style="font-size:11px;color:var(--muted)">— current status</span>' : '') + '</span>'
     +   '<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:3px">' + E(NOTE[s] || '') + '</span>'
     + '</span></label>';
 }
@@ -9397,8 +9466,8 @@ window.ocStatusBack = function(){
 
 window.ocStatusPicker = function(id){
   var o = findOrder(id);
-  if(!o){ tell('Order nahi mila'); return; }
-  if(!mayChange(o)){ tell('Order ka status badalne ki permission nahi hai'); return; }
+  if(!o){ tell('Order not found'); return; }
+  if(!mayChange(o)){ tell('You don\'t have permission to change the order status'); return; }
   PICK = id;
   var cur  = S(o.status) || FLOW[0];
   var rows = ALL.map(function(s){ return rowHTML(s, cur); }).join('');
@@ -9409,13 +9478,13 @@ window.ocStatusPicker = function(id){
   + '<div class="modal-body">'
   +   '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:12px">'
   +     E(o.customer || '—') + (o.product ? ' · ' + E(o.product) : '')
-  +     '<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:2px">Naya status chuniye. Status badalna order ke edit quota me count nahi hota.</span>'
+  +     '<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:2px">Choose the new status. Changing the status does not count toward the order\'s edit quota.</span>'
   +   '</div>'
   +   '<div style="display:grid;gap:6px">' + rows + '</div>'
   +   '<div id="oc-st-remark" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--crit);border-radius:9px;background:var(--surface-2)">'
   +     '<label class="lbl" style="font-size:11.5px">Cancellation Remarks <span style="color:var(--crit)">*</span></label>'
-  +     '<textarea id="oc-st-note" rows="2" placeholder="Order cancel karne ki wajah likhiye (customer ne mana kiya, duplicate order, payment nahi aaya...)" style="width:100%">' + E(prevNote) + '</textarea>'
-  +     '<div class="sub" style="font-size:11px;color:var(--muted);margin-top:4px">Bina wajah likhe order cancel nahi hoga. Ye wajah order ke saath save hoti hai.</div>'
+  +     '<textarea id="oc-st-note" rows="2" placeholder="Enter the reason for cancelling the order (customer declined, duplicate order, payment not received...)" style="width:100%">' + E(prevNote) + '</textarea>'
+  +     '<div class="sub" style="font-size:11px;color:var(--muted);margin-top:4px">An order cannot be cancelled without a reason. The reason is saved with the order.</div>'
   +   '</div>'
   + '</div>'
   + '<div class="modal-foot">'
@@ -9428,21 +9497,21 @@ window.ocStatusPicker = function(id){
 /* ---------------- apply ---------------- */
 window.ocStatusApply = function(){
   var id = PICK, o = id ? findOrder(id) : null;
-  if(!o){ tell('Order nahi mila'); return; }
-  if(!mayChange(o)){ tell('Order ka status badalne ki permission nahi hai'); return; }
+  if(!o){ tell('Order not found'); return; }
+  if(!mayChange(o)){ tell('You don\'t have permission to change the order status'); return; }
 
   var sel  = document.querySelector('input[name="oc-st"]:checked');
   var next = sel ? S(sel.value) : '';
   if(!next) return;
   var prev = S(o.status);
-  if(next === prev){ tell('Status pehle se hi ' + prev + ' hai'); window.ocStatusBack(); return; }
+  if(next === prev){ tell('Status is already ' + prev + ''); window.ocStatusBack(); return; }
 
   var note = '';
   if(next === CANCEL){
     var t = document.getElementById('oc-st-note');
     note = S(t && t.value).trim();
     if(note.length < 3){
-      tell('Order cancel karne ki wajah (Cancellation Remarks) likhna zaroori hai');
+      tell('A reason (Cancellation Remarks) is required to cancel the order');
       if(t){ t.focus(); try{ t.scrollIntoView({ block:'center' }); }catch(e){} }
       return;
     }
@@ -9453,7 +9522,7 @@ window.ocStatusApply = function(){
 
   var arr = ordersArr(), rec = null;
   for(var i = 0; i < arr.length; i++){ if(arr[i] && arr[i].id === id){ rec = arr[i]; break; } }
-  if(!rec){ tell('Order nahi mila'); return; }
+  if(!rec){ tell('Order not found'); return; }
 
   rec.status = next;
   rec.statusChangedAt = new Date().toISOString();
@@ -9497,11 +9566,11 @@ window.ocStatusApply = function(){
   try{ if(typeof state !== 'undefined' && (state.view === 'orders' || state.view === 'dispatch')) setView(state.view); }catch(e){}
 
   var msg = 'Status ' + prev + ' → ' + next;
-  if(next === 'Dispatched')      msg = 'Order dispatched — ab Dispatch section me hai (courier & tracking wahan bharein)';
+  if(next === 'Dispatched')      msg = 'Order dispatched — it is now in the Dispatch section (enter courier & tracking there)';
   else if(next === 'Delivered')  msg = 'Order delivered ✓';
-  else if(next === CANCEL)       msg = 'Order cancel ho gaya — wajah save kar di gayi';
-  else if(pulled)                msg = 'Status ' + next + ' — order wapas Orders section me aa gaya';
-  else if(kept)                  msg = 'Status ' + next + ' — dispatch entry (courier/tracking bhari hui) waise hi rahegi';
+  else if(next === CANCEL)       msg = 'Order cancelled — reason saved';
+  else if(pulled)                msg = 'Status ' + next + ' — the order is back in the Orders section';
+  else if(kept)                  msg = 'Status ' + next + ' — the dispatch entry (with courier/tracking filled in) is kept as is';
   tell(msg);
 
   PICK = null;
@@ -9524,7 +9593,7 @@ function addStatusBtn(id){
   b.setAttribute('data-oc-statusbtn', '1');
   b.setAttribute('type', 'button');
   b.style.cssText = BTN_STYLE;
-  b.title = 'Order ka status badlein (edit quota me count nahi hota)';
+  b.title = 'Change the order status (does not count toward the edit quota)';
   b.innerHTML = ((typeof I !== 'undefined' && I.flow) ? I.flow : '') + 'Status';
   b.onclick = function(){ window.ocStatusPicker(id); };
 
@@ -9608,7 +9677,7 @@ function markOne(n, label){
       var d = document.createElement('div');
       d.setAttribute('data-oc-reqmsg', '1');
       d.style.cssText = 'font-size:11.5px;color:' + BAD + ';margin-top:4px;display:flex;gap:5px;align-items:center';
-      d.innerHTML = '<span style="font-weight:800">!</span><span>' + esc(label || 'Ye field') + ' bharna zaroori hai</span>';
+      d.innerHTML = '<span style="font-weight:800">!</span><span>' + esc(label || 'This field') + ' is required</span>';
       r.appendChild(d);
     }
     if(!n.dataset.ocReqBound){
@@ -9642,7 +9711,7 @@ function banner(miss){
   }
   var names = miss.map(function(m){ return m.label; });
   b.innerHTML = '<div style="font-size:12.5px;font-weight:700;color:' + BAD + '">'
-      + names.length + ' zaroori field ' + (names.length > 1 ? 'baaki hain' : 'baaki hai') + ' — form submit nahi hoga</div>'
+      + names.length + ' required field(s) ' + (names.length > 1 ? 'missing' : 'missing') + ' — the form cannot be submitted</div>'
     + '<div style="font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.6">' + names.map(esc).join(' · ') + '</div>';
 }
 /* jaise-jaise field bharte jaayein, banner chhota hota jaaye */
@@ -9663,7 +9732,7 @@ function report(miss){
   banner(miss);
   var names = miss.map(function(m){ return m.label; });
   try{
-    say('Pehle ye zaroori field bharein: ' + names.slice(0, 3).join(', ') + (names.length > 3 ? ' +' + (names.length - 3) + ' aur' : ''));
+    say('Please fill these required fields first: ' + names.slice(0, 3).join(', ') + (names.length > 3 ? ' +' + (names.length - 3) + ' more' : ''));
   }catch(e){}
   try{
     var n = miss[0].node;
@@ -9837,7 +9906,7 @@ wrap('doChangePw', function(){
   var miss = missingList([['cp-old','Current password'], ['cp-new','New password'], ['cp-new2','Confirm new password']]);
   var n = $id('cp-new'), n2 = $id('cp-new2');
   if(!miss.length && n && S(n.value).length < 6) miss.push({ label:'New password (min 6 characters)', node:n });
-  if(!miss.length && n && n2 && S(n.value) !== S(n2.value)) miss.push({ label:'Confirm new password (match nahi kar raha)', node:n2 });
+  if(!miss.length && n && n2 && S(n.value) !== S(n2.value)) miss.push({ label:'Confirm new password (does not match)', node:n2 });
   return miss;
 });
 
@@ -9858,7 +9927,7 @@ wrap('doChangePw', function(){
       });
       if(bad.length){
         var m = $id('lg-msg') || $id('lg-error');
-        if(m){ m.textContent = 'Email aur password dono bharna zaroori hai'; m.style.color = BAD; }
+        if(m){ m.textContent = 'Both email and password are required'; m.style.color = BAD; }
         try{ bad[0].focus(); }catch(err){}
         return;
       }
@@ -9885,8 +9954,8 @@ wrap('doChangePw', function(){
               if(!rj || !rj.length) return;
               window.__ocReqRejected = rj;
               var names = (rj[0] && rj[0].missing) || [];
-              say('Server ne ' + rj.length + ' record save nahi kiya — zaroori field baaki hain: '
-                  + names.slice(0, 3).join(', ') + (names.length > 3 ? ' +' + (names.length - 3) + ' aur' : ''));
+              say('Server: ' + rj.length + ' record not saved — required fields missing: '
+                  + names.slice(0, 3).join(', ') + (names.length > 3 ? ' +' + (names.length - 3) + ' more' : ''));
             }).catch(function(){});
           }catch(e){}
         }).catch(function(){});
@@ -9970,7 +10039,7 @@ window.ocApplyModalPerms = applyModalPerms;
   if(typeof prev !== 'function') return;
   window.advanceOrder = function(){
     if(!allowed('orders', 'edit')){
-      try{ (typeof permToast === 'function') ? permToast('edit') : say('Edit karne ki permission nahi hai'); }catch(e){}
+      try{ (typeof permToast === 'function') ? permToast('edit') : say('You don\'t have permission to edit'); }catch(e){}
       return;
     }
     return prev.apply(this, arguments);
@@ -10034,7 +10103,7 @@ function sane(reg){
     bad.forEach(function(id){ delete reg[id]; });
     P(PEND, reg);
     try{ if(window.__ocTombAdd) window.__ocTombAdd(bad); }catch(e){}
-    console.warn('[oc v18] pending queue se galat entry hataayi:', bad.join(', '));
+    console.warn('[oc v18] removed an invalid entry from the pending queue:', bad.join(', '));
   }
   return Object.keys(reg);
 }
@@ -10071,7 +10140,7 @@ function flush(){
       var seen = J('oc_seenIds', {}) || {}, reg = J(PEND, {}) || {}, dropped = false;
       ids.forEach(function(id){ if(seen[id] && reg[id]){ delete reg[id]; dropped = true; } });
       if(dropped){ P(PEND, reg); ids = Object.keys(reg);
-        console.log('[oc v18] deleted record(s) ko dobara upload nahi kiya jayega'); }
+        console.log('[oc v18] deleted record(s) will not be uploaded again'); }
     }catch(e){}
     if(!ids.length){ badge(0); return; }
     var s = J(SNAP, {}) || {}, o = s.orders || {}, ch = false;
@@ -10107,18 +10176,18 @@ function badge(n){
       var txt = document.createElement('span');
       txt.id = 'oc-pend-txt';
       txt.setAttribute('style', 'cursor:pointer;flex:1');
-      txt.title = 'Ye order abhi sirf is device par hain. Click karke dobara bhejein.';
+      txt.title = 'These orders are only on this device right now. Click to send them again.';
       txt.addEventListener('click', function(){ flush(); });
       var x = document.createElement('span');
       x.textContent = '✕';
       x.setAttribute('style', 'cursor:pointer;opacity:.55;font-size:12px');
-      x.title = 'Chhupa dein';
+      x.title = 'Hide';
       x.addEventListener('click', function(){ window.__ocPendHide = 1; el.remove(); });
       el.appendChild(txt); el.appendChild(x);
       document.body.appendChild(el);
     }
     var t = document.getElementById('oc-pend-txt');
-    if(t) t.textContent = n + ' order sheet par pending — bhejne ke liye click karein';
+    if(t) t.textContent = n + ' order(s) pending for the sheet — click to send';
   }catch(e){}
 }
 
@@ -10129,7 +10198,7 @@ window.ocClearPendingOrders = function(){
   try{ if(window.__ocTombAdd) window.__ocTombAdd(ids); }catch(e){}
   P(PEND, {});
   badge(0);
-  console.log('[oc v18] pending queue saaf: ' + ids.length + ' record', ids.join(', '));
+  console.log('[oc v18] pending queue cleared: ' + ids.length + ' record', ids.join(', '));
   return ids;
 };
 
@@ -10226,7 +10295,7 @@ function canNotify(){
   try{ return typeof Notification !== 'undefined' && Notification.permission === 'granted'; }catch(e){ return false; }
 }
 function sysNotify(n){
-  var head = (n.kind === 'meta' ? 'Naya Meta Lead aapko mila' : 'Nayi Enquiry aapko mili');
+  var head = (n.kind === 'meta' ? 'New Meta lead assigned to you' : 'New enquiry assigned to you');
   var A = androidBridge();
   if(A){
     try{ A.notify(head, n.title + (n.sub ? ' \u2014 ' + n.sub : ''), n.kind + ':' + n.id); return; }
@@ -10258,16 +10327,16 @@ function askPermBar(){
       + 'display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:11px;'
       + 'font:500 13px var(--sans);background:var(--surface);color:var(--text);'
       + 'border:1px solid var(--border);box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:92vw');
-    b.innerHTML = '<span>\u{1F514} Nayi lead ka alert phone par chahiye? Notifications on kar lijiye.</span>';
+    b.innerHTML = '<span>🔔 Want new-lead alerts on your phone? Turn on notifications.</span>';
     var yes = document.createElement('button');
-    yes.className = 'btn primary sm'; yes.textContent = 'On karein';
+    yes.className = 'btn primary sm'; yes.textContent = 'Turn on';
     yes.onclick = function(){
       P('oc_notifPermAsked', 1);
       try{ Notification.requestPermission().then(function(){ try{ beep(); }catch(e){} }); }catch(e){}
       b.remove();
     };
     var no = document.createElement('button');
-    no.className = 'btn sm'; no.textContent = 'Abhi nahi';
+    no.className = 'btn sm'; no.textContent = 'Not now';
     no.onclick = function(){ P('oc_notifPermAsked', 1); b.remove(); };
     b.appendChild(yes); b.appendChild(no);
     document.body.appendChild(b);
@@ -10306,7 +10375,7 @@ function paint(){
   var n = QUEUE[0]; if(!n) return;
   if(document.getElementById('oc-notif-wrap')) return;
   SHOWING = true;
-  var more = QUEUE.length > 1 ? '<div style="font-size:11.5px;color:var(--muted);margin-top:10px">+ ' + (QUEUE.length - 1) + ' aur naye ' + (n.kind === 'meta' ? 'lead' : 'record') + ' hain</div>' : '';
+  var more = QUEUE.length > 1 ? '<div style="font-size:11.5px;color:var(--muted);margin-top:10px">+ ' + (QUEUE.length - 1) + ' more new ' + (n.kind === 'meta' ? 'lead' : 'record') + '(s)</div>' : '';
   var rows = n.rows.map(function(r){
     return '<div style="display:flex;justify-content:space-between;gap:14px;padding:7px 0;border-bottom:1px solid var(--border)">'
          + '<span style="font-size:12.5px;color:var(--muted)">' + E(r[0]) + '</span>'
@@ -10322,14 +10391,14 @@ function paint(){
     +      'border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.42);overflow:hidden;animation:ocPop .22s ease-out">'
     +   '<div style="padding:16px 20px;background:linear-gradient(135deg,#0e6f6b,#12908a);color:#fff">'
     +     '<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;opacity:.85;font-weight:600">'
-    +       (n.kind === 'meta' ? 'Naya Meta Lead' : 'Nayi Enquiry') + ' · aapke naam par</div>'
+    +       (n.kind === 'meta' ? 'New Meta Lead' : 'New Enquiry') + ' · assigned to you</div>'
     +     '<div style="font-size:19px;font-weight:700;margin-top:4px;line-height:1.25">' + E(n.title) + '</div>'
     +     (n.sub ? '<div style="font-size:13px;opacity:.9;margin-top:2px">' + E(n.sub) + '</div>' : '')
     +   '</div>'
     +   '<div style="padding:6px 20px 14px">' + rows + more + '</div>'
     +   '<div style="display:flex;gap:10px;padding:0 20px 18px">'
-    +     '<button class="btn" style="flex:1" onclick="ocNotifNext()">Baad me</button>'
-    +     '<button class="btn primary" style="flex:1" onclick="ocNotifOpen()">Dekho</button>'
+    +     '<button class="btn" style="flex:1" onclick="ocNotifNext()">See Later</button>'
+    +     '<button class="btn primary" style="flex:1" onclick="ocNotifOpen()">See Now</button>'
     +   '</div>'
     + '</div>';
   document.body.appendChild(w);
@@ -10355,7 +10424,7 @@ function bell(){
       el.onclick = function(ev){ ev.preventDefault(); paint(); };
       host.insertBefore(el, host.firstChild);
     }
-    el.innerHTML = '\u{1F514} <span>Naye assignments</span> <span class="chip c-new" style="margin-left:auto">' + QUEUE.length + '</span>';
+    el.innerHTML = '🔔 <span>New assignments</span> <span class="chip c-new" style="margin-left:auto">' + QUEUE.length + '</span>';
   }catch(e){}
 }
 
@@ -10363,14 +10432,14 @@ function bell(){
 function rowsFor(kind, r){
   if(kind === 'meta'){
     return [['Phone', r.phone_number], ['City', r.city_state], ['Platform', r.platform],
-            ['Status', r.lead_status], ['Aaya', r.created_time_ist]];
+            ['Status', r.lead_status], ['Received', r.created_time_ist]];
   }
   return [['Customer', r.customer], ['Product', r.product], ['Qty', r.qty],
           ['Source', r.source], ['Value', r.value], ['Stage', r.stage]];
 }
 function titleFor(kind, r){
-  if(kind === 'meta') return S(r.full_name) || S(r.phone_number) || 'Naya lead';
-  return S(r.customer) || S(r.product) || 'Nayi enquiry';
+  if(kind === 'meta') return S(r.full_name) || S(r.phone_number) || 'New lead';
+  return S(r.customer) || S(r.product) || 'New enquiry';
 }
 function subFor(kind, r){
   if(kind === 'meta') return [S(r.city_state), S(r.platform)].filter(Boolean).join(' · ');
@@ -10984,7 +11053,7 @@ document.addEventListener('click', function(ev){
     if(REM_FU){
       var fd = $$('oc-rem-fudate'), dv = TR(fd && fd.value);
       if(!/^\d{4}-\d{2}-\d{2}$/.test(dv)){
-        er.textContent = 'Next follow-up date chuniye.'; er.style.display = '';
+        er.textContent = 'Choose the next follow-up date.'; er.style.display = '';
         try{ fd.focus(); }catch(e){}
         return;
       }
@@ -11023,7 +11092,7 @@ function gate(coll, recId, to, info, proceed){
      baad badalta hai. Lead tabhi kisi ki hoti hai jab wo "Assigned to" me
      apna naam chune -- status badalne se nahi. Admin par ye rok nahi. */
   if(ownerFirst(coll, recId)){
-    tell('Pehle "Assigned to" me apna naam lagaiye, phir status badaliye.');
+    tell('First assign the lead to yourself in "Assigned to", then change the status.');
     try{ if(info && typeof info.onCancel === 'function') info.onCancel(); }catch(e){}
     try{
       if(state && state.view === 'metaLeads' && typeof renderMetaLeads === 'function') renderMetaLeads();
@@ -12963,7 +13032,7 @@ function waText(r){
   L.push('• Order value : ' + rupee(r.month.orderValue));
   L.push('• Open pipeline now : ' + r.month.openPipe + ' enquiries');
   L.push('');
-  L.push('_Auto-generated from OakCraft CRM_');
+  L.push('_Auto-generated from LEVQORA Sales CRM_');
   return L.join('\n');
 }
 window.ocDailyText = function(day){ return waText(buildReport(day)); };
@@ -14122,7 +14191,7 @@ function meEmail(){ try{ var u = AUTH.current(); return u ? LC(u.email) : ''; }c
 function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
 function mayTouch(r){ try{ return (typeof canTouch === 'function') ? !!canTouch(r, KEY) : true; }catch(e){ return true; } }
 function allow(action){ try{ return (typeof can === 'function') ? !!can(VIEW, action) : true; }catch(e){ return true; } }
-function noPerm(action){ try{ if(typeof permToast === 'function') return permToast(action); }catch(e){} tell('Permission nahi hai'); }
+function noPerm(action){ try{ if(typeof permToast === 'function') return permToast(action); }catch(e){} tell('Permission denied'); }
 
 /* ---------------------------------------------------------------- 1. status vocabulary
    Ye list poore CRM me ek hi hai — Meta Leads, IndiaMART aur Qualified
@@ -14204,7 +14273,7 @@ function pruneOld(){
     var n = raw.length - keep.length;
     if(n){
       localStorage.setItem(KEY, JSON.stringify(keep));
-      console.log('[oc v40] indiamartLeads: ' + n + ' purani row (' + START_AFTER + ' se pehle ki) is device se hatayi');
+      console.log('[oc v40] indiamartLeads: ' + n + ' old row(s) (' + START_AFTER + ' and earlier) removed from this device');
     }
     return n;
   }catch(e){ return 0; }
@@ -14456,14 +14525,14 @@ function fetchHint(){
   if(!isAdm()) return '';
   var info = null;
   try{ info = (typeof window.ocCollFetchInfo === 'function') ? window.ocCollFetchInfo()[KEY] : null; }catch(e){}
-  if(!info) return '<div class="sub" style="margin-top:10px">Server se abhi data maanga nahi gaya.</div>';
+  if(!info) return '<div class="sub" style="margin-top:10px">Data has not been requested from the server yet.</div>';
   if(info.rows != null && !info.problem){
-    return '<div class="sub" style="margin-top:10px">Server ne ' + info.rows + ' row bheji thi.</div>';
+    return '<div class="sub" style="margin-top:10px">Server sent ' + info.rows + ' row(s).</div>';
   }
-  return '<div class="sub" style="margin-top:10px;color:var(--crit)">Backend se data nahi aaya — '
-       + E(info.problem || 'pata nahi') + (info.error ? ': ' + E(info.error) : '')
-       + (info.keys ? ' (jawab me: ' + E(info.keys) + ')' : '')
-       + '<div style="margin-top:4px">Console me <code>ocCollFetchInfo()</code> se poori detail milegi.</div></div>';
+  return '<div class="sub" style="margin-top:10px;color:var(--crit)">No data received from the backend — '
+       + E(info.problem || 'unknown') + (info.error ? ': ' + E(info.error) : '')
+       + (info.keys ? ' (response has: ' + E(info.keys) + ')' : '')
+       + '<div style="margin-top:4px">Run <code>ocCollFetchInfo()</code> in the console for full details.</div></div>';
 }
 
 window.renderIndiamart = function(){
@@ -14498,15 +14567,15 @@ window.renderIndiamart = function(){
   }
 
   var kpi = '<div class="kpi-grid" style="margin-bottom:16px">'
-    + card(onAll, all.length, 'Total leads', "IM.tab('')", 'Saari leads dikhao')
+    + card(onAll, all.length, 'Total leads', "IM.tab('')", 'Show all leads')
     + STATUSES.filter(function(s){ return byStatus[s]; }).map(function(s){
         return card(fs === s && !fo, byStatus[s], STATUS_LABEL[s],
-                    "IM.tab('" + A(s) + "')", 'Sirf ' + STATUS_LABEL[s] + ' waali leads', s);
+                    "IM.tab('" + A(s) + "')", 'Only ' + STATUS_LABEL[s] + ' leads', s);
       }).join('')
     /* v41: Unassigned card sabko -- salesperson ko bhi pool ki ginti dikhe
        (jo lead kisi ke naam nahi, wo sabki hai; click = sirf wahi leads) */
     + card(onNone, unassigned, 'Unassigned', "IM.tab('__none__')",
-           'Jin par kisi ka naam nahi', 'UNASSIGNED')
+           'Leads not assigned to anyone', 'UNASSIGNED')
     + '</div>';
 
   var statOpts = '<option value="">All status</option>' + STATUSES.map(function(s){
@@ -14528,10 +14597,9 @@ window.renderIndiamart = function(){
     var st   = statusOf(l.lead_status);
     var statusCell = edit
       ? '<select class="field" style="padding:4px 8px;font-size:12px;font-weight:600;color:'
-          + ocToneInk(st) + '" onchange="if(window.ocFuPick&&ocFuPick(this,\'indiamartLeads\',\'' + A(l.id) + '\'))return;IM.setStatus(\'' + A(l.id) + '\',this.value)">'
-          + STATUSES.map(function(s){ return '<option value="' + A(s) + '"' + (s === st ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>'; }).join('')
-          /* v51: pehle se Follow-up hai to dobara Follow-up (remark + nayi date) */
-          + (st === 'FOLLOW_UP' ? '<option value="__FU_AGAIN__">↻ Follow-up again</option>' : '')
+          + ocToneInk(st) + '" onchange="IM.setStatus(\'' + A(l.id) + '\',this.value);if(window.ocQnqAfterModal)ocQnqAfterModal(function(){if(state.view===\'indiamart\'&&typeof renderIndiamart===\'function\')renderIndiamart();})">'
+          /* v52: sirf Qualified / Not Qualified */
+          + window.ocLeadQnqOptions(st)
         + '</select>'
       : '<span class="chip ' + statusChipClass(st) + '">' + E(STATUS_LABEL[st] || st) + '</span>';
     var ownCell = admin
@@ -14543,7 +14611,7 @@ window.renderIndiamart = function(){
             }).join('')
         + '</select>'
       : (mineToTake(l)
-          ? '<select class="field" style="padding:4px 8px;font-size:12px" title="Ye lead apne naam kar lijiye" onchange="IM.setAssign(\'' + A(l.id) + '\',this.value)">'
+          ? '<select class="field" style="padding:4px 8px;font-size:12px" title="Assign this lead to yourself" onchange="IM.setAssign(\'' + A(l.id) + '\',this.value)">'
               + '<option value="">— Unassigned —</option>'
               + '<option value="' + A(meEmail()) + '">' + E(nameOf(meEmail()) || meEmail()) + '</option>'
             + '</select>'
@@ -14588,8 +14656,8 @@ window.renderIndiamart = function(){
     +   th('sender_city_state', 'City / State') + th('product', 'Product / Requirement')
     +   th('lead_status', 'Status') + th('assigned_to', 'Assigned to') + '<th></th>'
     + '</tr></thead><tbody id="im-body">'
-    + (body || '<tr><td colspan="8" class="empty">' + (all.length ? 'Is filter par koi lead nahi mili.'
-        : 'Abhi koi IndiaMART lead nahi hai. <b>Bulk Upload</b> se apni IndiaMART export file (Excel / CSV) daal dijiye.'
+    + (body || '<tr><td colspan="8" class="empty">' + (all.length ? 'No leads match this filter.'
+        : 'There are no IndiaMART leads yet. Add your IndiaMART export file (Excel / CSV) using <b>Bulk Upload</b>.'
           + fetchHint()) + '</td></tr>')
     + '</tbody></table></div>'
     + (list.length > rows.length
@@ -14644,7 +14712,7 @@ IM.setStatus = function(id, val){
   if(!allow('edit')) return noPerm('edit');
   var arr = imAll(), l = find(arr, id);
   if(!l) return;
-  if(!mayTouch(l)){ tell('Ye lead aapki nahi hai.'); return; }
+  if(!mayTouch(l)){ tell('This lead is not yours.'); return; }
   var from = statusOf(l.lead_status), to = statusOf(val);
   if(from === to) return;
   l.lead_status  = to;
@@ -14691,7 +14759,7 @@ IM.setAssign = function(id, email){
   if(!isAdm()){
     if(!mineToTake(l)) return;
     if(!email){ renderIndiamart(); return; }          /* "— Unassigned —" = kuch nahi badla */
-    if(LC(email) !== LC(meEmail())){ tell('Aap sirf apna naam laga sakte hain.'); renderIndiamart(); return; }
+    if(LC(email) !== LC(meEmail())){ tell('You can only assign a lead to yourself.'); renderIndiamart(); return; }
     self = true;
   }
   var from = LC(l.owner);
@@ -14702,11 +14770,11 @@ IM.setAssign = function(id, email){
   try{
     if(typeof ocLogChange === 'function' && from !== LC(email)){
       ocLogChange({ coll:KEY, recId:id, recName:(l.sender_name || l.sender_mobile), field:'assigned',
-                    from:nameOf(from), to:l.assigned_to, remark:(self ? 'Lead khud uthayi' : 'Lead reassigned'),
+                    from:nameOf(from), to:l.assigned_to, remark:(self ? 'Lead self-assigned' : 'Lead reassigned'),
                     owner:l.owner, sp:l.assigned_to, createdAt:l.createdAt });
     }
   }catch(e){}
-  tell(email ? (self ? 'Ye lead ab aapki hai' : 'Assigned to ' + l.assigned_to) : 'Unassigned');
+  tell(email ? (self ? 'This lead is now yours' : 'Assigned to ' + l.assigned_to) : 'Unassigned');
   renderIndiamart();
 };
 
@@ -14714,11 +14782,11 @@ IM.del = function(id){
   if(!allow('delete')) return noPerm('delete');
   var arr = imAll(), l = find(arr, id);
   if(!l) return;
-  if(!mayTouch(l)){ tell('Ye lead aapki nahi hai.'); return; }
-  if(!confirm('Ye IndiaMART lead delete kar dein?\n\n' + (l.sender_name || l.sender_mobile || l.id))) return;
+  if(!mayTouch(l)){ tell('This lead is not yours.'); return; }
+  if(!confirm('Delete this IndiaMART lead?\n\n' + (l.sender_name || l.sender_mobile || l.id))) return;
   imSave(arr.filter(function(x){ return T(x.id) !== T(id); }));
   try{ if(typeof CLOUD !== 'undefined' && typeof CLOUD.remove === 'function') CLOUD.remove(KEY, id); }catch(e){}
-  tell('Lead delete ho gaya');
+  tell('Lead deleted');
   renderIndiamart();
 };
 
@@ -14727,7 +14795,7 @@ IM.form = function(id){
   var arr = imAll();
   var l = id ? find(arr, id) : null;
   if(id && !l) return;
-  if(l && !mayTouch(l)){ tell('Ye lead aapki nahi hai.'); return; }
+  if(l && !mayTouch(l)){ tell('This lead is not yours.'); return; }
   var admin = isAdm();
   l = norm(l || { lead_status:'CREATED', query_time:fmtTS(new Date()) });
 
@@ -14754,7 +14822,7 @@ IM.form = function(id){
     + '<div class="form-row two"><div><label>Product / Requirement</label><input id="imProd" value="' + A(l.product) + '"></div>'
     +   '<div><label>Query type</label><input id="imType" value="' + A(l.query_type) + '" placeholder="Direct Enquiry / Buy Lead"></div></div>'
     + '<div class="form-row two"><div><label>Status</label><select id="imStat">'
-      + STATUSES.map(function(s){ return '<option value="' + A(s) + '"' + (s === statusOf(l.lead_status) ? ' selected' : '') + '>' + E(STATUS_LABEL[s]) + '</option>'; }).join('')
+      + window.ocLeadQnqOptions(statusOf(l.lead_status))   /* v52 */
       + '</select></div>'
     + ownSel + '</div>'
     + '<div class="form-row"><label>Note</label><textarea id="imNote" rows="3">' + E(l.note) + '</textarea></div>'
@@ -14791,7 +14859,7 @@ IM.save = function(id){
     rec.owner = meEmail();
     rec.assigned_to = nameOf(rec.owner);
   }
-  if(!rec.sender_name && !rec.sender_mobile && !rec.sender_email){ tell('Naam, mobile ya email me se kuch to daaliye.'); return; }
+  if(!rec.sender_name && !rec.sender_mobile && !rec.sender_email){ tell('Enter at least a name, mobile or email.'); return; }
   if(rec.lead_status === 'QUALIFIED' && !rec.qualifiedAt) rec.qualifiedAt = new Date().toISOString();
   rec.updatedAt = new Date().toISOString();
   if(!isNew && from !== rec.lead_status) rec.statusUpdatedAt = rec.updatedAt;   /* v42 */
@@ -14819,7 +14887,7 @@ IM.save = function(id){
     }
   }catch(e){}
   closeModal();
-  tell(isNew ? 'Lead add ho gaya' : 'Lead update ho gaya');
+  tell(isNew ? 'Lead added' : 'Lead updated');
   renderIndiamart();
 };
 
@@ -14827,8 +14895,8 @@ IM.save = function(id){
 IM.convert = function(id){
   var arr = imAll(), l = find(arr, id);
   if(!l) return;
-  if(!mayTouch(l)){ tell('Ye lead aapki nahi hai.'); return; }
-  if(l.enquiryId){ tell('Is lead ki enquiry pehle hi ban chuki hai (' + l.enquiryId + ')'); return; }
+  if(!mayTouch(l)){ tell('This lead is not yours.'); return; }
+  if(l.enquiryId){ tell('An enquiry has already been created for this lead (' + l.enquiryId + ')'); return; }
   try{ if(typeof can === 'function' && !can('enquiries', 'create')){ noPerm('create'); return; } }catch(e){}
   var owner = l.owner || meEmail();
   var d = new Date();
@@ -14853,15 +14921,15 @@ IM.convert = function(id){
   l.enquiryId = enq.id;
   l.updatedAt = new Date().toISOString();
   imSave(arr);
-  tell('Enquiry ban gayi: ' + enq.id);
+  tell('Enquiry created: ' + enq.id);
   if(state && state.view === VIEW) renderIndiamart();
 };
 
 IM.syncSheet = function(){
   if(!isAdm()) return;
   var arr = normAll(true);
-  try{ CLOUD.push(KEY, arr); tell('Backend sheet par ' + arr.length + ' leads bheje ja rahe hain…'); }
-  catch(e){ tell('Sync fail hua — internet check kijiye'); }
+  try{ CLOUD.push(KEY, arr); tell(arr.length + ' leads are being sent to the backend sheet…'); }
+  catch(e){ tell('Sync failed — please check your internet connection'); }
 };
 
 /* ---------------------------------------------------------------- 7. export */
@@ -14987,15 +15055,15 @@ IM.bulkBox = function(){
     '<div class="modal-head"><h3>IndiaMART Bulk Upload</h3>'
     + '<button class="icon-btn" onclick="closeModal()">✕</button></div>'
     + '<div class="modal-body">'
-    + '<p style="margin:0 0 12px;color:var(--text-2);font-size:12.5px">IndiaMART se download ki hui Excel / CSV file daal dijiye, ya data seedha paste kar dijiye. '
-    + 'Column ke naam apne aap match hote hain (Sender Name, Sender Mobile, Product, Assigned Salesperson, Status …). Duplicate mobile skip ho jaate hain.</p>'
+    + '<p style="margin:0 0 12px;color:var(--text-2);font-size:12.5px">Add the Excel / CSV file downloaded from IndiaMART, or paste the data directly. '
+    + 'Column names are matched automatically (Sender Name, Sender Mobile, Product, Assigned Salesperson, Status …). Duplicate mobiles are skipped.</p>'
     + '<input type="file" id="imFile" accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt" style="display:none">'
     + '<div id="imDrop" onclick="document.getElementById(\'imFile\').click()" '
     +   'style="border:1.5px dashed var(--border);border-radius:12px;padding:22px 16px;text-align:center;background:var(--surface-2);cursor:pointer">'
-    +   '<b style="display:block;margin-bottom:4px">Excel ya CSV file yahan chhodiye</b>'
-    +   '<span style="font-size:12px;color:var(--muted)">ya click karke choose kijiye · .xlsx .xls .csv .tsv</span>'
+    +   '<b style="display:block;margin-bottom:4px">Drop an Excel or CSV file here</b>'
+    +   '<span style="font-size:12px;color:var(--muted)">or click to choose · .xlsx .xls .csv .tsv</span>'
     + '</div>'
-    + '<div class="form-row" style="margin-top:12px"><label>…ya data paste kijiye (header row ke saath)</label>'
+    + '<div class="form-row" style="margin-top:12px"><label>…or paste the data (with the header row)</label>'
     +   '<textarea id="imPaste" rows="5" style="font:12px/1.5 ui-monospace,Menlo,monospace" '
     +   'placeholder="Query Time,Sender Name,Sender Mobile,Sender City/State,Product,Status,Assigned Salesperson"></textarea>'
     +   '<button class="btn sm" style="margin-top:6px" onclick="IM.buPaste()">Read pasted data</button>'
@@ -15004,7 +15072,7 @@ IM.bulkBox = function(){
     + '<div id="imBuOpts" style="display:none">'
     +   '<div class="form-row two">'
     +   (admin ? '<div><label>Assign all to</label>'
-    +     '<select id="imBuOwn"><option value="">— file ka assigned_to use karo —</option>'
+    +     '<select id="imBuOwn"><option value="">— use the file\'s assigned_to —</option>'
     +     leadRoster().map(function(u){ return '<option value="' + A(u.email) + '">' + E(u.name || u.email) + '</option>'; }).join('')
     +     '</select></div>' : '')
     +   '<div><label>Default status</label>'
@@ -15013,7 +15081,7 @@ IM.bulkBox = function(){
     +     '</select></div>'
     +   '</div>'
     +   '<div class="form-row"><label style="font-weight:600">'
-    +     '<input type="checkbox" id="imBuDedup" checked style="width:auto;margin-right:6px;vertical-align:-1px">Duplicate mobile / email wale leads skip karo</label></div>'
+    +     '<input type="checkbox" id="imBuDedup" checked style="width:auto;margin-right:6px;vertical-align:-1px">Skip leads with a duplicate mobile / email</label></div>'
     + '</div>'
     + '</div>'
     + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button>'
@@ -15042,7 +15110,7 @@ function buSetRows(rows){
   var p = rowsToLeads(rows);
   BU.leads = p.leads;
   if(!p.leads.length){
-    buShow('Koi lead nahi mili — header row (Sender Name / Sender Mobile waali line) file me honi chahiye.', false);
+    buShow('No leads found — the file must have a header row (the line with Sender Name / Sender Mobile).', false);
     return;
   }
   var sample = p.leads.slice(0, 3).map(function(l){
@@ -15057,7 +15125,7 @@ IM.buRead = function(file){
   if(/\.(csv|tsv|txt)$/i.test(file.name || '')){
     var fr = new FileReader();
     fr.onload = function(){ buSetRows(parseDelimited(T(fr.result))); };
-    fr.onerror = function(){ buShow('File padhi nahi ja saki.', false); };
+    fr.onerror = function(){ buShow('Could not read the file.', false); };
     fr.readAsText(file);
     return;
   }
@@ -15070,11 +15138,11 @@ IM.buRead = function(file){
         var ws = wb.Sheets[wb.SheetNames[0]];
         var rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'', blankrows:false });
         buSetRows(rows.map(function(r){ return (r || []).map(function(c){ return c == null ? '' : T(c); }); }));
-      }catch(e){ buShow('Excel padhi nahi ja saki — file check kijiye.', false); }
+      }catch(e){ buShow('Could not read the Excel file — please check the file.', false); }
     };
-    fr.onerror = function(){ buShow('File padhi nahi ja saki.', false); };
+    fr.onerror = function(){ buShow('Could not read the file.', false); };
     fr.readAsArrayBuffer(file);
-  }, function(){ buShow('Excel library load nahi hui — internet check kijiye.', false); });
+  }, function(){ buShow('Excel library did not load — please check your internet connection.', false); });
 };
 IM.buPaste = function(){
   var el = $$('imPaste');
@@ -15127,7 +15195,7 @@ IM.buApply = function(){
   });
   imSave(arr);
   closeModal();
-  tell(added + ' IndiaMART lead upload hue' + (dup ? ', ' + dup + ' duplicate chhode' : ''));
+  tell(added + ' IndiaMART leads uploaded' + (dup ? ', ' + dup + ' duplicates skipped' : ''));
   window.__imLim = PAGE;
   renderIndiamart();
 };
@@ -15495,7 +15563,7 @@ window.renderQualified = function(){
              + '<div class="val tabular" style="color:' + ink + '">' + (count[k] || 0) + '</div>'
              + '<div class="lbl">' + E(bucketLabel(k)) + '</div></div>';
       }).join('')
-    + '<div class="kpi" onclick="QL.tab(\'QUALIFIED\')" title="Qualified — abhi aage nahi badhi" '
+    + '<div class="kpi" onclick="QL.tab(\'QUALIFIED\')" title="Qualified — not moved forward yet" '
     +   'style="cursor:pointer;border-left:4px solid ' + ocToneInk('QUALIFIED')
     +   (window.__qlTab === 'QUALIFIED' ? ';outline:2px solid var(--brand)' : '') + '">'
     +   '<div class="val tabular" style="color:' + ocToneInk('QUALIFIED') + '">' + (count.QUALIFIED || 0)
@@ -15542,7 +15610,7 @@ window.renderQualified = function(){
       + '<td>' + E(r.person || '—') + '</td>'
       + '<td>' + sel + '</td>'
       + '<td><div class="row-actions" style="display:flex;gap:4px">'
-        + '<button title="Record kholo" onclick="QL.open(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Open</button>'
+        + '<button title="Open record" onclick="QL.open(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Open</button>'
         + '<button title="Status history" onclick="ocTrackHistory(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">⏱</button>'
         + (canEdit ? '<button title="Customer type / purchase qty" onclick="OCQ.edit(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Details</button>' : '')
       + '</div></td>'
@@ -15564,13 +15632,13 @@ window.renderQualified = function(){
     +     '<button class="btn sm" onclick="QL.exportXlsx()">Excel</button>'
     +   '</div>'
     + '</div>'
-    + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Enquiries, IndiaMART aur Meta Leads — jo bhi lead Qualified hui, wo yahan aa jaati hai. '
-    +   'Status badalte hi wo upar wale subsection me chali jaati hai.</div>'
+    + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Enquiries, IndiaMART and Meta Leads — every lead that becomes Qualified appears here. '
+    +   'As soon as its status changes, it moves to the matching subsection above.</div>'
     + '<div style="overflow-x:auto"><table><thead><tr>'
     +   '<th>Source</th><th>Qualified on</th><th>Name</th><th>Contact</th><th>Product</th><th>Customer type</th><th>Purchase qty</th><th>Value</th><th>Salesperson</th><th>Status</th><th></th>'
     + '</tr></thead><tbody id="ql-body">'
-    + (body || '<tr><td colspan="11" class="empty">' + (rows.length ? 'Is filter par koi lead nahi mili.'
-        : 'Abhi koi qualified lead nahi hai. Kisi bhi Enquiry, IndiaMART ya Meta lead ka status <b>Qualified</b> karte hi wo yahan aa jaayegi.') + '</td></tr>')
+    + (body || '<tr><td colspan="11" class="empty">' + (rows.length ? 'No leads match this filter.'
+        : 'There are no qualified leads yet. As soon as any Enquiry, IndiaMART or Meta lead is set to <b>Qualified</b>, it will appear here.') + '</td></tr>')
     + '</tbody></table></div></div>';
 
   var si = $$('qlSearch');
@@ -15665,7 +15733,7 @@ window.QL = QL;
     ps.splice(at, 0, 'System Master');     /* purane build par bhi chale */
   }catch(e){}
 })();
-var ENQ_STAGE_LIST = ['New','Contacted','Follow-up','Qualified','System Master','Quoted','Won','Lost'];
+var ENQ_STAGE_LIST = ['New','Contacted','Follow-up','Qualified','Not Qualified','System Master','Quoted','Won','Lost'];
 
 /* stage ke naye chip colours */
 (function(){
@@ -15720,7 +15788,7 @@ function fillStageSelect(sel){
 
 /* b) Meta pipeline stages — 'System Master' aur 'Quotation Sent' zaroori hain,
       warna ML.setStatus in statuses ka stage 'New' bana deta (purana bug). */
-var META_STAGES = ['New','Contacted','Follow-up','Qualified','System Master','Quotation Sent','Proposal','Won','Lost'];
+var META_STAGES = ['New','Contacted','Follow-up','Qualified','Not Qualified','System Master','Quotation Sent','Proposal','Won','Lost'];
 function ensureMetaStages(push){
   try{
     var ff = {};
@@ -16117,10 +16185,10 @@ function sendChanged(coll, arr, force){
   }
   if(dropIds.length){
     try{ window.ocLeadForget(coll, dropIds); }catch(e){}
-    console.log('[oc v40] ' + dropIds.length + ' ' + coll + ' row(s) purani / duplicate thin — sheet par NAHI bheji');
+    console.log('[oc v40] ' + dropIds.length + ' ' + coll + ' row(s) were old / duplicate — NOT sent to the sheet');
   }
-  if(cosmetic) console.log('[oc v32] ' + cosmetic + ' ' + coll + ' row(s) me sirf normalise ka farak tha — sheet par nahi bheji');
-  if(skipped) console.log('[oc v32] ' + skipped + ' ' + coll + ' row(s) doosre user ki hain — chhui nahi gayin');
+  if(cosmetic) console.log('[oc v32] ' + cosmetic + ' ' + coll + ' row(s) differed only by normalisation — not sent to the sheet');
+  if(skipped) console.log('[oc v32] ' + skipped + ' ' + coll + ' row(s) belong to another user — left untouched');
   if(!out.length) return Promise.resolve(true);
 
   var records = out.map(function(c){ return { id:c.id, data:c.rec }; });
@@ -16132,12 +16200,12 @@ function sendChanged(coll, arr, force){
       snapPut(coll, map);
       seenAdd(coll, ids);
       pendDrop(coll, ids);
-      console.log('[oc v32] ' + coll + ': ' + ids.length + ' row(s) sheet par confirm ho gayi');
+      console.log('[oc v32] ' + coll + ': ' + ids.length + ' row(s) confirmed on the sheet');
       return true;
     }
     pendAdd(coll, ids);
-    console.warn('[oc v32] ' + coll + ' push FAIL — dobara bheja jayega', res && res.resp);
-    warnOnce(coll, 'Lead update abhi sheet par nahi gaya — apne aap dobara bheja jayega');
+    console.warn('[oc v32] ' + coll + ' push FAILED — will retry', res && res.resp);
+    warnOnce(coll, 'Lead update has not reached the sheet yet — it will be resent automatically');
     return false;
   });
 }
@@ -16234,7 +16302,7 @@ function merge(coll, before){
 
   if(kept || revived){
     try{ localStorage.setItem(coll, JSON.stringify(out)); }catch(e){}
-    console.log('[oc v32] ' + coll + ' merge: ' + kept + ' local row(s) nayi thin, ' + revived + ' abhi sheet par nahi pahunchi');
+    console.log('[oc v32] ' + coll + ' merge: ' + kept + ' local row(s) were new, ' + revived + ' have not reached the sheet yet');
   }
 
   /* snapshot = sheet ki asli haalat (jo rows sheet se aayi hain) */
@@ -16289,7 +16357,7 @@ window.ocFlushLeadSync = flush;
 setInterval(flush, 2 * 60 * 1000);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden) setTimeout(flush, 1200); });
 
-console.log('[oc v32] lead sync guard active — status ab reset nahi hoga (' + COLLS.join(', ') + ')');
+console.log('[oc v32] lead sync guard active — status will no longer reset (' + COLLS.join(', ') + ')');
 })();
 </script>
 
@@ -16384,8 +16452,8 @@ function mark(){
     for(j = 1; j < g.length; j++) keep = better(keep, g[j]);
     var workedOn = g.filter(touched).length;
     if(workedOn > 1){
-      console.warn('[oc v33] ek hi Meta lead ki ' + g.length + ' copies hain aur ' + workedOn
-        + ' par kaam ho chuka hai — kuch chhupaya nahi gaya (' + k + '): '
+      console.warn('[oc v33] the same Meta lead has ' + g.length + ' copies and ' + workedOn
+        + ' have been worked on — nothing hidden (' + k + '): '
         + g.map(function(x){ return x.id + '=' + (x.lead_status || x.stage); }).join(', '));
       return;
     }
@@ -16399,7 +16467,7 @@ function mark(){
     });
   });
   if(!changed) return false;
-  console.log('[oc v33] dobara import hui ' + hid.length + ' Meta lead chhupayi gayi: ' + hid.join(', '));
+  console.log('[oc v33] re-imported: ' + hid.length + ' Meta lead(s) hidden: ' + hid.join(', '));
   try{ store.set(KEY, list); }catch(e){ return false; }   /* nishaan sheet par bhi jaata hai */
   return true;
 }
@@ -16456,7 +16524,7 @@ window.ocMetaUnhideDup = function(id){
   var snap = {};
   try{ snap = JSON.parse(localStorage.getItem('oc_leadSnap') || '{}')[KEY] || {}; }catch(e){}
   var raw = snap[T(id)];
-  if(!raw){ console.warn('[oc v33] ye id sheet snapshot me nahi mili: ' + id); return false; }
+  if(!raw){ console.warn('[oc v33] this id was not found in the sheet snapshot: ' + id); return false; }
   var rec = null;
   try{ rec = JSON.parse(raw); }catch(e){ return false; }
   if(!rec) return false;
@@ -16465,7 +16533,7 @@ window.ocMetaUnhideDup = function(id){
   var list = arr();
   if(!list.some(function(x){ return x && T(x.id) === T(id); })) list.unshift(rec);
   try{ store.set(KEY, list); }catch(e){}
-  console.log('[oc v33] ' + id + ' wapas dikhne lagi');
+  console.log('[oc v33] ' + id + ' is visible again');
   try{ if(state && state.view === 'metaLeads' && typeof renderMetaLeads === 'function') renderMetaLeads(); }catch(e){}
   return true;
 };
@@ -16492,7 +16560,7 @@ try{
 }catch(e){}
 [1500, 8000].forEach(function(ms){ setTimeout(function(){ try{ sweep(); }catch(e){} }, ms); });
 
-console.log('[oc v33] dobara import hui Meta leads ka pehra active');
+console.log('[oc v33] guard for re-imported Meta leads active');
 })();
 </script>
 
@@ -16598,11 +16666,11 @@ function askServer(coll){
       x.onload = function(){
         var j = null; try{ j = JSON.parse(x.responseText); }catch(e){}
         var info = { at: new Date().toISOString(), http: x.status };
-        if(!j){ info.problem = 'jawab JSON nahi tha'; info.raw = T(x.responseText).slice(0, 200); lastInfo[coll] = info; resolve(null); return; }
-        if(j.error){ info.problem = 'server ne error diya'; info.error = T(j.error).slice(0, 200); lastInfo[coll] = info; resolve(null); return; }
+        if(!j){ info.problem = 'response was not JSON'; info.raw = T(x.responseText).slice(0, 200); lastInfo[coll] = info; resolve(null); return; }
+        if(j.error){ info.problem = 'server returned an error'; info.error = T(j.error).slice(0, 200); lastInfo[coll] = info; resolve(null); return; }
         var rows = j.data || j.records || j.rows || [];
         if(!Array.isArray(rows)){
-          info.problem = 'server ne is collection ka data nahi bheja';
+          info.problem = 'server did not send data for this collection';
           info.keys = (j && typeof j === 'object') ? Object.keys(j).join(',') : '';
           lastInfo[coll] = info;
           resolve(null); return;
@@ -16646,7 +16714,7 @@ function imClean(rows){
   });
   var keys = {};
   keep.forEach(function(r){ var k = imKeyOf(r); if(k) keys[k] = T(r.id); });
-  if(old || dup) console.log('[oc v40] indiamartLeads: server ki ' + old + ' purani + ' + dup + ' duplicate row chhodi (sheet me abhi bhi hain — cleanIndiaMartLeads() se saaf hongi)');
+  if(old || dup) console.log('[oc v40] indiamartLeads: skipped ' + old + ' old + ' + dup + ' duplicate server row(s) (still in the sheet — cleanIndiaMartLeads() will clean them)');
   return { rows: keep, drop: drop, keys: keys };
 }
 
@@ -16754,15 +16822,15 @@ function merge(coll, rows){
        wajah se admin ki list kal par atki rahi aur kisi ko pata nahi chala.
        (Snapshot jaan-boojh kar nahi hataate: uske bina guard poori collection
        ko "badli hui" maan kar sheet par bhej deta.) */
-    console.warn('[oc v40] ' + coll + ': browser storage full — server ka naya data save nahi hua', e);
+    console.warn('[oc v40] ' + coll + ': browser storage full — new server data was not saved', e);
     if(!merge.__warned){
       merge.__warned = true;
-      try{ toast('Browser storage full hai — ' + coll + ' ka naya data save nahi ho pa raha.'); }catch(x){}
+      try{ toast('Browser storage is full — ' + coll + ': new data cannot be saved.'); }catch(x){}
     }
     return 0;
   }
-  console.log('[oc v34] ' + coll + ': ' + added + ' nayi + ' + updated + ' updated'
-            + (removed ? ' + ' + removed + ' hatayi (ab kisi aur ki hain)' : '') + ' row server se aayin');
+  console.log('[oc v34] ' + coll + ': ' + added + ' new + ' + updated + ' updated'
+            + (removed ? ' + ' + removed + ' removed (now belong to someone else)' : '') + ' row(s) received from the server');
   return added + updated + removed;
 }
 
@@ -16804,9 +16872,9 @@ window.ocPoolCheck = function(coll){
   return askServer(coll).then(function(rows){
     var L = [];
     L.push('===== POOL CHECK — ' + coll + ' =====');
-    L.push('aap        : ' + (me || '(pata nahi)') + (adm ? '  (Administrator — aapko sab dikhta hai)' : ''));
+    L.push('you        : ' + (me || '(unknown)') + (adm ? '  (Administrator — you see everything)' : ''));
     if(!rows){
-      L.push('Server se jawab NAHI aaya. ocCollFetchInfo() se wajah dekhiye.');
+      L.push('NO response from the server. Check ocCollFetchInfo() for the reason.');
       console.log(L.join('\n')); return null;
     }
     var mine = 0, none = 0, other = 0;
@@ -16814,35 +16882,35 @@ window.ocPoolCheck = function(coll){
       var ow = LC(r.owner || r.ownerEmail || r.createdBy);
       if(!ow) none++; else if(ow === me) mine++; else other++;
     });
-    L.push('server ne bheji : ' + rows.length + ' row');
-    L.push('   bina naam ki : ' + none);
-    L.push('   aapke naam ki: ' + mine);
-    L.push('   doosro ki    : ' + other);
+    L.push('server sent    : ' + rows.length + ' row');
+    L.push('   unassigned  : ' + none);
+    L.push('   yours       : ' + mine);
+    L.push('   others\'     : ' + other);
 
     var loc = arrOf(coll), lnone = 0;
     loc.forEach(function(r){ if(!LC(r.owner || r.ownerEmail || r.createdBy)) lnone++; });
-    L.push('is device par   : ' + loc.length + ' row (' + lnone + ' bina naam ki)');
+    L.push('on this device : ' + loc.length + ' row (' + lnone + ' unassigned)');
 
     var shown = 0;
     try{ shown = (window.scope ? (window.scope(loc, coll) || []) : loc).length; }catch(e){}
-    L.push('CRM me dikh rahi: ' + shown);
+    L.push('shown in CRM   : ' + shown);
 
     L.push('');
     if(adm){
-      L.push('FAISLA: aap admin hain, isse pool ka pata nahi chalta.');
-      L.push('        Kisi salesperson ke login se ye dobara chalaiye.');
+      L.push('VERDICT: you are an admin, so this does not reveal the pool.');
+      L.push('        Run this again from a salesperson\'s login.');
     } else if(none > 0){
-      L.push('FAISLA: backend bina naam wali leads bhej raha hai — POOL THEEK HAI.');
-      L.push('        Agar phir bhi na dikhein to Reload & Update dabaiye.');
+      L.push('VERDICT: the backend is sending unassigned leads — POOL IS OK.');
+      L.push('        If they still don\'t show, press Reload & Update.');
     } else if(rows.length === mine && mine > 0){
-      L.push('FAISLA: backend sirf AAPKE naam wali leads bhej raha hai.');
-      L.push('        Bina naam wali ek bhi nahi aayi — isliye pool khaali hai.');
-      L.push('        Ye Code.gs ka rule hai, app ka nahi. Ye log bhej dijiye,');
-      L.push('        Code.gs ka patch bana dunga.');
+      L.push('VERDICT: the backend is sending only leads assigned to YOU.');
+      L.push('        Not a single unassigned lead came — so the pool is empty.');
+      L.push('        This is a Code.gs rule, not the app\'s. Send this log');
+      L.push('        and a Code.gs patch will be made.');
     } else {
-      L.push('FAISLA: is waqt koi bina naam wali lead hai hi nahi (sab kisi na kisi ke naam par hain).');
-      L.push('        Admin ke login se "Unassigned" card dekhiye — agar wahan ginti 0 se zyada hai');
-      L.push('        par yahan 0 aaya, to backend unhe bhej nahi raha. Ye log bhej dijiye.');
+      L.push('VERDICT: there are no unassigned leads right now (all are assigned to someone).');
+      L.push('        Check the "Unassigned" card from an admin login — if the count there is above 0');
+      L.push('        but 0 here, the backend is not sending them. Send this log.');
     }
     L.push('=====');
     console.log(L.join('\n'));
@@ -16963,9 +17031,9 @@ window.OC_CUSTOMER_TYPE_GROUPS = TYPE_GROUPS;
    `cur` list me na ho (purana ya hataya hua type) to use bhi upar jod dete
    hain, warna record kholte hi uska type chupchaap badal jaata. */
 function optionsHTML(cur){
-  var c = TR(cur), html = '<option value="">— chuniye —</option>';
+  var c = TR(cur), html = '<option value="">— select —</option>';
   if(c && TYPES.indexOf(c) < 0){
-    html += '<option value="' + A(c) + '" selected>' + E(c) + ' (purana)</option>';
+    html += '<option value="' + A(c) + '" selected>' + E(c) + ' (old)</option>';
   }
   TYPE_GROUPS.forEach(function(g){
     var body = g.items.map(function(t){
@@ -17043,17 +17111,17 @@ function ask(coll, id, onOk, onCancel){
 
   try{
     openModal(
-      '<div class="modal-head"><h3>Qualified — do sawaal</h3>'
+      '<div class="modal-head"><h3>Qualified — two questions</h3>'
       + '<button class="icon-btn" onclick="OCQ.cancel()">✕</button></div>'
       + '<div class="modal-body">'
       +   (name ? '<div class="sub" style="margin:-4px 0 12px;color:var(--muted)">' + E(name) + '</div>' : '')
       +   '<div class="form-row"><label>Customer Type <span style="color:var(--crit)">*</span></label>'
       +     '<select id="ocqType" onchange="OCQ.typeChanged()">' + opts + '</select></div>'
       +   '<div class="form-row" id="ocqOtherRow" style="display:' + (curT === 'Other' ? 'block' : 'none') + '">'
-      +     '<label>Type likhiye</label>'
-      +     '<input id="ocqOther" value="' + A(curO) + '" placeholder="jaise Builder, Contractor, Govt…"></div>'
+      +     '<label>Enter type</label>'
+      +     '<input id="ocqOther" value="' + A(curO) + '" placeholder="e.g. Builder, Contractor, Govt…"></div>'
       +   '<div class="form-row"><label>Purchase Quantity <span style="color:var(--crit)">*</span></label>'
-      +     '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="kitne piece"></div>'
+      +     '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="number of pieces"></div>'
       +   '<div id="ocqErr" style="display:none;color:var(--crit);font-size:12px;margin-top:-4px"></div>'
       + '</div>'
       + '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 20px">'
@@ -17085,10 +17153,10 @@ OCQ.save = function(){
   var other = TR(($$('ocqOther') || {}).value);
   var qty   = TR(($$('ocqQty')   || {}).value);
   var err = '';
-  if(!type) err = 'Customer Type chuniye.';
-  else if(type === 'Other' && !other) err = '"Other" chuna hai to type likhiye.';
-  else if(!qty) err = 'Purchase Quantity daaliye.';
-  else if(!(+qty >= 0)) err = 'Quantity sahi number nahi hai.';
+  if(!type) err = 'Select a Customer Type.';
+  else if(type === 'Other' && !other) err = 'You chose "Other" — please enter the type.';
+  else if(!qty) err = 'Enter the Purchase Quantity.';
+  else if(!(+qty >= 0)) err = 'Quantity is not a valid number.';
   if(err){
     var box = $$('ocqErr');
     if(box){ box.textContent = err; box.style.display = 'block'; }
@@ -17112,7 +17180,7 @@ OCQ.cancel = function(){
 
 /* Qualified section ke row se dobara kholne ke liye */
 OCQ.edit = function(coll, id){
-  ask(coll, id, function(){ tell('Details save ho gayin'); }, null);
+  ask(coll, id, function(){ tell('Details saved'); }, null);
 };
 
 /* ---------------------------------------------------------------- remark modal ke liye API
@@ -17140,11 +17208,11 @@ OCQ.fieldsHTML = function(coll, id){
     +   '<label class="lbl" style="' + lbl + '">Customer Type <span style="color:var(--crit,#d03b3b)">*</span></label>'
     +   '<select id="ocqType" style="' + inp + '" onchange="OCQ.typeChanged()">' + opts + '</select>'
     +   '<div id="ocqOtherRow" style="margin-top:10px;display:' + (curT === 'Other' ? 'block' : 'none') + '">'
-    +     '<label class="lbl" style="' + lbl + '">Type likhiye</label>'
-    +     '<input id="ocqOther" value="' + A(curO) + '" placeholder="jaise Builder, Contractor, Govt…" style="' + inp + '">'
+    +     '<label class="lbl" style="' + lbl + '">Enter type</label>'
+    +     '<input id="ocqOther" value="' + A(curO) + '" placeholder="e.g. Builder, Contractor, Govt…" style="' + inp + '">'
     +   '</div>'
     +   '<label class="lbl" style="' + lbl + ';display:block;margin-top:10px">Purchase Quantity <span style="color:var(--crit,#d03b3b)">*</span></label>'
-    +   '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="kitne piece" style="' + inp + '">'
+    +   '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="number of pieces" style="' + inp + '">'
     + '</div>';
 };
 
@@ -17153,10 +17221,10 @@ OCQ.read = function(){
   var type  = TR(($$('ocqType')  || {}).value);
   var other = TR(($$('ocqOther') || {}).value);
   var qty   = TR(($$('ocqQty')   || {}).value);
-  if(!type) return { ok:false, err:'Customer Type chuniye.' };
-  if(type === 'Other' && !other) return { ok:false, err:'"Other" chuna hai to type likhiye.' };
-  if(!qty) return { ok:false, err:'Purchase Quantity daaliye.' };
-  if(!(+qty >= 0)) return { ok:false, err:'Quantity sahi number nahi hai.' };
+  if(!type) return { ok:false, err:'Select a Customer Type.' };
+  if(type === 'Other' && !other) return { ok:false, err:'You chose "Other" — please enter the type.' };
+  if(!qty) return { ok:false, err:'Enter the Purchase Quantity.' };
+  if(!(+qty >= 0)) return { ok:false, err:'Quantity is not a valid number.' };
   return { ok:true, ans:{ type:type, other:(type === 'Other' ? other : ''), qty:qty } };
 };
 
@@ -17195,7 +17263,7 @@ function install(){
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 0); });
 else setTimeout(install, 0);
 
-console.log('[oc v36] Qualified par Customer Type + Purchase Quantity poochhi jayengi');
+console.log('[oc v36] Customer Type + Purchase Quantity will be asked on Qualified');
 })();
 </script>
 
@@ -17309,7 +17377,7 @@ function claimBefore(key, id){
       l.owner = me;
       l.assigned_to = nameFor(me) || me;
       localStorage.setItem(key, JSON.stringify(arr));
-      console.log('[oc v37] ' + key + ' ' + id + ' ab ' + me + ' ki hai (status badalne par)');
+      console.log('[oc v37] ' + key + ' ' + id + ' now belongs to ' + me + ' (on status change)');
       return;
     }
   }catch(e){}
@@ -17334,7 +17402,7 @@ function install(){
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(install, 0); });
 else setTimeout(install, 0);
 
-console.log('[oc v37] IndiaMART + Meta: bina naam wali lead sabko, tag lagte hi sirf usi ko');
+console.log('[oc v37] IndiaMART + Meta: unassigned leads visible to all, once tagged only to that person');
 })();
 </script>
 
@@ -17417,7 +17485,7 @@ function install(){
   };
   wrapped.__ocRem = true;
   IM.setStatus = wrapped;
-  console.log('[oc v38] IndiaMART: status badalne par remark zaroori');
+  console.log('[oc v38] IndiaMART: remark required on status change');
 }
 
 /* Sabse BAAHAR lagna zaroori hai. IM.setStatus ko v36 (Qualified ke do
@@ -17560,10 +17628,10 @@ var TABS = [
   { key:'NODATE',   label:'No date',        ink:'var(--muted,#7a869a)' }
 ];
 function dueCell(r){
-  if(r.bucket === 'NODATE') return '<span class="chip c-neutral">Date nahi</span>';
-  if(r.bucket === 'OVERDUE') return '<span class="chip c-lost">' + r.days + ' din overdue</span>';
-  if(r.bucket === 'TODAY') return '<span class="chip c-prog">Aaj</span>';
-  return '<span class="chip c-new">' + (-r.days) + ' din baaki</span>';
+  if(r.bucket === 'NODATE') return '<span class="chip c-neutral">No date</span>';
+  if(r.bucket === 'OVERDUE') return '<span class="chip c-lost">' + r.days + ' days overdue</span>';
+  if(r.bucket === 'TODAY') return '<span class="chip c-prog">Today</span>';
+  return '<span class="chip c-new">' + (-r.days) + ' days left</span>';
 }
 function filtered(rows){
   var q = LC(window.__fuQ), tab = window.__fuTab, src = window.__fuSrc, sp = LC(window.__fuSp);
@@ -17625,8 +17693,8 @@ window.renderFollowUps = function(){
       + '<td style="max-width:260px;font-size:12.5px">' + (r.note ? E(r.note) : '<span class="sub">—</span>') + '</td>'
       + '<td>' + sel + '</td>'
       + '<td><div class="row-actions" style="display:flex;gap:4px">'
-        + (edit ? '<button title="Follow-up update — remark + agli date" onclick="FU.update(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Update</button>' : '')
-        + '<button title="Record kholo" onclick="FU.open(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Open</button>'
+        + (edit ? '<button title="Follow-up update — remark + next date" onclick="FU.update(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Update</button>' : '')
+        + '<button title="Open record" onclick="FU.open(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">Open</button>'
         + '<button title="Status history" onclick="ocTrackHistory(\'' + A(r.src) + '\',\'' + A(r.id) + '\')">⏱</button>'
       + '</div></td></tr>';
   }).join('');
@@ -17642,13 +17710,13 @@ window.renderFollowUps = function(){
     +     '</select>' + spSel
     +     '<button class="btn sm" onclick="FU.exportXlsx()">Excel</button>'
     +   '</div></div>'
-    + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Enquiries, IndiaMART aur Meta Leads — jis bhi lead ka status <b>Follow-up</b> hai wo yahan hai. '
-    +   'Sabse zyada overdue upar. <b>Update</b> se remark aur agli follow-up date likhiye; status badalte hi lead yahan se hat jaati hai.</div>'
+    + '<div style="padding:8px 20px 0;font-size:12px;color:var(--muted)">Enquiries, IndiaMART and Meta Leads — every lead with status <b>Follow-up</b> is here. '
+    +   'Most overdue on top. Use <b>Update</b> to add a remark and the next follow-up date; the lead leaves this list as soon as its status changes.</div>'
     + '<div style="overflow-x:auto"><table><thead><tr>'
     +   '<th>Source</th><th>Name</th><th>Contact</th><th>Product / Requirement</th><th>Salesperson</th><th>Follow-up date</th><th>Overdue</th><th>Last remark</th><th>Status</th><th></th>'
     + '</tr></thead><tbody id="fu-body">'
-    + (body || '<tr><td colspan="10" class="empty">' + (rows.length ? 'Is filter par koi follow-up nahi mila.'
-        : 'Abhi koi follow-up nahi hai. Kisi bhi Enquiry, IndiaMART ya Meta lead ka status <b>Follow-up</b> karte hi wo yahan aa jaayegi.') + '</td></tr>')
+    + (body || '<tr><td colspan="10" class="empty">' + (rows.length ? 'No follow-ups match this filter.'
+        : 'There are no follow-ups yet. As soon as any Enquiry, IndiaMART or Meta lead is set to <b>Follow-up</b>, it will appear here.') + '</td></tr>')
     + '</tbody></table></div></div>';
 
   var si = $$('fuSearch');
@@ -17704,7 +17772,7 @@ FU.update = function(src, id){
                              remark:rem, owner:after.owner, sp:x.person, createdAt:after.createdAt || '' });
       }
     }catch(e){}
-    tell('Follow-up update ho gaya');
+    tell('Follow-up updated');
     try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
     try{ if(state && state.view === VIEW) renderFollowUps(); }catch(e){}
   });
@@ -17771,7 +17839,7 @@ function adminOnly(){
   function guard(obj, name){
     if(!obj || typeof obj[name] !== 'function' || obj[name].__v42a) return;
     var o = obj[name];
-    var g = function(){ if(!isAdm()){ tell('Ye option sirf admin ke liye hai.'); return; } return o.apply(this, arguments); };
+    var g = function(){ if(!isAdm()){ tell('This option is for admins only.'); return; } return o.apply(this, arguments); };
     g.__v42a = true; obj[name] = g;
   }
   guard(window.ML, 'bulkBox'); guard(window.ML, 'importBox'); guard(window.ML, 'stageBox'); guard(window.ML, 'syncSheet');
@@ -17781,7 +17849,7 @@ function boot(){ install(); setTimeout(install, 700); setTimeout(install, 2600);
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
 /* ---------------------------------------------------------------- 6. view registration */
-try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Follow-ups', 'Enquiries · IndiaMART · Meta — follow-ups aur overdue']; }catch(e){}
+try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Follow-ups', 'Enquiries · IndiaMART · Meta — follow-ups and overdue']; }catch(e){}
 try{ if(typeof PERM_SECTIONS !== 'undefined' && PERM_SECTIONS.indexOf(VIEW) < 0) PERM_SECTIONS.push(VIEW); }catch(e){}
 try{ if(typeof SECTION_OF_VIEW !== 'undefined') SECTION_OF_VIEW[VIEW] = VIEW; }catch(e){}
 try{ if(localStorage.getItem('oc_lastView') === 'pipeline') localStorage.setItem('oc_lastView', VIEW); }catch(e){}
@@ -17824,7 +17892,7 @@ try{ if(localStorage.getItem('oc_lastView') === 'pipeline') localStorage.setItem
         /* v49: badge = section me jitne follow-ups hain (sab -- upcoming bhi) */
         var n = allRows().length;
         if(el.textContent !== String(n)) el.textContent = String(n);
-        el.title = 'Follow-ups section me itne leads hain (overdue + aaj + upcoming + bina date)';
+        el.title = 'Leads in the Follow-ups section (overdue + today + upcoming + no date)';
       }
     }catch(e){}
     return r;
@@ -17914,7 +17982,7 @@ try{
     setTimeout(function(){ try{ renderDashboard(); }catch(e){} }, 0);
   }
 }catch(e){}
-console.log('[oc v44] dashboard: Administrator ke orders ginti se bahar');
+console.log('[oc v44] dashboard: Administrator orders excluded from counts');
 })();
 </script>
 
@@ -18025,7 +18093,7 @@ function tile(title, sub, c, isMoney){
     +   '<span style="font-size:12px;font-weight:700;color:' + col + '">' + E(d.txt) + '</span></div>'
     + '<div class="val tabular" style="margin-top:6px">' + E(f(c.cur)) + '</div>'
     + '<div class="sub" style="font-size:11.5px;color:var(--muted,#7a869a);margin-top:4px">'
-    +   E(sub) + ': <b>' + E(f(c.prev)) + '</b> · poora: ' + E(f(c.full)) + '</div>'
+    +   E(sub) + ': <b>' + E(f(c.prev)) + '</b> · full: ' + E(f(c.full)) + '</div>'
     + '</div>';
 }
 
@@ -18041,7 +18109,7 @@ function panelHTML(){
   };
   return '<div class="card" id="oc-cmp" style="margin-bottom:18px">'
     + '<div class="card-head"><h3>Comparison <small style="font-weight:500;color:var(--muted,#7a869a);font-size:12px">'
-    +   'Sales &amp; Enquiries · pichhla vs abhi · aaj tak ki barabar tulna</small></h3></div>'
+    +   'Sales &amp; Enquiries · previous vs current · like-for-like to date</small></h3></div>'
     + '<div style="padding:4px 20px 18px">'
     + '<div class="kpi-grid" style="margin-bottom:14px">'
     +   tile('Sales · This week', 'Last week (Mon–' + dn + ')', sw, true)
@@ -18053,7 +18121,7 @@ function panelHTML(){
     +   '<div class="panel" style="margin:0"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
     +     '<span>Trend <small id="oc-cmp-lsub">running total</small></span><span style="display:flex;gap:6px">' + btn('week', 'Week') + btn('month', 'Month') + '</span></h3>'
     +     '<div class="chart-wrap"><canvas id="oc-cmp-line"></canvas></div></div>'
-    +   '<div class="panel" style="margin:0"><h3>Last vs This <small>aaj tak · Sales ₹ (left) · Enquiries (right)</small></h3>'
+    +   '<div class="panel" style="margin:0"><h3>Last vs This <small>to date · Sales ₹ (left) · Enquiries (right)</small></h3>'
     +     '<div class="chart-wrap"><canvas id="oc-cmp-bar"></canvas></div></div>'
     + '</div></div></div>';
 }
@@ -18103,7 +18171,7 @@ function drawLine(){
     ] }, options:o });
   try{ state.charts.cmpLine = ch; }catch(e){}
   var sub = document.getElementById('oc-cmp-lsub');
-  if(sub) sub.textContent = (mode === 'week' ? 'Mon–Sun' : 'din 1–' + p.len) + ' · running total';
+  if(sub) sub.textContent = (mode === 'week' ? 'Mon–Sun' : 'day 1–' + p.len) + ' · running total';
 }
 
 function drawBar(){
@@ -18272,7 +18340,7 @@ function flushLogs(){
             delete r.respAt; delete r.respMins; delete r.respResult; delete r.respBy;
             if(prev){
               pendingLogs.push({ coll:k, recId:r.id, recName:recName(k, r), field:'response', from:'Assigned', to:'Timer start',
-                                 remark:'10 min response timer shuru — ' + (nameOf(ownNow) || ownNow), owner:ownNow, sp:nameOf(ownNow) });
+                                 remark:'10 min response timer started — ' + (nameOf(ownNow) || ownNow), owner:ownNow, sp:nameOf(ownNow) });
             }
           }
           /* (b) New se aage badhi -> timer ruka, nateeja likho */
@@ -18287,7 +18355,7 @@ function flushLogs(){
               pendingLogs.push({ coll:k, recId:r.id, recName:recName(k, r), field:'response', from:'Timer',
                                  to:(r.respResult === 'OK' ? 'OK (Positive)' : 'Very Low (Negative)'),
                                  remark:'Response ' + fmtMins(mins) + ' (limit ' + LIMIT_MIN + ' min) · ' + (code(statusOf(prev)) || 'NEW') + ' → ' + code(statusOf(r))
-                                        + (who && who !== ownerOf(r) ? ' · status ' + (nameOf(who) || who) + ' ne badla' : ''),
+                                        + (who && who !== ownerOf(r) ? ' · status changed by ' + (nameOf(who) || who) : ''),
                                  owner:ownerOf(r), sp:nameOf(ownerOf(r)) });
             }
           }
@@ -18309,7 +18377,7 @@ function cellHTML(r){
     if(isNaN(b)) return '<span class="sub">—</span>';
     return '<span class="oc-rt" data-base="' + b + '" style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;'
          + 'font-weight:700;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap"></span>'
-         + (ownerOf(r) ? '' : '<div class="sub" style="font-size:10.5px;color:var(--muted,#7a869a);margin-top:3px" title="Kisi ne nahi uthayi -- lead aane ke waqt se">unassigned · aane se</div>');
+         + (ownerOf(r) ? '' : '<div class="sub" style="font-size:10.5px;color:var(--muted,#7a869a);margin-top:3px" title="Not picked up by anyone -- since the lead arrived">unassigned · since arrival</div>');
   }
   if(r.respResult){
     var ok = r.respResult === 'OK', mm = +r.respMins || 0;
@@ -18328,11 +18396,11 @@ function paintTimers(){
     if(left >= 0){
       el.textContent = '⏱ +' + fmtDur(left);
       el.style.background = 'rgba(12,163,12,.12)'; el.style.color = 'var(--good-ink,#0a7a3d)';
-      el.title = 'Positive — abhi ' + LIMIT_MIN + ' min ke andar hai';
+      el.title = 'Positive — still within ' + LIMIT_MIN + ' min';
     } else {
       el.textContent = '⏱ −' + fmtDur(-left);
       el.style.background = 'rgba(208,59,59,.12)'; el.style.color = 'var(--crit,#d03b3b)';
-      el.title = 'Negative — ' + LIMIT_MIN + ' min nikal gaye, status badalte hi "Very Low" likha jayega';
+      el.title = 'Negative — ' + LIMIT_MIN + ' min passed; it will be marked "Very Low" when the status changes';
     }
   });
 }
@@ -18357,7 +18425,7 @@ function inject(coll){
       for(var i = 0; i < ths.length; i++){ if(/^(status|lead_status)/i.test(TR(ths[i].textContent))){ at = i; break; } }
       if(!htr.querySelector('.oc-rt-h')){
         var th = document.createElement('th'); th.className = 'oc-rt-h'; th.textContent = 'Timer';
-        th.title = 'New lead assign hone ke baad ' + LIMIT_MIN + ' min response timer (+ = Positive, − = Negative)';
+        th.title = 'After a new lead is assigned: ' + LIMIT_MIN + ' min response timer (+ = Positive, − = Negative)';
         htr.insertBefore(th, at >= 0 ? ths[at] : htr.lastElementChild);
       } else {
         for(var j = 0; j < ths.length; j++) if(ths[j].classList.contains('oc-rt-h')){ at = j; break; }
@@ -18514,12 +18582,12 @@ window.renderRespSummary = function(){
 
   function kpi(val, lbl, ink){ return '<div class="kpi"' + (ink ? ' style="border-left:4px solid ' + ink + '"' : '') + '><div class="val tabular"' + (ink ? ' style="color:' + ink + '"' : '') + '>' + val + '</div><div class="lbl">' + E(lbl) + '</div></div>'; }
   var cards = '<div class="kpi-grid" style="margin-bottom:16px">'
-    + kpi(n, 'Timer par leads (period)', '')
-    + kpi(ok, 'OK (' + lim() + ' min ke andar)', 'var(--good-ink,#0a7a3d)')
-    + kpi(low, 'Very Low (' + lim() + ' min ke baad)', 'var(--crit,#d03b3b)')
+    + kpi(n, 'Leads on timer (period)', '')
+    + kpi(ok, 'OK (' + lim() + ' min)', 'var(--good-ink,#0a7a3d)')
+    + kpi(low, 'Very Low (' + lim() + ' min)', 'var(--crit,#d03b3b)')
     + kpi(n ? Math.round(ok / n * 100) + '%' : '—', 'OK %', '')
     + kpi(E(fmtMin(avg)), 'Average response', '')
-    + kpi(runOk + ' / ' + runLate, 'Abhi chal rahe: time par / late', runLate ? 'var(--crit,#d03b3b)' : 'var(--brand,#2a78d6)')
+    + kpi(runOk + ' / ' + runLate, 'Running now: on time / late', runLate ? 'var(--crit,#d03b3b)' : 'var(--brand,#2a78d6)')
     + '</div>';
 
   function btn(k, l){ var on = window.__rsPeriod === k; return '<button class="btn sm" onclick="ocRespPeriod(\'' + k + '\')"' + (on ? ' style="background:var(--brand);color:#fff;border-color:var(--brand)"' : '') + '>' + l + '</button>'; }
@@ -18555,12 +18623,12 @@ window.renderRespSummary = function(){
   }).join('');
 
   content.innerHTML = cards
-    + '<div class="card"><div class="card-head"><h3>Salesperson-wise <small style="font-weight:500;color:var(--muted)">limit ' + lim() + ' min · OK ≥ 80% hara, 50–79% peela, &lt; 50% laal</small></h3>' + tools + '</div>'
-    + '<div style="overflow-x:auto"><table><thead><tr><th>Salesperson</th><th>Timer leads</th><th>OK</th><th>Very Low</th><th>OK %</th><th>Avg response</th><th>Fastest</th><th>Slowest</th><th>Chal rahe (time par)</th><th>Chal rahe (late)</th></tr></thead>'
-    + '<tbody>' + (body || '<tr><td colspan="10" class="empty">Is period me abhi koi timer wali lead nahi. Nayi lead assign hote hi yahan ginti shuru ho jaayegi.</td></tr>') + '</tbody></table></div></div>'
-    + '<div class="card" style="margin-top:16px"><div class="card-head"><h3>Har response <small style="font-weight:500;color:var(--muted)">naye pehle · 100 tak</small></h3></div>'
-    + '<div style="overflow-x:auto"><table><thead><tr><th>Kab</th><th>Source</th><th>Lead</th><th>Salesperson</th><th>Response</th><th>Result</th><th>Naya status</th><th>Status kisne badla</th><th></th></tr></thead>'
-    + '<tbody id="rs-body">' + (recent || '<tr><td colspan="9" class="empty">Abhi koi response record nahi.</td></tr>') + '</tbody></table></div></div>';
+    + '<div class="card"><div class="card-head"><h3>Salesperson-wise <small style="font-weight:500;color:var(--muted)">limit ' + lim() + ' min · OK ≥ 80% green, 50–79% yellow, &lt; 50% red</small></h3>' + tools + '</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Salesperson</th><th>Timer leads</th><th>OK</th><th>Very Low</th><th>OK %</th><th>Avg response</th><th>Fastest</th><th>Slowest</th><th>Running (on time)</th><th>Running (late)</th></tr></thead>'
+    + '<tbody>' + (body || '<tr><td colspan="10" class="empty">No timed leads in this period yet. Counting starts here as soon as a new lead is assigned.</td></tr>') + '</tbody></table></div></div>'
+    + '<div class="card" style="margin-top:16px"><div class="card-head"><h3>Every response <small style="font-weight:500;color:var(--muted)">newest first · up to 100</small></h3></div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>When</th><th>Source</th><th>Lead</th><th>Salesperson</th><th>Response</th><th>Result</th><th>New status</th><th>Status changed by</th><th></th></tr></thead>'
+    + '<tbody id="rs-body">' + (recent || '<tr><td colspan="9" class="empty">No responses recorded yet.</td></tr>') + '</tbody></table></div></div>';
 
   var ss = $$('rsSrc'); if(ss) ss.onchange = function(){ window.__rsSrc = ss.value; renderRespSummary(); };
   try{ if(typeof ocPaginate === 'function') ocPaginate(); }catch(e){}
@@ -18584,7 +18652,7 @@ window.ocRespExport = function(){
 };
 
 /* ---------------------------------------------------------------- nav + view */
-try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Lead Response Timer', 'New lead assign hone ke baad ' + lim() + ' min — OK / Very Low, salesperson-wise']; }catch(e){}
+try{ if(typeof PAGE_META !== 'undefined') PAGE_META[VIEW] = ['Lead Response Timer', 'After a new lead is assigned: ' + lim() + ' min — OK / Very Low, salesperson-wise']; }catch(e){}
 function addNav(){
   try{
     var nav = $$('nav'); if(!nav || nav.querySelector('a[data-view="' + VIEW + '"]')) return;
@@ -18675,7 +18743,7 @@ window.refreshBadges = function(){
       if(el.textContent !== n) el.textContent = n;
       var lbl = 'All time';
       try{ lbl = (window.ocRangeOf('enquiries') || {}).label || lbl; }catch(e){}
-      el.title = 'Enquiries list me itni dikh rahi hain (' + lbl + ', stage / salesperson filter ke saath)';
+      el.title = 'Enquiries shown in the list (' + lbl + ', with stage / salesperson filters)';
     }
   }catch(e){}
   return r;
@@ -18986,11 +19054,11 @@ window.ocFuPick = function(sel, src, id){
 };
 
 window.ocFuAgain = function(src, id){
-  if(typeof window.ocGate !== 'function'){ toast('Follow-up modal abhi load nahi hua — page refresh kijiye.'); return; }
+  if(typeof window.ocGate !== 'function'){ toast('Follow-up dialog has not loaded yet — please refresh the page.'); return; }
   var rec = recOf(src, id);
-  if(!rec){ toast('Record nahi mila.'); return; }
-  if(fuCode(curOf(src, rec)) !== 'FOLLOW_UP'){ toast('Ye lead Follow-up par nahi hai.'); rerender(); return; }
-  try{ if(typeof canTouch === 'function' && !canTouch(rec, src)){ toast('Ye lead aapki nahi hai.'); rerender(); return; } }catch(e){}
+  if(!rec){ toast('Record not found.'); return; }
+  if(fuCode(curOf(src, rec)) !== 'FOLLOW_UP'){ toast('This lead is not in Follow-up.'); rerender(); return; }
+  try{ if(typeof canTouch === 'function' && !canTouch(rec, src)){ toast('This lead is not yours.'); rerender(); return; } }catch(e){}
   var to = (src === 'enquiries') ? 'Follow-up' : 'FOLLOW_UP';
   var name = nameOfRec(src, rec) || '—';
   var n = (+rec.followUpCount || 0) + 1;
@@ -19017,6 +19085,48 @@ window.ocFuAgain = function(src, id){
 };
 
 console.log('[oc v51] IndiaMART date range + Follow-up again from dropdown');
+})();
+</script>
+<script>
+/* ====================================================================== *
+ * 52. v52 — STATUS = SIRF "Qualified" / "Not Qualified"                  *
+ *            + NAYA NAAM: LEVQORA SALES CRM SOFTWARE                     *
+ *                                                                        *
+ *   Meta Leads, IndiaMART aur Enquiries -- teeno ke Status dropdown me   *
+ *   ab sirf do option hain (helper: ocQnqOptions, upar STATUS KA RANG    *
+ *   ke paas).                                                            *
+ *     Qualified     -> wahi Remark + Customer Type + Purchase Quantity   *
+ *                      modal; save ke baad lead Qualified section me.    *
+ *     Not Qualified -> Remark zaroori (wahi remark modal).               *
+ *   Qualified section (System Master / Quotation Sent / Won / Lost) aur  *
+ *   Follow-ups section jaise the waise hain.                             *
+ *                                                                        *
+ *   Yahan: Enquiry form (Add / Edit) ka Stage select bhi do option par.  *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocQnq) return; window.__ocQnq = true;
+
+function restrictEnqStage(){
+  var sel = document.getElementById('m-stage');
+  if(!sel || sel.__ocQnq) return;
+  var cur = String(sel.value || 'New').trim() || 'New';
+  sel.innerHTML = window.ocQnqOptions(cur, cur, ['Qualified', 'Qualified'], ['Not Qualified', 'Not Qualified']);
+  sel.__ocQnq = true;
+  try{ sel.value = cur; }catch(e){}
+}
+var _mod = window.openEnqModal;
+if(typeof _mod === 'function'){
+  window.openEnqModal = function(){
+    var r = _mod.apply(this, arguments);
+    try{ restrictEnqStage(); }catch(e){}
+    /* koi purana wrapper select ko baad me bharta ho to bhi */
+    setTimeout(function(){ try{ var s = document.getElementById('m-stage'); if(s && !s.__ocQnq) restrictEnqStage(); }catch(e){} }, 120);
+    return r;
+  };
+}
+
+console.log('[oc v52] Status = Qualified / Not Qualified · LEVQORA Sales CRM Software');
 })();
 </script>
 </body>

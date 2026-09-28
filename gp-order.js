@@ -85,7 +85,7 @@
     var g = o.gp;
     var vis = (window.OCGP && window.OCGP.visibility) ? window.OCGP.visibility() : 'verdict';
     if (!g) return '';
-    var word = num(g.gp) > 0 ? 'Fayda' : (num(g.gp) < 0 ? 'Ghata' : 'Barabar');
+    var word = num(g.gp) > 0 ? 'Profit' : (num(g.gp) < 0 ? 'Loss' : 'Break-even');
     var col = num(g.gp) > 0 ? 'var(--ok, #12704A)' : (num(g.gp) < 0 ? 'var(--crit, #A32020)' : 'var(--muted)');
     var line = function (a, b) {
       return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">'
@@ -103,8 +103,8 @@
     h += line('BOM cost', f.inr(g.cogs));
     h += line('GP per piece', f.inr(g.gpPerUnit));
     if (g.verdict && g.verdict.level) h += line('Approval', esc(g.verdict.level) + (g.verdict.who ? ' · ' + esc(g.verdict.who) : ''));
-    if (g.uncostedLines) h += line('Cost missing', g.uncostedLines + ' product — GP adhoora');
-    h += '<div style="font-size:11.5px;color:var(--muted);padding:6px 0">' + (g.at ? new Date(g.at).toLocaleString('en-IN') : '') + ' ke cost master par</div>';
+    if (g.uncostedLines) h += line('Cost missing', g.uncostedLines + ' product(s) — GP incomplete');
+    h += '<div style="font-size:11.5px;color:var(--muted);padding:6px 0">' + (g.at ? new Date(g.at).toLocaleString('en-IN') : '') + ' cost master</div>';
     return h;
   };
 
