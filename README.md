@@ -30,6 +30,22 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Sync ke dauran kiya gaya edit kabhi gum nahi hota (v54)
+
+**Bug:** Google Sheet sync (har 25 sec ka auto-sync, tab par wapas aana, app khulna) chal raha ho aur usi beech koi Save kare, to update gaayab ho jaata tha — user ko wahi kaam 2-3 baar karna padta tha.
+
+**Wajah:** `getAll` ka jawab aane me 3-10 sec lagte hain. Jawab Save se *pehle* ki sheet se banta hai, aur base `CLOUD.pull` use seedha localStorage par likh deta tha — naya edit device se mit jaata tha. Uske baad v7 ka snapshot isi purani copy se banta tha, isliye agar us edit ka push fail hua tha to wo dobara kabhi nahi jaata tha. Enquiries / Quotations / Orders / Dispatch / Customers / Products par koi merge tha hi nahi (v32/v48 sirf leads ke liye tha, aur timestamp par chalta tha).
+
+**Ilaaj — edit journal** (`index.html` section 46, build `2026.09.29.1`), saare sections par (Enquiries, Quotations, Orders, Dispatch, Customers, Products, Meta Leads, IndiaMART):
+
+- Har Save par sirf **badle hue fields** `oc_editJournal` me likhe jaate hain, aur record par `syncRev` stamp lagta hai (sheet me ek naya `syncRev` column ban sakta hai — wo isi ke liye hai).
+- Jab tak sheet us stamp / un fields ke saath record wapas nahi bhejti, koi bhi purani copy local par likhi jaaye to user ke fields uske upar dobara lag jaate hain. Sirf wahi fields — baaki fields sheet se hi aate hain.
+- Sheet par us record ka koi *naya* version ho (doosre user ne baad me badla), to sheet jeet-ti hai — uska kaam overwrite nahi hota.
+- Sheet ne edit confirm nahi kiya to wahi rows apne aap dobara jaati hain (20s · 1m · 5m · 20m). Page reload / app band hone par bhi journal bachta hai.
+- 45 sec se zyada koi edit sheet tak na pahunche to neeche-baayein **"⟳ N changes waiting for the Sheet"** chip; click = turant dobara bhejo.
+
+Console: `ocEditJournal()` (kya pending hai) · `ocEditJournalResend()` · `ocEditJournalClear()`.
+
 ## Orders
 
 * **Products are limited to 2 edits.** Re-opening a submitted order lets a user change only

@@ -8210,7 +8210,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.28.3';
+var OC_WEB_BUILD = '2026.09.29.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -19127,6 +19127,495 @@ if(typeof _mod === 'function'){
 }
 
 console.log('[oc v52] Status = Qualified / Not Qualified · LEVQORA Sales CRM Software');
+})();
+</script>
+<script>
+/* ====================================================================== *
+ * 46. OAKCRAFT v54 — SYNC KE DAURAAN KIYA GAYA EDIT KABHI GUM NA HO       *
+ *                                                                        *
+ *   BUG (users ne report kiya): Google Sheet se sync (har 25 sec wala     *
+ *   auto-pull, tab focus, app khulna) ke dauran jo bhi update kiya jaata *
+ *   tha, wo gaayab ho jaata tha — user ko wahi kaam 2-3 baar karna padta  *
+ *   tha.                                                                 *
+ *                                                                        *
+ *   JADD (root cause):                                                   *
+ *     1. CLOUD.pull `getAll` maarta hai; Apps Script ka jawab aane me     *
+ *        3-10 sec lagte hain. Isi beech user Save karta hai -> local me   *
+ *        naya data likha jaata hai aur 400 ms baad push nikalta hai.      *
+ *     2. getAll ka jawab (jo push se PEHLE ki sheet padh kar bana tha)    *
+ *        aata hai aur base pull use SEEDHA localStorage par likh deta    *
+ *        hai -> naya edit local se mit jaata hai.                         *
+ *     3. Uske baad v7 ka snapshot (oc_srvSnap) isi purani copy se ban     *
+ *        jaata hai, isliye agar push fail hua tha to wo dobara kabhi      *
+ *        nahi jaata. Enquiries / Quotations / Orders / Dispatch /         *
+ *        Customers / Products par koi merge tha hi nahi (v32/v48 sirf     *
+ *        Meta + IndiaMART leads ke liye tha, aur wo bhi timestamp par     *
+ *        chalta tha — jis edit par updatedAt nahi badalta wo phir bhi     *
+ *        gum ho sakta tha).                                               *
+ *                                                                        *
+ *   ILAAJ — EDIT JOURNAL (sab sections: enquiries, quotations, orders,    *
+ *   dispatch, customers, products, metaLeads, indiamartLeads):            *
+ *     a) Har save (store.set) par pichhli local copy se tulna karke sirf  *
+ *        BADLE HUE FIELDS journal (oc_editJournal) me likhe jaate hain,   *
+ *        aur record par ek naya `syncRev` stamp lagta hai.                *
+ *     b) Jab tak sheet us stamp (ya un fields) ke saath record wapas nahi *
+ *        bhejti, koi bhi purani copy (getAll, IndiaMART list, merge,      *
+ *        keep-local, prune …) localStorage par likhi jaaye to user ke     *
+ *        badle hue fields uske upar dobara laga diye jaate hain. Sirf     *
+ *        wahi fields — record ke baaki fields sheet se hi aate hain, isliye*
+ *        doosre user ka kisi aur field ka badlaav nahi dabta.             *
+ *     c) Agar sheet par us record ka koi NAYA version hai (doosre user ne *
+ *        hamare baad badla) to journal hat jaata hai — sheet jeet-ti hai. *
+ *     d) Sheet ne edit confirm nahi kiya to wahi rows apne aap dobara     *
+ *        bheji jaati hain (20s · 1m · 5m · 20m), snapshot saaf karke.     *
+ *     e) Page reload / app band-chalu hone par bhi journal bacha rehta    *
+ *        hai (localStorage), isliye unconfirmed edit kabhi gum nahi hota. *
+ *     f) 45 sec se zyada unconfirmed edit ho to neeche-baayein chhota sa  *
+ *        "N changes waiting for the Sheet" chip; click = turant resend.   *
+ *                                                                        *
+ *   Console: ocEditJournal()  — kya pending hai                           *
+ *            ocEditJournalResend() — sab unconfirmed turant dobara bhejo  *
+ *            ocEditJournalClear()  — journal khaali (sirf debugging)      *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocEditJournal) return; window.__ocEditJournal = true;
+if(typeof store === 'undefined' || typeof CLOUD === 'undefined') return;
+
+var CORE  = ['enquiries','quotations','orders','dispatch','customers','products'];
+var LEADS = ['metaLeads','indiamartLeads'];
+var TRACK = CORE.concat(LEADS);
+var KEY   = 'oc_editJournal';
+var REV   = 'syncRev';
+var TTL_MS      = 24 * 3600e3;   /* unconfirmed edit itni der tak bachaya jaata hai */
+var GRACE_MS    = 3 * 60e3;      /* confirm ke baad bhi itni der — raaste me atki purani getAll ke liye */
+var DEL_TTL_MS  = 30 * 60e3;     /* local delete ka pehra */
+var SETTLE_MS   = 15e3;          /* pehla asli push ko itna samay, phir resend */
+var RETRY_MS    = [20e3, 60e3, 5 * 60e3, 20 * 60e3];
+var MAX_ENTRIES = 400;
+var MAX_VAL_LEN = 100000;        /* isse bade value (base64 image) journal me copy nahi hote */
+
+/* Meta / IndiaMART: renderMetaLeads() har baar rows ko normalise karke save
+   karta hai. Wo "edit" nahi hai -- v32 bhi use sheet par nahi bhejta. Isliye
+   lead par sirf wahi badlaav journal hota hai jisme asli field ya timestamp
+   badla ho. */
+var LEAD_REAL = /^(lead_status|status|stage|owner|assigned_to|enquiryId|note|dupOf|remark|remarks|statusUpdatedAt|updatedAt|modifiedAt|stageChangedAt|followUp.*|qual.*|resp.*|assignedAt|history|cancelRemarks)$/;
+
+function T(v){ return v == null ? '' : String(v); }
+function LC(v){ return T(v).trim().toLowerCase(); }
+function has(a, v){ return a.indexOf(v) >= 0; }
+function clone(v){ return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
+function norm(v){
+  if(v === undefined || v === null || v === '') return '';
+  if(typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+function eq(a, b){ return norm(a) === norm(b); }
+function arrOf(k){ try{ var a = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function myMail(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function ownerOf(o){ return LC(o && (o.owner || o.ownerEmail || o.createdBy)); }
+/* wahi rule jo v7 / v32 push par lagate hain -- jo row ye user likh hi
+   nahi sakta, uska edit journal karne ka koi matlab nahi */
+function mayWrite(o, key){
+  var ow = ownerOf(o);
+  if(!ow || isAdm()) return true;
+  try{ if(window.meSeesAll && window.meSeesAll(key)) return true; }catch(e){}
+  var me = myMail();
+  return !me || ow === me;
+}
+function newRev(){ return 'r' + Date.now() + '.' + Math.random().toString(36).slice(2, 6); }
+function revTime(rv){ var m = /^r(\d{10,})/.exec(T(rv)); return m ? +m[1] : 0; }
+function unwrap(x){ return (x && x.data !== undefined && x.data !== null && typeof x.data === 'object') ? x.data : x; }
+
+/* ---------------------------------------------------------------- journal */
+var _lsSet = localStorage.setItem;          /* keep-local wala (ya asli) setItem */
+var JR = null;
+function load(){
+  var me = myMail();
+  if(JR && JR.u === me) return JR;
+  try{ JR = JSON.parse(localStorage.getItem(KEY) || 'null'); }catch(e){ JR = null; }
+  /* doosre user ka journal kabhi mat lagao */
+  if(!JR || typeof JR !== 'object' || !JR.c || JR.u !== me) JR = { u: me, c: {} };
+  return JR;
+}
+function entries(k){ var j = load(); return j.c[k] || (j.c[k] = {}); }
+function persist(){
+  try{ _lsSet.call(localStorage, KEY, JSON.stringify(JR)); }
+  catch(e){ /* storage full: journal memory me chalta rahega */ }
+}
+function trim(){
+  var j = load(), all = [];
+  Object.keys(j.c).forEach(function(k){
+    Object.keys(j.c[k]).forEach(function(id){ all.push({ k:k, id:id, e:j.c[k][id] }); });
+  });
+  if(all.length <= MAX_ENTRIES) return;
+  /* pehle confirmed, phir sabse purane */
+  all.sort(function(a, b){ return ((a.e.ok ? 0 : 1) - (b.e.ok ? 0 : 1)) || (a.e.t - b.e.t); });
+  all.slice(0, all.length - MAX_ENTRIES).forEach(function(x){ delete j.c[x.k][x.id]; });
+}
+function expired(e, now){
+  if(e.ok && now - e.ok > GRACE_MS) return true;
+  if(e.del && now - e.t > DEL_TTL_MS) return true;
+  return now - e.t > TTL_MS;
+}
+/* sheet / koi aur copy ka ye record hamare edit ke hisaab se kaisa hai */
+function decide(e, row){
+  var rv = T(row && row[REV]);
+  if(e.rev && rv === e.rev) return 'same';
+  if(has(e.own || [], rv)) return 'stale';                            /* hamara hi pichhla version */
+  /* "naya" record jo sheet par pehle se kisi aur ne bana rakha tha (jaise
+     auto dispatch row) -- uspar apni poori copy kabhi mat thopo */
+  if(e.isNew) return 'newer';
+  if(rv === T(e.base)) return 'stale';                                /* hamare edit se pehle ki copy */
+  return revTime(rv) > e.t ? 'newer' : 'stale';                       /* doosre ne baad me badla -> wo jeeta */
+}
+function fieldsMatch(row, e){
+  var ks = Object.keys(e.f || {}), i;
+  if(!ks.length && !(e.rm || []).length) return false;
+  for(i = 0; i < ks.length; i++) if(!eq(row[ks[i]], e.f[ks[i]])) return false;
+  for(i = 0; i < (e.rm || []).length; i++) if(norm(row[e.rm[i]]) !== '') return false;
+  return true;
+}
+function applyTo(row, e){
+  var ch = false;
+  Object.keys(e.f || {}).forEach(function(k){
+    if(!eq(row[k], e.f[k])){ row[k] = clone(e.f[k]); ch = true; }
+  });
+  (e.rm || []).forEach(function(k){ if(k in row){ delete row[k]; ch = true; } });
+  if(e.rev && row[REV] !== e.rev){ row[REV] = e.rev; ch = true; }
+  return ch;
+}
+
+/* ---------------------------------------------------------------- 1. save par journal */
+var userWriting = {};
+function record(k, val){
+  var prev = arrOf(k), pm = {}, i;
+  for(i = 0; i < prev.length; i++){ var p0 = prev[i]; if(p0 && p0.id != null) pm[T(p0.id)] = p0; }
+  var ents = entries(k), now = Date.now(), jch = false, seen = {};
+  var isLead = has(LEADS, k);
+  var pre = window.__ocProdRevert;               /* v10 preApprove: items local me pehle hi likh diye */
+
+  for(i = 0; i < val.length; i++){
+    var r = val[i];
+    if(!r || typeof r !== 'object' || r.id == null) continue;
+    var id = T(r.id), p = pm[id];
+    seen[id] = 1;
+    if(!mayWrite(r, k)){ if(p && p[REV] && r[REV] !== p[REV]) r[REV] = p[REV]; continue; }
+
+    if(!p){
+      if(isLead) continue;                        /* nayi lead: v32 ka pending queue sambhalta hai */
+      var rv = newRev(), f = {}, part = false;
+      Object.keys(r).forEach(function(key){
+        if(key === REV) return;
+        var js = JSON.stringify(r[key]);
+        if(js && js.length > MAX_VAL_LEN){ part = true; return; }
+        if(js !== undefined) f[key] = JSON.parse(js);
+      });
+      r[REV] = rv;
+      ents[id] = { isNew:1, rev:rv, base:'', own:[rv], t:now, f:f, rm:[], part: part ? 1 : 0 };
+      jch = true;
+      continue;
+    }
+
+    var chg = [], rm = [];
+    Object.keys(r).forEach(function(key){
+      if(key === REV) return;
+      if(JSON.stringify(r[key]) !== JSON.stringify(p[key])) chg.push(key);
+    });
+    Object.keys(p).forEach(function(key){ if(key !== REV && !(key in r)) rm.push(key); });
+    if(pre && T(pre.id) === id){ ['items','qty','amount','image'].forEach(function(key){ if(!has(chg, key) && key in r) chg.push(key); }); }
+
+    var cosmetic = isLead && !chg.concat(rm).some(function(key){ return LEAD_REAL.test(key); });
+    if((!chg.length && !rm.length) || cosmetic){
+      if(p[REV] && r[REV] !== p[REV]) r[REV] = p[REV];   /* naya object bana ho to stamp wapas */
+      continue;
+    }
+
+    var e = ents[id];
+    if(!e || e.del || e.ok){ e = { base: T(p[REV]), own: [], f: {}, rm: [] }; }
+    chg.forEach(function(key){
+      var js = JSON.stringify(r[key]);
+      if(js && js.length > MAX_VAL_LEN) return;
+      e.f[key] = (js === undefined) ? null : JSON.parse(js);
+      var x = e.rm.indexOf(key); if(x >= 0) e.rm.splice(x, 1);
+    });
+    rm.forEach(function(key){ delete e.f[key]; if(!has(e.rm, key)) e.rm.push(key); });
+    var nr = newRev();
+    if(p[REV] && T(p[REV]) !== e.base && !has(e.own, T(p[REV]))) e.own.push(T(p[REV]));
+    e.own.push(nr);
+    if(e.own.length > 12) e.own = e.own.slice(-12);
+    e.rev = nr; e.t = now; e.tries = 0; e.next = 0; e.miss = 0; delete e.ok;
+    r[REV] = nr;
+    ents[id] = e;
+    jch = true;
+  }
+
+  /* local delete (sirf core sections -- inka delete sheet par bhi jaata hai) */
+  if(!isLead){
+    prev.forEach(function(p1){
+      if(!p1 || p1.id == null) return;
+      var id1 = T(p1.id);
+      if(seen[id1] || !mayWrite(p1, k)) return;
+      var old = ents[id1];
+      ents[id1] = { del:1, rev:'', base: T(p1[REV]), own: (old && old.own) || [], t: now, f:{}, rm:[] };
+      jch = true;
+    });
+  }
+  if(jch){ trim(); persist(); paintSoon(); }
+}
+
+var _storeSet = store.set;
+store.set = function(k, val){
+  if(!has(TRACK, k) || !Array.isArray(val)) return _storeSet.apply(store, arguments);
+  try{ record(k, val); }catch(e){ console.warn('[oc v54] journal', e); }
+  userWriting[k] = (userWriting[k] || 0) + 1;
+  try{ return _storeSet.apply(store, arguments); }
+  finally{ userWriting[k]--; }
+};
+
+/* ---------------------------------------------------------------- 2. purani copy par edit dobara */
+var stats = { overlays: 0, rows: 0 };
+function overlay(k, v){
+  var j = load(), ents = j.c[k];
+  if(!ents || !Object.keys(ents).length) return v;
+  var arr; try{ arr = JSON.parse(v); }catch(e){ return v; }
+  if(!Array.isArray(arr)) return v;
+  var idx = {}, now = Date.now(), ch = false, jch = false, drop = {}, n = 0;
+  arr.forEach(function(r, i){ if(r && r.id != null) idx[T(r.id)] = i; });
+  Object.keys(ents).forEach(function(id){
+    var e = ents[id];
+    if(expired(e, now)){ delete ents[id]; jch = true; return; }
+    var i = idx[id];
+    if(i === undefined){
+      /* nayi row jo abhi sheet tak nahi pahunchi -- wapas jodo */
+      if(e.isNew && !e.ok && !e.part && has(CORE, k)){ var nr = clone(e.f); nr[REV] = e.rev; arr.push(nr); ch = true; n++; }
+      return;
+    }
+    var d = decide(e, arr[i]);
+    if(d === 'newer'){ delete ents[id]; jch = true; return; }
+    if(d !== 'stale') return;
+    if(e.del){ drop[i] = 1; ch = true; n++; return; }
+    if(applyTo(arr[i], e)){ ch = true; n++; }
+  });
+  if(jch) persist();
+  if(!ch) return v;
+  if(Object.keys(drop).length) arr = arr.filter(function(r, i){ return !drop[i]; });
+  stats.overlays++; stats.rows += n;
+  console.log('[oc v54] ' + k + ': ' + n + ' unsaved local change(s) kept over an older sheet copy');
+  resendSoon(k);
+  return JSON.stringify(arr);
+}
+
+var _lsSetCur = localStorage.setItem;
+localStorage.setItem = function(k, v){
+  if(typeof k === 'string' && !userWriting[k] && has(TRACK, k) && typeof v === 'string'){
+    try{ v = overlay(k, v); }catch(e){ console.warn('[oc v54] overlay', e); }
+  }
+  return _lsSetCur.call(localStorage, k, v);
+};
+
+/* ---------------------------------------------------------------- 3. sheet ka jawab = confirm */
+function observe(k, rows){
+  var j = load(), ents = j.c[k];
+  if(!ents || !Object.keys(ents).length || !Array.isArray(rows)) return;
+  var m = {}, now = Date.now(), jch = false;
+  rows.forEach(function(x){ var r = unwrap(x); if(r && r.id != null) m[T(r.id)] = r; });
+  Object.keys(ents).forEach(function(id){
+    var e = ents[id], s = m[id];
+    if(e.ok) return;
+    if(e.del){
+      if(!s){ e.ok = now; jch = true; }
+      else if(decide(e, s) === 'newer'){ delete ents[id]; jch = true; }
+      return;
+    }
+    if(!s){
+      /* purana record sheet par hai hi nahi -> kisi ne delete kiya; zid mat karo */
+      if(!e.isNew && has(CORE, k)){ delete ents[id]; jch = true; }
+      else if(e.isNew && now - e.t > SETTLE_MS){ e.miss = (e.miss || 0) + 1; jch = true; }
+      return;
+    }
+    var d = decide(e, s);
+    if(d === 'same' || fieldsMatch(s, e)){ e.ok = now; jch = true; }
+    else if(d === 'newer'){ delete ents[id]; jch = true; }
+    else if(now - e.t > SETTLE_MS){ e.miss = (e.miss || 0) + 1; jch = true; }   /* sheet ne jawab diya, edit usme nahi */
+  });
+  if(jch){ persist(); paintSoon(); }
+}
+function observeAll(j){
+  var d = (j && j.data) || j || {};
+  if(!d || typeof d !== 'object') return;
+  TRACK.forEach(function(k){ if(Array.isArray(d[k])) observe(k, d[k]); });
+}
+
+/* getAll (fetch) -- base pull se PEHLE jawab padh lo */
+(function(){
+  var _f = window.fetch;
+  window.fetch = function(input, init){
+    var p = _f.apply(this, arguments), hit = false;
+    try{
+      var u = (typeof input === 'string') ? input : (input && input.url) || '';
+      var b = (init && typeof init.body === 'string') ? init.body : '';
+      hit = u.indexOf('/macros/s/') >= 0 && (u.indexOf('action=getAll') >= 0 || /"action"\s*:\s*"getAll"/.test(b));
+    }catch(e){}
+    if(!hit) return p;
+    return Promise.resolve(p).then(function(r){
+      try{
+        return r.clone().json().then(function(j){ try{ observeAll(j); }catch(e){} return r; }, function(){ return r; });
+      }catch(e){ return r; }
+    });
+  };
+})();
+
+/* action:'list' (XHR -- IndiaMART fallback fetch, pool check) */
+(function(){
+  var XP = XMLHttpRequest.prototype, _open = XP.open, _send = XP.send;
+  XP.open = function(m, u){ try{ this.__ocUrl = T(u); }catch(e){} return _open.apply(this, arguments); };
+  XP.send = function(body){
+    try{
+      if(this.__ocUrl && this.__ocUrl.indexOf('/macros/s/') >= 0 && typeof body === 'string' && body.indexOf('"list"') >= 0){
+        var pl = JSON.parse(body);
+        if(pl && pl.action === 'list' && has(TRACK, pl.collection)){
+          var x = this, coll = pl.collection;
+          x.addEventListener('load', function(){
+            try{
+              var j = JSON.parse(x.responseText);
+              var rows = j && (j.data || j.records || j.rows);
+              if(Array.isArray(rows)) observe(coll, rows);
+            }catch(e){}
+          });
+        }
+      }
+    }catch(e){}
+    return _send.apply(this, arguments);
+  };
+})();
+
+/* ---------------------------------------------------------------- 4. dobara bhejo */
+function unsnap(k, ids){
+  ['oc_srvSnap', 'oc_leadSnap'].forEach(function(sk){
+    try{
+      var s = JSON.parse(localStorage.getItem(sk) || '{}') || {};
+      if(!s[k]) return;
+      var ch = false;
+      ids.forEach(function(id){ if(s[k][id] !== undefined){ delete s[k][id]; ch = true; } });
+      if(ch) _lsSet.call(localStorage, sk, JSON.stringify(s));
+    }catch(e){}
+  });
+  try{
+    var h = JSON.parse(localStorage.getItem('oc_syncHash') || '{}') || {};
+    if(h[k] !== undefined){ delete h[k]; _lsSet.call(localStorage, 'oc_syncHash', JSON.stringify(h)); }
+  }catch(e){}
+}
+function due(k, now, force){
+  var ents = entries(k), out = [];
+  Object.keys(ents).forEach(function(id){
+    var e = ents[id];
+    if(e.ok || e.del) return;
+    if(!force){
+      if(now - e.t < SETTLE_MS) return;
+      /* sheet ne kam se kam ek baar bina is edit ke jawab diya ho -- ya 3 min
+         tak koi jawab hi na aaya ho. Warna pehla push abhi raaste me hai. */
+      if(!(e.miss > 0) && now - e.t < 180e3) return;
+      if((e.tries || 0) >= RETRY_MS.length) return;
+      if((e.next || 0) > now) return;
+    }
+    out.push(id);
+  });
+  return out;
+}
+function resend(k, force){
+  try{
+    if(typeof AUTH === 'undefined' || !AUTH.session || !AUTH.session()) return 0;
+    var now = Date.now(), ids = due(k, now, force);
+    if(!ids.length) return 0;
+    var local = {}; arrOf(k).forEach(function(r){ if(r && r.id != null) local[T(r.id)] = 1; });
+    ids = ids.filter(function(id){ return local[id]; });
+    if(!ids.length) return 0;
+    var ents = entries(k);
+    ids.forEach(function(id){
+      var e = ents[id], n = e.tries || 0;
+      e.tries = n + 1;
+      e.next = now + RETRY_MS[Math.min(n, RETRY_MS.length - 1)];
+    });
+    persist();
+    unsnap(k, ids);
+    console.log('[oc v54] ' + k + ': re-sending ' + ids.length + ' change(s) not yet confirmed by the sheet');
+    CLOUD.push(k, arrOf(k));
+    return ids.length;
+  }catch(e){ console.warn('[oc v54] resend', e); return 0; }
+}
+var rsTimers = {};
+function resendSoon(k){
+  clearTimeout(rsTimers[k]);
+  /* pull ka poora chain (v7 snapshot rebuild, merges) khatam hone do */
+  rsTimers[k] = setTimeout(function(){ resend(k, false); }, 2500);
+}
+setInterval(function(){
+  try{ if(document.hidden) return; TRACK.forEach(function(k){ resend(k, false); }); }catch(e){}
+}, 30000);
+
+/* ---------------------------------------------------------------- 5. chhota sa signal */
+function waiting(){
+  var j = load(), now = Date.now(), n = 0;
+  Object.keys(j.c).forEach(function(k){
+    Object.keys(j.c[k]).forEach(function(id){
+      var e = j.c[k][id];
+      if(!e.ok && !e.del && !expired(e, now) && e.miss > 0 && now - e.t > 45e3) n++;
+    });
+  });
+  return n;
+}
+var pTmr = null;
+function paintSoon(){ clearTimeout(pTmr); pTmr = setTimeout(paint, 400); }
+function paint(){
+  try{
+    var n = (typeof AUTH !== 'undefined' && AUTH.session && AUTH.session()) ? waiting() : 0;
+    var el = document.getElementById('ocEditWait');
+    if(!n){ if(el) el.remove(); return; }
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'ocEditWait';
+      el.setAttribute('role', 'status');
+      el.title = 'These changes are saved on this device and are being sent to the Google Sheet automatically. Click to send them again now.';
+      el.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:90;padding:7px 12px;border-radius:20px;cursor:pointer;'
+        + 'font:600 12px var(--sans);background:var(--surface);color:var(--text-2);border:1px solid var(--border);'
+        + 'border-left:3px solid var(--warn, #eda100);box-shadow:0 4px 14px rgba(0,0,0,.12);opacity:.96';
+      el.onclick = function(){ window.ocEditJournalResend(); try{ toast('Sending your changes to the Google Sheet again…'); }catch(e){} };
+      document.body.appendChild(el);
+    }
+    el.textContent = '⟳ ' + n + ' change' + (n > 1 ? 's' : '') + ' waiting for the Sheet';
+  }catch(e){}
+}
+setInterval(paint, 10000);
+
+/* ---------------------------------------------------------------- 6. console */
+window.ocEditJournal = function(){
+  var j = load(), now = Date.now(), out = [];
+  Object.keys(j.c).forEach(function(k){
+    Object.keys(j.c[k]).forEach(function(id){
+      var e = j.c[k][id];
+      out.push({ section:k, id:id, state: e.del ? 'deleted' : (e.ok ? 'confirmed' : 'waiting'),
+                 fields: Object.keys(e.f || {}).join(', '), ageSec: Math.round((now - e.t) / 1000), resends: e.tries || 0 });
+    });
+  });
+  try{ console.table(out); }catch(e){}
+  return { entries: out.length, waiting: out.filter(function(x){ return x.state === 'waiting'; }).length, overlays: stats.overlays, rowsKept: stats.rows };
+};
+window.ocEditJournalResend = function(){ var n = 0; TRACK.forEach(function(k){ n += resend(k, true); }); return n; };
+window.ocEditJournalClear  = function(){ JR = { u: myMail(), c: {} }; persist(); paint(); return true; };
+
+/* boot: purane / expired entries saaf, bache hue edits dobara bhejo */
+try{
+  var j0 = load(), now0 = Date.now(), ch0 = false;
+  Object.keys(j0.c).forEach(function(k){
+    Object.keys(j0.c[k]).forEach(function(id){ if(expired(j0.c[k][id], now0)){ delete j0.c[k][id]; ch0 = true; } });
+  });
+  if(ch0) persist();
+}catch(e){}
+setTimeout(function(){ try{ TRACK.forEach(function(k){ resend(k, false); }); paint(); }catch(e){} }, 9000);
+
+console.log('[oc v54] edit journal active — changes made during a sheet sync are no longer lost (' + TRACK.join(', ') + ')');
 })();
 </script>
 </body>
