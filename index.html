@@ -19199,7 +19199,10 @@ var MAX_VAL_LEN = 100000;        /* isse bade value (base64 image) journal me co
    karta hai. Wo "edit" nahi hai -- v32 bhi use sheet par nahi bhejta. Isliye
    lead par sirf wahi badlaav journal hota hai jisme asli field ya timestamp
    badla ho. */
-var LEAD_REAL = /^(lead_status|status|stage|owner|assigned_to|enquiryId|note|dupOf|remark|remarks|statusUpdatedAt|updatedAt|modifiedAt|stageChangedAt|followUp.*|qual.*|resp.*|assignedAt|history|cancelRemarks)$/;
+/* bilkul wahi list jo v32 ka realChange() dekhta hai (REAL_FIELDS + record
+   ke timestamps) -- jo badlaav v32 sheet par bhejta hi nahi (jaise Qualified
+   section ka qualifiedAt sweep), wo journal bhi nahi hota */
+var LEAD_REAL = /^(lead_status|status|stage|owner|assigned_to|enquiryId|note|dupOf|statusUpdatedAt|updatedAt|modifiedAt|stageChangedAt|createdAt)$/;
 
 function T(v){ return v == null ? '' : String(v); }
 function LC(v){ return T(v).trim().toLowerCase(); }
@@ -19396,6 +19399,7 @@ function overlay(k, v){
     if(d === 'newer'){ delete ents[id]; jch = true; return; }
     if(d !== 'stale') return;
     if(e.del){ drop[i] = 1; ch = true; n++; return; }
+    if(fieldsMatch(arr[i], e)) return;                 /* is copy me hamare fields pehle se hain */
     if(applyTo(arr[i], e)){ ch = true; n++; }
   });
   if(jch) persist();
