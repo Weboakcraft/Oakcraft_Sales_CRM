@@ -30,6 +30,15 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Meta Leads — Enquiry ID column (v55, build 2026.09.30.1)
+
+Backend sheet ke `metaLeads` tab me har lead ka `id` (jaise `ML-KM04PJ`) hi uska **Enquiry ID** hai. Meta Leads table me ye pehle dikhta hi nahi tha; ab `#` ke turant baad **Enquiry ID** column hai (click karke sort bhi hota hai).
+
+* Search box me Enquiry ID se bhi dhoondh sakte hain.
+* **Export** me pehla column `enquiry_id`. Bulk Upload column ke naam se milata hai, isliye export ki file dobara upload karne me koi dikkat nahi.
+* Edit form ke title me bhi Enquiry ID dikhta hai.
+* Column table ke andar hi bana hai, isliye baad me lagne wala Timer column pehle ki tarah `lead_status` se theek pehle aata hai.
+
 ## Sync ke dauran kiya gaya edit kabhi gum nahi hota (v54)
 
 **Bug:** Google Sheet sync (har 25 sec ka auto-sync, tab par wapas aana, app khulna) chal raha ho aur usi beech koi Save kare, to update gaayab ho jaata tha — user ko wahi kaam 2-3 baar karna padta tha.

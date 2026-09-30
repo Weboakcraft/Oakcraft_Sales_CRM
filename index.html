@@ -6526,7 +6526,7 @@ console.log('[oc v7] row-safe save active');
       if(f.owner === '__none__'){ if(l.assigned_to || l.owner) return false; }
       else if(f.owner && _lc(l.owner) !== _lc(f.owner) && _lc(l.assigned_to) !== _lc(nameOf(f.owner))) return false;
       if(!q) return true;
-      return [l.created_time_ist, l.platform, l.full_name, l.phone_number, l.city_state,
+      return [l.id, l.created_time_ist, l.platform, l.full_name, l.phone_number, l.city_state,
               l.lead_status, l.assigned_to, l.email, l.product, l.campaign, l.note]
              .join(' ').toLowerCase().indexOf(q) >= 0;
     });
@@ -6602,7 +6602,7 @@ console.log('[oc v7] row-safe save active');
     /* ---- toolbar ---- */
     var platsPresent = {}; all.forEach(function(l){ var p = platCode(l.platform); if(p) platsPresent[p] = 1; });
     var tools = '<div class="mls-tools">'
-      + '<input class="mls-q" id="mlSearch" placeholder="Search name / phone / city / status…" value="' + esc(window.__mlQ) + '">'
+      + '<input class="mls-q" id="mlSearch" placeholder="Search enquiry ID / name / phone / city / status…" value="' + esc(window.__mlQ) + '">'
       + '<select class="mls-f" id="mlFPlat"><option value="">All platforms</option>'
         + Object.keys(platsPresent).map(function(p){
             return '<option value="' + esc(p) + '"' + (window.__mlFilt.platform === p ? ' selected' : '') + '>' + esc(p) + (PLAT_LABEL[p] ? ' · ' + PLAT_LABEL[p] : '') + '</option>';
@@ -6642,16 +6642,18 @@ console.log('[oc v7] row-safe save active');
     }
 
     /* ---- table ---- */
-    function th(k){
+    function th(k, label){
       var on = window.__mlSort.k === k;
       var arrow = on ? (window.__mlSort.dir === 1 ? ' ▲' : ' ▼') : '';
-      return '<th style="cursor:pointer" onclick="ML.sort(\'' + k + '\')" title="Sort">' + k + arrow + '</th>';
+      return '<th style="cursor:pointer" onclick="ML.sort(\'' + k + '\')" title="Sort">' + (label || k) + arrow + '</th>';
     }
     var allOn = rows.length && rows.every(function(l){ return window.__mlSel[l.id]; });
     var head = '<thead><tr>'
       + '<th class="cbx"><input type="checkbox" id="mlChkAll"' + (allOn ? ' checked' : '') + ' onclick="ML.selPage(this.checked)"></th>'
       + '<th>#</th>'
-      + SHEET_COLS.map(th).join('')
+      /* v55: backend (metaLeads tab) ka `id` = Enquiry ID -- ab list me bhi dikhta hai */
+      + th('id', 'Enquiry ID')
+      + SHEET_COLS.map(function(k){ return th(k); }).join('')
       + '<th>actions</th></tr></thead>';
 
     var body = rows.map(function(l, i){
@@ -6683,6 +6685,7 @@ console.log('[oc v7] row-safe save active');
       return '<tr class="' + (sel ? 'sel' : '') + '">'
         + '<td class="cbx"><input type="checkbox"' + (sel ? ' checked' : '') + ' onclick="ML.selOne(\'' + l.id + '\',this.checked)"></td>'
         + '<td class="num">' + (i + 1) + '</td>'
+        + '<td class="num" style="white-space:nowrap"><span class="strong tabular" title="Enquiry ID (backend sheet: metaLeads → id)">' + esc(l.id || '—') + '</span></td>'
         + '<td class="num">' + esc(l.created_time_ist || '—') + '</td>'
         + '<td>' + (l.platform ? '<span class="chip c-neutral" title="' + esc(PLAT_LABEL[l.platform] || l.platform) + '">' + esc(l.platform) + '</span>' : '—') + '</td>'
         + '<td class="wrap"><span class="strong">' + esc(l.full_name || '—') + '</span>'
@@ -6904,7 +6907,8 @@ console.log('[oc v7] row-safe save active');
       : '';
 
     openModal(
-      '<h3 style="margin:0 0 4px">' + (id ? 'Edit Meta Lead' : 'New Meta Lead') + '</h3>'
+      '<h3 style="margin:0 0 4px">' + (id ? 'Edit Meta Lead' : 'New Meta Lead')
+        + (id && l.id ? ' <span class="chip c-neutral tabular" title="Enquiry ID">' + esc(l.id) + '</span>' : '') + '</h3>'
       + '<p class="bu-note">Sheet columns are at the top, older Meta fields below — both are saved.</p>'
       + '<div class="ml-f">'
       + '<div><label>created_time_ist</label><input id="mlCreated" value="' + esc(l.created_time_ist) + '" placeholder="DD-MM-YYYY HH:MM:SS"></div>'
@@ -7420,14 +7424,16 @@ console.log('[oc v7] row-safe save active');
   ML.exportSheet = function(){
     var list = sortList(visibleLeads());
     if(!list.length){ toast('There are no leads to export.'); return; }
-    var aoa = [SHEET_COLS.slice()].concat(list.map(function(l){
-      return [l.created_time_ist || '', l.platform || '', l.full_name || '', l.phone_number || '',
+    /* v55: pehla column Enquiry ID (backend ka id). Bulk Upload column naam se
+       milata hai, isliye ye extra column dobara upload me koi dikkat nahi karta. */
+    var aoa = [['enquiry_id'].concat(SHEET_COLS)].concat(list.map(function(l){
+      return [l.id || '', l.created_time_ist || '', l.platform || '', l.full_name || '', l.phone_number || '',
               l.city_state || '', statusCode(l.lead_status) || '', l.assigned_to || nameOf(l.owner) || ''];
     }));
     ensureXLSX().then(function(){
       var wb = XLSX.utils.book_new();
       var ws = XLSX.utils.aoa_to_sheet(aoa);
-      ws['!cols'] = [{wch:20},{wch:10},{wch:26},{wch:18},{wch:24},{wch:14},{wch:20}];
+      ws['!cols'] = [{wch:14},{wch:20},{wch:10},{wch:26},{wch:18},{wch:24},{wch:14},{wch:20}];
       XLSX.utils.book_append_sheet(wb, ws, 'Meta');
       var d = new Date();
       XLSX.writeFile(wb, 'meta_leads_' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '.xlsx');
@@ -8210,7 +8216,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.09.29.1';
+var OC_WEB_BUILD = '2026.09.30.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
