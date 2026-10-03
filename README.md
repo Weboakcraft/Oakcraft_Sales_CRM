@@ -30,6 +30,31 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Browser storage full — ab compressed (v56, build 2026.10.03.1)
+
+**Bug (03-10-2026):** neeche toast *"Browser storage is full — indiamartLeads: new data cannot be saved."* Orders list 30/09/2026 par atak gayi, IndiaMART refresh nahi hota tha.
+
+**Wajah:** Chrome ek origin (`weboakcraft.github.io`) ko ~5 million characters ka localStorage deta hai — aur ye jagah is origin par chalne wale **saare** apps milkar baant-te hain. Admin browser me 100% bhar chuka tha:
+
+| Kya | Jagah |
+|---|---|
+| `oc_srvSnap` + `oc_leadSnap` (poore data ki doosri copy, v7/v32 change-detection ke liye) | ~4.0 MB |
+| CRM data (activity, indiamartLeads, metaLeads, quotations, orders, customers, enquiries …) | ~4.5 MB |
+| Doosre apps ke cache (`occ:get*`, `oc.c.get*`, `kms-cache-v1`, `oak.run.*`) | ~1.5 MB |
+
+Jagah na hone par v34 merge sheet ka naya data likh hi nahi paata tha (QuotaExceeded) — isliye naye orders / leads dikhte hi nahi the.
+
+**Ilaaj — `lib/oc-store.js`** (index.html aur quotation-builder.html me sabse pehli script):
+
+- CRM ki badi keys localStorage me **LZ-String (UTF-16) se compressed** likhi jaati hain — asli data par ~8x chhoti (live admin browser: 4.3M → 0.56M chars).
+- Layer `Storage.prototype.getItem / setItem` ke andar hai, isliye app ka baaki code bina badle chalta hai — `getItem` hamesha asli JSON lautaata hai. Purani (uncompressed) value bhi padhi jaati hai, aur app khulte hi ek baar apne aap compressed ban jaati hai.
+- Compress hone wali keys: `orders, enquiries, quotations, dispatch, activity, indiamartLeads, metaLeads, oc_srvSnap, oc_leadSnap, oc_leadSeen, oc_seenIds, oc_editJournal, oc_orderStamps, __ocPend_*`. `customers` / `products` jaan-boojh kar nahi (isi origin ke doosre tools unhe seedha padh sakte hain).
+- Wahi value dobara likhi jaaye to kuch nahi hota (sync har 25 sec snapshot likhta hai — CPU bachta hai).
+- Phir bhi jagah na bache to sirf doosre apps ke API-response cache (`occ:get*`, `oc.c.get*`, `kms-cache-v1`) hata kar dobara likha jaata hai. CRM ka data kabhi nahi hatta.
+- Console: `ocStorageReport()` — kitni jagah bhari hai, kaun si key kitni badi, compressed hai ya nahi.
+
+Deploy ke baad har browser me CRM ek baar reload karna kaafi hai (purane khule tab me "Update available" banner aata hai).
+
 ## Meta Leads — Enquiry ID column (v55, build 2026.09.30.1)
 
 Backend sheet ke `metaLeads` tab me har lead ka `id` (jaise `ML-KM04PJ`) hi uska **Enquiry ID** hai. Meta Leads table me ye pehle dikhta hi nahi tha; ab `#` ke turant baad **Enquiry ID** column hai (click karke sort bhi hota hai).
