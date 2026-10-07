@@ -30,6 +30,23 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Quotation Fast Mode (v58, build 2026.10.07.2)
+
+Problem: Download PDF pehle quotation ko poori tarah (photos ke saath) Sheet par save karta tha aur jawab aane tak PDF nahi banti thi. Apps Script us waqt CRM ke har khule tab ki `getAll` (~3 MB, ~15 sec, har 25 sec) se bhi ladta tha — isliye save me minute lag jaate the.
+
+Ab (`quotation-builder.html`):
+
+1. Server se pakka number (atomic `nextQuoteNo`, ~1–2 sec) — numbering pehle jaisi surakshit.
+2. Record ki copy `oc_qb_outbox` me, phir **PDF turant** (download ~2–5 sec).
+3. Sheet par save **peeche** chalta hai — neeche-daayein chip: *Saving… / ✓ saved (Ns) / ⚠ retrying*.
+4. Fail / timeout par apne aap dobara: 10s, 30s, 1m, 2m, phir har 5m — wahi id, isliye upsert, duplicate nahi. Chip dabane par turant retry.
+5. Builder band ho jaaye to agli baar builder khulte hi, ya CRM (`index.html`, har 60 sec) wahi record bhej deta hai — sirf usi login ke records.
+6. Font (Roboto) page khulte hi pehle se load (`PDFV.warm()`).
+
+CRM ka auto-sync 25 sec se **60 sec** kiya (tab par wapas aate hi refresh pehle jaisa turant) — Apps Script par load ~60% kam.
+
+Console: `ocOutbox()` (builder — kya baaki hai), `ocQbOutboxFlush()` (CRM), `__ocPdfLog` (har step ka time).
+
 ## Dashboard — Orders & Payments (v57, build 2026.10.07.1)
 
 Dashboard ke upar wale 5 card ke neeche ek nayi line, 6 card:

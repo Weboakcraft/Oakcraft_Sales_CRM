@@ -1797,7 +1797,10 @@ window.addEventListener('focus', ()=>{
     })(page);
     return {boxes, images, lines};
   }
-  async function loadFont(){
+  /* ek hi baar fetch -- warm() aur download saath chalein to dono wahi promise lete hain */
+  let _fontP = null;
+  function loadFont(){ if(!_fontP) _fontP = loadFont0(); return _fontP; }
+  async function loadFont0(){
     if(fontB64 !== undefined) return fontB64;
     fontB64 = null;
     for(const u of FONT_URLS){
@@ -1931,7 +1934,8 @@ window.addEventListener('focus', ()=>{
     }
     return doc;
   }
-    return {build, collect, PT};
+    function warm(){ return loadFont().catch(function(){}); }
+    return {build, collect, PT, warm};
   })();
 
 
@@ -1978,18 +1982,23 @@ window.addEventListener('focus', ()=>{
       var _q = window.__ocQ || {};
       var _t0 = Date.now(), _log = window.__ocPdfLog = [];
       var step = function(name){ _log.push(name + ' @' + ((Date.now() - _t0) / 1000).toFixed(1) + 's'); };
+      /* FAST MODE (v58): ab sirf number + record ki copy ka intezaar hota hai
+         (~1-2 sec). Sheet par save PEECHE chalta hai (ocQuickSave) aur PDF
+         usi waqt banti hai -- number wahi rehta hai, record wahi id se upsert
+         hota hai, isliye duplicate number / record ab bhi nahi banta. */
+      var _prep = null;
       if(_q.mode !== 'view'){
-        if(btn) btn.textContent = 'Saving quotation\u2026';
-        step('save:start');
-        var _saved = (typeof window.ocSaveQuotation === 'function')
-          ? await window.ocSaveQuotation() : false;
-        if(!_saved){
+        if(btn) btn.textContent = 'Getting number\u2026';
+        step('prepare:start');
+        _prep = (typeof window.ocQuickPrepare === 'function') ? await window.ocQuickPrepare() : null;
+        if(!_prep || !_prep.rec){
           /* asli wajah hint() me pehle hi dikh chuki hai */
-          step('save:failed');
-          if(btn){ btn.disabled = false; btn.textContent = label || '\u2913 Download PDF'; }
+          step('prepare:failed');
+          if(btn){ btn.disabled = false; btn.textContent = label; }
           return;
         }
-        step('save:done');
+        step('prepare:done');
+        try{ window.ocQuickSave(_prep); }catch(e){ console.warn('bg save', e); }   /* intezaar nahi */
       }
       if(btn) btn.textContent = 'Building PDF\u2026';
       if(typeof R === 'function') R();                 // ab pakke number se dobara render
@@ -2350,7 +2359,8 @@ window.addEventListener('focus', ()=>{
           return false;
         }
         hint('Not saved to the sheet: ' + (err && err.message ? err.message : err) +
-             ' \u2014 number ' + rec.id + ' is reserved for you, press Save again.', false);
+             ' \u2014 number ' + rec.id + ' is reserved for you; it will be retried automatically.', false);
+        try{ queueRetry(rec, isNew); }catch(e){}
         return false;
       });
     }
@@ -2377,6 +2387,193 @@ window.addEventListener('focus', ()=>{
     if(Q.mode === 'view') return Promise.resolve(false);
     return window.ocSaveQuotation();
   };
+
+  /* ======================= FAST MODE (v58) ===================================
+     Pehle "Download PDF" ka kram tha: number lo -> POORI quotation (photos ke
+     saath) Sheet par save karo -> jawab ka intezaar -> tab PDF. Save me Apps
+     Script ko photos Drive par daalni padti hain aur wo server CRM ke har khule
+     tab ki getAll (3 MB, ~15 sec) se bhi ladta hai -- isliye save me minute lag
+     jaate the aur employee PDF ke liye wahi baith kar intezaar karta tha.
+
+     Ab:
+       1. number server se (atomic, ~1-2 sec) -- numbering pehle jaisi surakshit
+       2. record ki copy turant "outbox" me (Save ka pakka sabooth)
+       3. Sheet par save PEECHE chalta hai, aur saath-saath PDF banti + download
+          hoti hai (~2-5 sec)
+       4. save fail / timeout ho to apne aap dobara: 10s, 30s, 1m, 2m, phir har
+          5m. Page band ho jaaye to agli baar builder ya CRM khulte hi outbox
+          se wahi record dobara jaata hai. Wahi id -> upsert, duplicate nahi.
+     Neeche-daayein chip batata hai: saving / saved / retrying.
+  ========================================================================== */
+  var OUTBOX = 'oc_qb_outbox';
+  var RETRY_MS = [10e3, 30e3, 60e3, 120e3, 300e3];
+  var _bg = {}, _mem = {}, _timers = {};
+
+  function obAll(){ var o = lsGet(OUTBOX, {}); o = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; for(var k in _mem) if(!o[k]) o[k] = _mem[k]; return o; }
+  function obPut(rec, isNew, tries){
+    var o = lsGet(OUTBOX, {}); if(!o || typeof o !== 'object' || Array.isArray(o)) o = {};
+    var e = { rec: rec, isNew: !!isNew, tries: tries || 0, at: Date.now(), owner: rec.owner || '' };
+    o[rec.id] = e;
+    if(!lsSet(OUTBOX, o)) _mem[rec.id] = e;          /* storage full -- kam se kam is page tak yaad rahe */
+  }
+  function obDel(id){
+    var o = lsGet(OUTBOX, {});
+    if(o && o[id]){ delete o[id]; lsSet(OUTBOX, o); }
+    delete _mem[id];
+    if(_timers[id]){ clearTimeout(_timers[id]); delete _timers[id]; }
+  }
+  function busy(){ return Object.keys(_bg).length > 0 || Object.keys(obAll()).length > 0; }
+
+  /* ---- chhota status chip (har mode me dikhta hai) ---- */
+  var _chipT = null;
+  function chip(msg, tone, onClick, hideAfter){
+    var c = document.getElementById('ocSaveChip');
+    if(!c){
+      c = document.createElement('div'); c.id = 'ocSaveChip';
+      c.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:9999;max-width:min(420px,calc(100vw - 28px));'
+        + 'padding:9px 13px;border-radius:10px;font:600 12.5px/1.35 system-ui,sans-serif;box-shadow:0 6px 22px rgba(0,0,0,.18);'
+        + 'color:#fff;transition:opacity .3s';
+      document.body.appendChild(c);
+    }
+    var bg = { busy:'#1f4e8c', ok:'#17803d', warn:'#a35a00', err:'#b42318' }[tone] || '#333';
+    c.style.background = bg; c.style.opacity = '1'; c.style.display = '';
+    c.style.cursor = onClick ? 'pointer' : 'default';
+    c.textContent = msg; c.onclick = onClick || null;
+    clearTimeout(_chipT);
+    if(hideAfter) _chipT = setTimeout(function(){ c.style.opacity = '0'; setTimeout(function(){ c.style.display = 'none'; }, 350); }, hideAfter);
+  }
+
+  function onSaved(rec, wasNew){
+    upsertLocal(rec);
+    var same = String(Q.id || '') === String(rec.id)
+            || (!Q.id && Q.mode !== 'view' && wasNew && fmtQno() === String(rec.id));
+    if(same){
+      current = rec;
+      if(!Q.id){
+        Q.mode = 'edit'; Q.id = rec.id;
+        try{ history.replaceState(null, '', '#edit=' + encodeURIComponent(rec.id)); }catch(e){}
+      }
+      paintMode();
+    }
+    linkEnquiry(rec);
+  }
+
+  /* number kisi aur ki quotation se takra gaya (bahut kam hota hai) */
+  function renumber(rec){
+    if(fmtQno() !== String(rec.id) || Q.id){
+      chip('✗ ' + rec.id + ': number belongs to another quotation — open this quotation again and press Save.', 'err');
+      return Promise.resolve(false);
+    }
+    chip('⟳ ' + rec.id + ' already used — getting a new number…', 'busy');
+    numberFinal = false;
+    return allocateNumber().then(function(){
+      var r2 = buildRecord();
+      return bgSave(r2, true, 0, true).then(function(ok){
+        if(ok) chip('⚠ Number changed to ' + r2.id + ' — the PDF you downloaded shows ' + rec.id
+                  + '. Tap here to download the PDF again.', 'warn', function(){ window.downloadPDF(); });
+        return ok;
+      });
+    }).catch(function(e){
+      chip('✗ Could not get a new number: ' + (e && e.message ? e.message : e), 'err');
+      return false;
+    });
+  }
+
+  /* Sheet par background save -- PDF iska intezaar NAHI karta */
+  function bgSave(rec, isNew, tries, quietOk){
+    var id = String(rec.id);
+    if(_bg[id]){ _bg[id].next = { rec: rec, isNew: isNew }; return _bg[id].p; }   /* naya version, purane ke baad */
+    if(_timers[id]){ clearTimeout(_timers[id]); delete _timers[id]; }
+    obPut(rec, isNew, tries || 0);
+    var entry = { next: null }, t0 = Date.now();
+    _bg[id] = entry;
+    chip('⟳ Saving ' + id + ' to Google Sheet…', 'busy');
+    entry.p = window.__ocGasSaveChecked(rec, { isNew: isNew }).then(function(){
+      delete _bg[id];
+      obDel(id);
+      onSaved(rec, isNew);
+      var secs = Math.round((Date.now() - t0) / 1000);
+      if(!quietOk) chip('✓ ' + id + ' saved to Google Sheet (' + secs + 's)', 'ok', null, 6000);
+      hint('✓ ' + id + ' saved — it is now in the CRM\'s Quotations list.', true);
+      if(entry.next) return bgSave(entry.next.rec, entry.next.isNew);
+      return true;
+    }, function(err){
+      delete _bg[id];
+      if(entry.next) return bgSave(entry.next.rec, entry.next.isNew);
+      var code = err && err.code, msg = (err && err.message) ? err.message : String(err);
+      if(code === 'rejected'){
+        obDel(id);
+        chip('✗ ' + id + ' NOT saved: ' + msg, 'err'); hint(msg, false);
+        return false;
+      }
+      if(code === 'taken' && isNew){ obDel(id); return renumber(rec); }
+      if(code === 'taken'){
+        obDel(id);
+        chip('✗ ' + id + ' is someone else\'s quotation — not saved.', 'err');
+        return false;
+      }
+      /* net / timeout / server busy -> apne aap dobara */
+      var n = (tries || 0) + 1, wait = RETRY_MS[Math.min(n - 1, RETRY_MS.length - 1)];
+      obPut(rec, isNew, n);
+      var again = function(){ var e = obAll()[id]; if(e) bgSave(e.rec, e.isNew, n); };
+      _timers[id] = setTimeout(again, wait);
+      chip('⚠ ' + id + ' not saved yet (' + msg + '). Retrying in ' + Math.round(wait / 1000)
+         + 's automatically — tap to retry now.', 'warn', again);
+      hint(id + ' is waiting to be saved — retrying automatically. Do not clear this browser\'s data.', false);
+      return false;
+    });
+    return entry.p;
+  }
+  function queueRetry(rec, isNew){ obPut(rec, isNew, 1); _timers[rec.id] = setTimeout(function(){ var e = obAll()[rec.id]; if(e) bgSave(e.rec, e.isNew, 1); }, RETRY_MS[0]); }
+
+  /* Download se pehle ka TEZ hissa: jaanch + number + record ki copy. Save nahi. */
+  window.ocQuickPrepare = function(){
+    if(Q.mode === 'view') return Promise.resolve({ view: true });
+    if(typeof repMissing === 'function' && repMissing()) return Promise.resolve(null);
+    if(typeof window.ocGPGate === 'function' && !window.ocGPGate()) return Promise.resolve(null);
+    if(Q.id && !current){
+      hint('Quotation ' + Q.id + ' has not loaded yet — refresh the page and open it again.', false);
+      return Promise.resolve(null);
+    }
+    var isNew = !Q.id;
+    var num = (isNew && !numberFinal)
+      ? allocateNumber().catch(function(err){
+          hint('Could not get a quotation number (' + (err && err.message ? err.message : err)
+             + '). Check the internet connection and try again.', false);
+          throw err;
+        })
+      : Promise.resolve(S.qno);
+    return num.then(function(){ return fitThumbs(); }).then(function(){
+      if(isNew && !numberFinal){ hint('The quotation number has not been received yet — try again.', false); return null; }
+      var rec = buildRecord();
+      if(!rec.owner){ hint('You don\'t seem to be logged in to the CRM — open the CRM and log in first.', false); return null; }
+      try{ lsSet(LOCAL_QB + rec.id, qbState()); }catch(e){}
+      return { rec: rec, isNew: isNew };
+    }).catch(function(){ return null; });
+  };
+  window.ocQuickSave = function(prep){ return (prep && prep.rec) ? bgSave(prep.rec, prep.isNew) : Promise.resolve(false); };
+
+  /* page band karte waqt save baaki ho to browser poochhe */
+  window.addEventListener('beforeunload', function(e){
+    if(Object.keys(_bg).length){ e.preventDefault(); e.returnValue = ''; return ''; }
+  });
+
+  /* builder khulte hi outbox me atke records dobara bhejo (sirf apne login ke) */
+  function flushOutbox(){
+    var me = (typeof ocSessionEmail === 'function') ? String(ocSessionEmail() || '').toLowerCase() : '';
+    var o = obAll();
+    Object.keys(o).forEach(function(id){
+      var e = o[id];
+      if(!e || !e.rec || _bg[id]) return;
+      if(String(e.owner || e.rec.owner || '').toLowerCase() !== me) return;
+      bgSave(e.rec, e.isNew, e.tries || 0);
+    });
+  }
+  setTimeout(flushOutbox, 2500);
+  window.ocOutbox = function(){ return obAll(); };      /* console: kya baaki hai */
+
+  /* PDF ka font aur jsPDF pehle se garam -- pehli download me intezaar nahi */
+  setTimeout(function(){ try{ if(window.PDFV && window.PDFV.warm) window.PDFV.warm(); }catch(e){} }, 1200);
 
   /* ---------- toolbar / mode ---------- */
   function paintMode(){

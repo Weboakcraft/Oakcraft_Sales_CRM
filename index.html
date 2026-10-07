@@ -3007,7 +3007,61 @@ function bindAppEvents(){
           if(window.__ocUserTyping && window.__ocUserTyping()) return;
           if(typeof refreshFromCloud==='function') refreshFromCloud(true);
         }catch(e){}
-      }, 25000);
+      }, 60000);   /* v58: 25s -> 60s. Har getAll ~3 MB / ~15 sec ka hai; har khule tab se
+                      har 25 sec chalne par Apps Script lagataar busy rehta tha aur
+                      quotation / order ka save usi line me intezaar karta tha. Tab par
+                      wapas aate hi refresh pehle ki tarah turant hota hai. */
+    }
+  }catch(e){}
+
+  /* v58: Quotation Builder ka outbox -- builder band ho gaya aur Sheet par save
+     baaki reh gaya, to CRM wahi record (wahi id) apne aap bhej deta hai. Sirf
+     apne login ke records; jo builder abhi khud bhej raha ho (90 sec ke andar
+     koshish hui) use nahi chhoota. */
+  try{
+    if(!window.__ocQbOutbox){
+      window.__ocQbOutbox = true;
+      var _obBusy = false, OB_KEY = 'oc_qb_outbox';
+      var obRead = function(){ try{ var o = JSON.parse(localStorage.getItem(OB_KEY) || '{}'); return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; }catch(e){ return {}; } };
+      var obFlush = async function(){
+        if(_obBusy) return;
+        var me = ''; try{ me = String((AUTH.current() || {}).email || '').toLowerCase(); }catch(e){}
+        if(!me) return;
+        var o = obRead(), now = Date.now();
+        var ids = Object.keys(o).filter(function(id){
+          var e = o[id];
+          return e && e.rec && String(e.owner || e.rec.owner || '').toLowerCase() === me && (now - (+e.at || 0)) > 90000;
+        });
+        if(!ids.length) return;
+        _obBusy = true;
+        try{
+          for(var i = 0; i < ids.length; i++){
+            var id = ids[i], e = o[id], payload = e.rec;
+            if(e.isNew){ payload = {}; for(var k in e.rec) payload[k] = e.rec[k]; delete payload.owner; }
+            var ctl = new AbortController(), t = setTimeout(function(){ ctl.abort(); }, 120000);
+            try{
+              var r = await fetch(CLOUD.url, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action:'save', collection:'quotations', record:{ id: e.rec.id, data: payload } }), signal: ctl.signal });
+              var j = await r.json();
+              var bad = !j || !j.ok || (j.rejected && j.rejected.length) || (j.skipped && !j.done) || j.done === 0;
+              var cur = obRead();
+              if(!bad){
+                delete cur[id];
+                try{ toast('Quotation ' + id + ' saved to Google Sheet'); }catch(_){}
+              } else if(cur[id]){
+                cur[id].at = Date.now(); cur[id].tries = (+cur[id].tries || 0) + 1;
+                cur[id].lastError = (j && (j.error || (j.rejected && 'rejected') || (j.skipped && 'taken'))) || 'not saved';
+              }
+              localStorage.setItem(OB_KEY, JSON.stringify(cur));
+            }catch(err){
+              var c2 = obRead(); if(c2[id]){ c2[id].at = Date.now(); c2[id].tries = (+c2[id].tries || 0) + 1; try{ localStorage.setItem(OB_KEY, JSON.stringify(c2)); }catch(_){} }
+            }finally{ clearTimeout(t); }
+          }
+        }finally{ _obBusy = false; }
+      };
+      setTimeout(obFlush, 8000);
+      setInterval(function(){ if(!document.hidden) obFlush(); }, 60000);
+      window.ocQbOutboxFlush = obFlush;
     }
   }catch(e){}
 
@@ -8270,7 +8324,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.07.1';
+var OC_WEB_BUILD = '2026.10.07.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
