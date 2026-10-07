@@ -30,6 +30,10 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Dashboard — Salesperson-wise Payments (v59, build 2026.10.07.3)
+
+Orders & Payments cards ke theek neeche ek table: har salesperson ki **Total Sale Value · Total Received · Total Pending** (naam ke neeche orders ki ginti), sabse zyada pending upar, aakhri line me Total. Wahi order list aur wahi hisaab jo upar ke cards ka (`ocPayStats`) — period filter, user scope, Admin ke test orders bahar, Cancelled bahar. Salesperson = order ka `salesperson` field (khaali ho to owner ka naam). Dashboard har sync par data badalte hi dobara banta hai, isliye table live rehta hai. Console: `ocPayBySales(DB.orders())`.
+
 ## Quotation Fast Mode (v58, build 2026.10.07.2)
 
 Problem: Download PDF pehle quotation ko poori tarah (photos ke saath) Sheet par save karta tha aur jawab aane tak PDF nahi banti thi. Apps Script us waqt CRM ke har khule tab ki `getAll` (~3 MB, ~15 sec, har 25 sec) se bhi ladta tha — isliye save me minute lag jaate the.

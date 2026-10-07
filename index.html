@@ -132,6 +132,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 table{width:100%;border-collapse:collapse}
 thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;padding:11px 20px;background:var(--surface-2);border-bottom:1px solid var(--border);white-space:nowrap}
 tbody td{padding:13px 20px;border-bottom:1px solid var(--border);font-size:13.5px;vertical-align:middle}
+#oc-pay-sales tfoot td{padding:13px 20px;font-size:13.5px;background:var(--surface-2)}
 tbody tr:last-child td{border-bottom:none}
 tbody tr:hover{background:var(--surface-2)}
 td .strong{font-weight:650}
@@ -647,6 +648,8 @@ function renderDashboard(){
       ${dcard('doc','rgba(208,59,59,.12)','#d03b3b',short(PAY.pending),'Total Pending Amount','','up')}
     </div>
 
+    ${ocPaySalesTable(ord)}
+
     <div class="grid-2">
       <div class="panel"><h3>Revenue Trend <small>Last 6 months (₹ Lakh)</small></h3><div class="chart-wrap"><canvas id="ch-rev"></canvas></div></div>
       <div class="panel"><h3>Sales Funnel <small>Enquiry → Dispatch</small></h3><div id="funnel"></div></div>
@@ -718,6 +721,40 @@ function ocPayStats(orders){
   return r;
 }
 window.ocPayStats=ocPayStats;
+/* v59: Salesperson-wise -- wahi ord list aur wahi hisaab jo upar ke cards ka.
+   Har salesperson ki Total Sale Value / Received / Pending. Dashboard har sync
+   par (data badalte hi) dobara banta hai, isliye table live rehta hai. */
+function ocPayBySales(orders){
+  const by={};
+  (orders||[]).forEach(o=>{
+    if(!o||o.status==='Cancelled') return;
+    let nm=String(o.salesperson||'').trim();
+    if(!nm){ try{ const u=(typeof AUTH!=='undefined'&&AUTH.find)?AUTH.find(o.owner):null; nm=String((u&&u.name)||o.owner||'').trim(); }catch(e){ nm=String(o.owner||'').trim(); } }
+    if(!nm) nm='\u2014 Not assigned \u2014';
+    const key=nm.toLowerCase();
+    (by[key]=by[key]||{name:nm,list:[]}).list.push(o);
+  });
+  return Object.keys(by).map(k=>{ const st=ocPayStats(by[k].list); return {name:by[k].name,count:st.count,value:st.value,received:st.received,pending:st.pending}; })
+    .sort((a,b)=>b.pending-a.pending||b.value-a.value);
+}
+window.ocPayBySales=ocPayBySales;
+function ocPaySalesTable(orders){
+  const rows=ocPayBySales(orders);
+  const tc=s=>String(s).toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+  const T=rows.reduce((a,r)=>{ a.count+=r.count; a.value+=r.value; a.received+=r.received; a.pending+=r.pending; return a; },{count:0,value:0,received:0,pending:0});
+  const td=(col)=>`class="strong tabular" style="text-align:right${col?';color:'+col:''}"`;
+  const body=rows.map(r=>`<tr>
+      <td>${userCell(tc(r.name))} <span class="sub">${r.count} order${r.count===1?'':'s'}</span></td>
+      <td ${td('')}>${money(r.value)}</td>
+      <td ${td('#0ca30c')}>${money(r.received)}</td>
+      <td ${td(r.pending>0?'#d03b3b':'')}>${money(r.pending)}</td></tr>`).join('');
+  return `<div class="card" id="oc-pay-sales" style="margin-bottom:20px">
+    <div class="card-head"><h3>Salesperson-wise Payments</h3><span class="sub">Same period &amp; filters as above \u00b7 Cancelled orders excluded</span></div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Salesperson</th><th style="text-align:right">Total Sale Value</th><th style="text-align:right">Total Received</th><th style="text-align:right">Total Pending</th></tr></thead>
+    <tbody>${body||'<tr><td colspan="4" class="empty">No orders in this period.</td></tr>'}</tbody>
+    ${rows.length>1?`<tfoot><tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total <span class="sub">${T.count} orders</span></td><td ${td('')}>${money(T.value)}</td><td ${td('#0ca30c')}>${money(T.received)}</td><td ${td(T.pending>0?'#d03b3b':'')}>${money(T.pending)}</td></tr></tfoot>`:''}
+    </table></div></div>`;
+}
 function dcard(ico,bg,col,val,lbl,delta,dir){
   const dl = delta ? (delta==='new' ? `<span class="delta up" title="No data for last month">new</span>` : `<span class="delta ${dir}" title="vs last month">${dir==='up'?I.up:I.down}${delta}</span>`) : '';
   return `<div class="kpi"><div class="k-top"><div class="k-ico" style="background:${bg};color:${col}">${I[ico]}</div>
@@ -8324,7 +8361,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.07.2';
+var OC_WEB_BUILD = '2026.10.07.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
