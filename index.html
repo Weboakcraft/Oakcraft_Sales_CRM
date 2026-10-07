@@ -95,6 +95,9 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
 /* KPI cards */
 .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:20px}
+.kpi-grid.kpi-6{grid-template-columns:repeat(6,1fr)}
+.kpi-grid.kpi-6 .val{font-size:24px}
+@media(max-width:1300px){.kpi-grid.kpi-6{grid-template-columns:repeat(3,1fr)}}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
 .kpi .k-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .kpi .k-ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center}
@@ -602,6 +605,9 @@ function renderDashboard(){
   const billOf=o=>Math.round((+o.amount||0)*1.18);
   const revenue=ord.filter(o=>o.status!=='Cancelled').reduce((s,o)=>s+billOf(o),0);
   const pendingDis=ord.filter(o=>o.status==='Ready'||o.status==='Confirmed'||o.status==='In Production').length;
+  /* v57: Orders & Payments row -- wahi ord list (scope + period filter + admin
+     orders bahar), Cancelled orders kisi ginti me nahi. */
+  const PAY=ocPayStats(ord);
   const pipelineVal=enq.filter(e=>!['Won','Lost'].includes(e.stage)).reduce((s,e)=>s+(+e.value||0),0);
   /* Real month-over-month deltas (this calendar month vs last month). Earlier these were
      hard-coded demo values (+12%, +4.2% ...) that never changed. */
@@ -630,6 +636,15 @@ function renderDashboard(){
       ${dcard('cart','rgba(237,161,0,.14)','#b06a00',openOrders,'Open Orders',dOrd[0],dOrd[1])}
       ${dcard('money','rgba(12,163,12,.13)','#0ca30c',short(revenue),'Revenue (Billing incl. GST)',dRev[0],dRev[1])}
       ${dcard('truck','rgba(208,59,59,.12)','#d03b3b',pendingDis,'Pending Dispatch','','up')}
+    </div>
+
+    <div class="kpi-grid kpi-6" id="oc-pay-kpis">
+      ${dcard('box','rgba(42,120,214,.12)','#2a78d6',PAY.count,'Total Orders','','up')}
+      ${dcard('cart','rgba(124,77,214,.13)','#7c4dd6',short(PAY.value),'Total Order Value','','up')}
+      ${dcard('money','rgba(237,161,0,.14)','#b06a00',short(PAY.adv),'Advance Received','','up')}
+      ${dcard('check','rgba(27,175,122,.14)','#1baf7a',short(PAY.full),'Full / Balance Received','','up')}
+      ${dcard('money','rgba(12,163,12,.13)','#0ca30c',short(PAY.received),'Total Amount Received','','up')}
+      ${dcard('doc','rgba(208,59,59,.12)','#d03b3b',short(PAY.pending),'Total Pending Amount','','up')}
     </div>
 
     <div class="grid-2">
@@ -665,6 +680,44 @@ function renderDashboard(){
   if(typeof Chart!=='undefined'){ try{ drawRevenue(ord); drawStatus(ord); drawSources(enq); drawSalesBy(enq); drawStateSales(enq); drawSalesPie(enq); }catch(err){ console.warn('chart error',err); } }
   else { document.querySelectorAll('.chart-wrap').forEach(c=>{ if(!c.querySelector('.funnel')) c.innerHTML='<div class="empty" style="padding:30px">Charts load when online (Chart.js CDN)</div>'; }); }
 }
+/* ---------- v57: Orders & Payments ----------------------------------------
+   Order form ke fields label se pehchaane jaate hain (id se nahi) -- Form
+   Builder me field dobara bane to bhi ginti chalti rahe. Wahi tareeka jo
+   ORDER FORM AUTOMATION (Total / Pending Balance auto-calc) use karta hai.
+     Total Order Value     = Total Amount (Billing incl. GST + Freight + Box)
+                             -- khaali ho to amount x 1.18
+     Advance Received      = Advance Payment Amt
+     Full / Balance Recd.  = Full Amount
+     Total Amount Received = Advance + Full
+     Total Pending Amount  = Total - Advance - Full (har order par 0 se kam nahi)
+   Cancelled orders kisi bhi card me nahi gine jaate. */
+function ocPayFieldIds(){
+  const NORM=s=>String(s==null?'':s).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const RX={ total:/^(grand )?total( amount| amt| value)?$/, advance:/^advance( payment)?( amount| amt)?$/, full:/^full( payment)?( amount| amt)?$/ };
+  const out={total:'',advance:'',full:''};
+  let L=[]; try{ L=getForm('order')||[]; }catch(e){}
+  L.forEach(f=>{ if(!f||f.type==='file') return; const n=NORM(f.label); Object.keys(RX).forEach(k=>{ if(!out[k]&&RX[k].test(n)) out[k]=f.id; }); });
+  return out;
+}
+function ocPayStats(orders){
+  const F=ocPayFieldIds();
+  const num=v=>{ const n=parseFloat(String(v==null?'':v).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; };
+  const r={count:0,value:0,adv:0,full:0,received:0,pending:0};
+  (orders||[]).forEach(o=>{
+    if(!o||o.status==='Cancelled') return;
+    const c=o.custom||{};
+    const hasTot=F.total&&c[F.total]!==undefined&&c[F.total]!==null&&String(c[F.total]).trim()!=='';
+    const tot=hasTot?num(c[F.total]):Math.round((+o.amount||0)*1.18);
+    const adv=F.advance?num(c[F.advance]):0;
+    const full=F.full?num(c[F.full]):0;
+    r.count++; r.value+=tot; r.adv+=adv; r.full+=full;
+    r.pending+=Math.max(0,tot-adv-full);
+  });
+  r.received=r.adv+r.full;
+  ['value','adv','full','received','pending'].forEach(k=>{ r[k]=Math.round(r[k]); });
+  return r;
+}
+window.ocPayStats=ocPayStats;
 function dcard(ico,bg,col,val,lbl,delta,dir){
   const dl = delta ? (delta==='new' ? `<span class="delta up" title="No data for last month">new</span>` : `<span class="delta ${dir}" title="vs last month">${dir==='up'?I.up:I.down}${delta}</span>`) : '';
   return `<div class="kpi"><div class="k-top"><div class="k-ico" style="background:${bg};color:${col}">${I[ico]}</div>
@@ -8217,7 +8270,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.03.1';
+var OC_WEB_BUILD = '2026.10.07.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi

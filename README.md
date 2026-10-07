@@ -30,6 +30,21 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Dashboard — Orders & Payments (v57, build 2026.10.07.1)
+
+Dashboard ke upar wale 5 card ke neeche ek nayi line, 6 card:
+
+| Card | Ginti |
+|---|---|
+| Total Orders | orders ki ginti |
+| Total Order Value | order form ka **Total Amount** (Billing incl. GST + Freight + Box); khaali ho to amount × 1.18 |
+| Advance Received | **Advance Payment Amt** ka jod |
+| Full / Balance Received | **Full Amount** ka jod |
+| Total Amount Received | Advance + Full |
+| Total Pending Amount | har order ka Total − Advance − Full (0 se kam nahi) ka jod |
+
+Cancelled orders kisi card me nahi gine jaate. Wahi list jo baaki dashboard use karta hai — period filter (Day / Week / Month / range), user scope (salesperson ko sirf apne orders) aur Administrator ke test orders bahar (v44). Fields Form Builder ke label se pehchaane jaate hain (`ocPayFieldIds()`), id se nahi. Console: `ocPayStats(DB.orders())`.
+
 ## Browser storage full — ab compressed (v56, build 2026.10.03.1)
 
 **Bug (03-10-2026):** neeche toast *"Browser storage is full — indiamartLeads: new data cannot be saved."* Orders list 30/09/2026 par atak gayi, IndiaMART refresh nahi hota tha.
