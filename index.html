@@ -679,8 +679,12 @@ function renderDashboard(){
     </div>`;
 
   // charts (guarded — funnel is pure HTML so always renders)
-  drawFunnel(enq,quo,ord,dis);
-  if(typeof Chart!=='undefined'){ try{ drawRevenue(ord); drawStatus(ord); drawSources(enq); drawSalesBy(enq); drawStateSales(enq); drawSalesPie(enq); }catch(err){ console.warn('chart error',err); } }
+  /* v60: Cancelled orders ka paisa / ginti kahin nahi judta -- Revenue Trend aur
+     Funnel ka "Orders" bhi sirf chalu orders se. Order Status chart me Cancelled
+     ka hissa dikhta rehta hai (wo sirf status ki ginti hai, paisa nahi). */
+  const ordLive=ord.filter(o=>o&&o.status!=='Cancelled');
+  drawFunnel(enq,quo,ordLive,dis);
+  if(typeof Chart!=='undefined'){ try{ drawRevenue(ordLive); drawStatus(ord); drawSources(enq); drawSalesBy(enq); drawStateSales(enq); drawSalesPie(enq); }catch(err){ console.warn('chart error',err); } }
   else { document.querySelectorAll('.chart-wrap').forEach(c=>{ if(!c.querySelector('.funnel')) c.innerHTML='<div class="empty" style="padding:30px">Charts load when online (Chart.js CDN)</div>'; }); }
 }
 /* ---------- v57: Orders & Payments ----------------------------------------
@@ -8361,7 +8365,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.07.3';
+var OC_WEB_BUILD = '2026.10.07.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
