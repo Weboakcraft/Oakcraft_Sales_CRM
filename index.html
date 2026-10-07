@@ -715,10 +715,14 @@ function ocPayStats(orders){
     const c=o.custom||{};
     const hasTot=F.total&&c[F.total]!==undefined&&c[F.total]!==null&&String(c[F.total]).trim()!=='';
     const tot=hasTot?num(c[F.total]):Math.round((+o.amount||0)*1.18);
-    const adv=F.advance?num(c[F.advance]):0;
-    const full=F.full?num(c[F.full]):0;
+    /* v61: order ke Total se zyada bhara hua paisa (galat / double entry) kisi
+       card me nahi judta -- Advance pehle, phir Full, dono Total tak hi. Isse
+       har order par Received + Pending = Total, aur Pending kabhi minus nahi. */
+    const tcap=Math.max(0,tot);
+    const adv=Math.min(Math.max(0,F.advance?num(c[F.advance]):0),tcap);
+    const full=Math.min(Math.max(0,F.full?num(c[F.full]):0),tcap-adv);
     r.count++; r.value+=tot; r.adv+=adv; r.full+=full;
-    r.pending+=Math.max(0,tot-adv-full);
+    r.pending+=tcap-adv-full;
   });
   r.received=r.adv+r.full;
   ['value','adv','full','received','pending'].forEach(k=>{ r[k]=Math.round(r[k]); });
@@ -8365,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.07.4';
+var OC_WEB_BUILD = '2026.10.07.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
