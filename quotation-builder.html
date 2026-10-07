@@ -1573,13 +1573,35 @@ window.addEventListener('focus', ()=>{
 
   const configured = GAS_URL.indexOf('XXXX') === -1;
 
+  /* Har server call par TIMEOUT. Pehle fetch ka koi time-limit nahi tha: net
+     beech me toot jaaye (mobile data / WiFi badla, phone so gaya) ya Apps Script
+     atak jaaye, to request hamesha "pending" rehti thi. Uske peeche
+     ocSaveQuotation ka _saveInFlight bhi kabhi khatam nahi hota tha -- button
+     ghanton "Preparing PDF…" par atka rehta tha aur har naya click usi atki
+     hui request ka intezaar karta tha. Ab tay waqt ke baad saaf error aata hai,
+     button wapas chalu ho jaata hai aur dobara dabaane par wahi number /
+     wahi id dobara jaati hai (duplicate nahi banta). */
+  const GAS_TIMEOUT = { save: 120000, nextQuoteNo: 60000 };
   async function gas(action, payload){
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ action: action }, payload || {}))
-    });
-    const data = await res.json();
+    const ms = GAS_TIMEOUT[action] || 45000;
+    const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+    const to = ctl ? setTimeout(function(){ ctl.abort(); }, ms) : null;
+    let res, data;
+    try{
+      res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign({ action: action }, payload || {})),
+        signal: ctl ? ctl.signal : undefined
+      });
+      data = await res.json();
+    }catch(e){
+      if(e && e.name === 'AbortError'){
+        const err = new Error('The server did not reply within ' + Math.round(ms/1000) + ' seconds (' + action + '). Check the internet connection and try again.');
+        err.code = 'timeout'; throw err;
+      }
+      throw e;
+    }finally{ if(to) clearTimeout(to); }
     if(!data.ok) throw new Error(data.error || 'Backend error');
     return data;
   }
@@ -1809,8 +1831,69 @@ window.addEventListener('focus', ()=>{
       doc.addImage(cv.toDataURL('image/png'),'PNG',X,Y,W,H);
     }catch(e){}
   }
+  /* ---- Drive wali images ko PDF me laana ----------------------------------
+     Save ke baad backend har image (qb ka chhota thumb bhi) Drive par daal kar
+     uski jagah drive.google.com/thumbnail?id=… link likh deta hai. Wo link
+     <img> me dikh to jaata hai, par Drive CORS header nahi bhejta -- isliye
+     canvas "tainted" ho jaata hai, jsPDF addImage chupchaap fail hota hai aur
+     PDF me image ka khaana khaali reh jaata hai.
+     lh3.googleusercontent.com/d/<id> wahi file CORS ke saath deta hai. PDF
+     banane se pehle har bahar wali image ko usse data URL bana kar <img> me
+     laga dete hain -- uske baad drawImg() pehle jaisa kaam karta hai. */
+  const _inlCache = {};
+  function driveIdOf(u){
+    try{
+      const x = new URL(u, location.href);
+      if(!/(^|\.)google(usercontent)?\.com$/i.test(x.hostname)) return '';
+      const q = x.searchParams.get('id'); if(q) return q;
+      const m = /\/d\/([A-Za-z0-9_-]{10,})/.exec(x.pathname); return m ? m[1] : '';
+    }catch(e){ return ''; }
+  }
+  function loadCors(u, ms){
+    return new Promise(function(res){
+      const im = new Image(); let done = false;
+      const fin = v => { if(!done){ done = true; res(v); } };
+      im.crossOrigin = 'anonymous';
+      im.onload = function(){
+        try{
+          const max = 900, sc = Math.min(1, max / Math.max(im.naturalWidth||1, im.naturalHeight||1));
+          const cv = document.createElement('canvas');
+          cv.width = Math.max(1, Math.round((im.naturalWidth||1)*sc));
+          cv.height = Math.max(1, Math.round((im.naturalHeight||1)*sc));
+          const c = cv.getContext('2d');
+          c.fillStyle = '#FFFFFF'; c.fillRect(0,0,cv.width,cv.height);
+          c.drawImage(im, 0, 0, cv.width, cv.height);
+          fin(cv.toDataURL('image/jpeg', 0.85));
+        }catch(e){ fin(''); }
+      };
+      im.onerror = function(){ fin(''); };
+      setTimeout(function(){ fin(''); }, ms || 8000);
+      im.src = u;
+    });
+  }
+  async function inlineRemote(pageEls){
+    const imgs = [];
+    pageEls.forEach(function(p){ [].push.apply(imgs, [].slice.call(p.querySelectorAll('img'))); });
+    await Promise.all(imgs.map(async function(img){
+      const src = img.currentSrc || img.src || '';
+      if(!/^https?:/i.test(src)) return;
+      try{ if(new URL(src).origin === location.origin) return; }catch(e){ return; }
+      if(!(src in _inlCache)){
+        const id = driveIdOf(src);
+        const tries = id ? ['https://lh3.googleusercontent.com/d/' + id + '=w800', src] : [src];
+        _inlCache[src] = (async function(){
+          for(const u of tries){ const d = await loadCors(u, 8000); if(d) return d; }
+          return '';
+        })();
+      }
+      const data = await _inlCache[src];
+      if(!data) return;
+      await new Promise(function(r){ img.onload = img.onerror = r; img.src = data; setTimeout(r, 3000); });
+    }));
+  }
   async function build(pageEls, opt){
     opt = opt || {};
+    try{ await inlineRemote(pageEls); }catch(e){ console.warn('inlineRemote', e); }
     const J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
     const doc = new J({unit:'pt', format:'a4', orientation:'portrait', compress:true});
     const b64 = opt.noFont ? null : await loadFont();
@@ -1877,7 +1960,10 @@ window.addEventListener('focus', ()=>{
      jo click ke time resolve hota hai, isliye ye override kaam karta hai) */
   window.downloadPDF = async function(){
     var btn = document.getElementById('dlBtn');
-    var label = btn ? btn.textContent : '';
+    /* label hamesha asli wala -- pehle yahan btn.textContent liya jaata tha; view
+       mode me PDF ban rahi ho tab click karne par wo "Preparing PDF…" hota tha aur
+       kaam khatam hone ke baad bhi button par wahi likha reh jaata tha. */
+    var label = '\u2913 Download PDF';
     /* rep ka naam aur number zaroori hain \u2014 ye quotation par print hote hain */
     if(typeof repMissing === 'function' && repMissing()) return;
     if(btn){ btn.disabled = true; btn.textContent = 'Preparing PDF\u2026'; }
@@ -1890,17 +1976,27 @@ window.addEventListener('focus', ()=>{
              download ek naya number aur naya record bana deta tha
              (jaise 1055 / 1056 / 1057 -- ek hi quotation, teen records). */
       var _q = window.__ocQ || {};
+      var _t0 = Date.now(), _log = window.__ocPdfLog = [];
+      var step = function(name){ _log.push(name + ' @' + ((Date.now() - _t0) / 1000).toFixed(1) + 's'); };
       if(_q.mode !== 'view'){
+        if(btn) btn.textContent = 'Saving quotation\u2026';
+        step('save:start');
         var _saved = (typeof window.ocSaveQuotation === 'function')
           ? await window.ocSaveQuotation() : false;
         if(!_saved){
           /* asli wajah hint() me pehle hi dikh chuki hai */
+          step('save:failed');
           if(btn){ btn.disabled = false; btn.textContent = label || '\u2913 Download PDF'; }
           return;
         }
+        step('save:done');
       }
+      if(btn) btn.textContent = 'Building PDF\u2026';
       if(typeof R === 'function') R();                 // ab pakke number se dobara render
-      if(document.fonts && document.fonts.ready) { try{ await document.fonts.ready; }catch(e){} }
+      /* font ka intezaar max 5 sec -- slow net par ye bhi atak sakta tha */
+      if(document.fonts && document.fonts.ready) {
+        try{ await Promise.race([document.fonts.ready, new Promise(function(r){ setTimeout(r, 5000); })]); }catch(e){}
+      }
       /* saari images load hone do warna PDF me miss ho jaayengi */
       var imgs = [].slice.call(document.querySelectorAll('#printArea img'));
       await Promise.all(imgs.map(function(i){
@@ -1913,11 +2009,15 @@ window.addEventListener('focus', ()=>{
       if(!pageEls.length) throw new Error('no-pages');
       document.body.classList.add('exporting');
       var doc;
+      step('build:start');
       try{ doc = await PDFV.build(pageEls); }
       finally{ document.body.classList.remove('exporting'); }
+      step('build:done');
       var qn = (typeof S !== 'undefined' && S && S.qno) ? S.qno : '';
       var fy = (window.__ocFY ? window.__ocFY() : (typeof FY !== 'undefined' ? FY : ''));
       doc.save('OakCraft-ProForma-OAK-' + fy + '-' + qn + '.pdf');
+      step('saved-file');
+      console.info('[pdf] steps', _log.join(' | '));
       /* yahan save NAHI hota -- upar ho chuka hai. Dobara save karne se hi
          duplicate records bante the. */
     }catch(e){
