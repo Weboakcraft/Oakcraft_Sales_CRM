@@ -8369,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.07.5';
+var OC_WEB_BUILD = '2026.10.08.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -9344,7 +9344,7 @@ console.log('[oc v12] sidebar badges now count exactly what each section lists')
    ab row ka owner asli salesperson ho.
    >>> Yahi list Code.gs me bhi honi chahiye, warna server data bhejta hi nahi. */
 var FULL_DATA_USERS = { quotations: ['accounts@oakcraft.in'],
-                        dispatch:   ['pc2oakcraft@gmail.com'] };
+                        dispatch:   ['pc2oakcraft@gmail.com', 'accounts@oakcraft.in'] };   /* v62: Arun Mourya (accounts) -- saari dispatch rows */
 window.OC_FULL_DATA_USERS = FULL_DATA_USERS;
 
 function myMail(){
