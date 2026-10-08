@@ -8369,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.08.3';
+var OC_WEB_BUILD = '2026.10.08.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -20480,7 +20480,7 @@ function paintOrdKpi(){
   var base = ordBase(), by = {}, live = 0;
   base.forEach(function(o){ var s = T(o.status) || 'Confirmed'; by[s] = (by[s] || 0) + 1; if(!MOVED[s]) live++; });
   var f = val('f-ostat');
-  h.innerHTML = card(!f, live, 'Total Orders', "ocOrdCard('')", 'Show all orders in this section', '')
+  h.innerHTML = card(!f, base.length, 'Total Orders', "ocOrdCard('')", 'All orders (Orders + Dispatch). ' + live + ' in this section, ' + (base.length - live) + ' in Dispatch.', '')
     + ORD_ST.map(function(s){
         if(MOVED[s]) return card(false, by[s] || 0, s, "ocOrdCard('" + s + "')",
                                  'These orders are in the Dispatch section — click to open it', INK[s], '↗');
