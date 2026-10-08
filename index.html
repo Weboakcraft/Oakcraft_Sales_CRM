@@ -8369,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.08.5';
+var OC_WEB_BUILD = '2026.10.08.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21199,6 +21199,74 @@ window.ocGemBulkImport = function(){
 /* Gem toolbar ka "Bulk Upload" button v65 ke renderGem me hi hai (ocGemCanBulk) */
 try{ if(typeof state !== 'undefined' && state.view === 'gem' && window.renderGem) window.renderGem(); }catch(e){}
 console.log('[oc v67] order PDF button + Gem bulk upload');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ *  v68 — ORDERS EXCEL: SIRF YE 15 COLUMN (isi order me)                   *
+ *  Date · Order ID · Customer · Product · Qty · Salesperson ·             *
+ *  Billing Amount · Freight Amount · Total Amount · Full Amount ·         *
+ *  Pending Balance Amount · Advance Payment Amt · Number of Boxes ·       *
+ *  Box Amount (without GST) · Status                                      *
+ *  Filters (status card / dropdown, salesperson, date range) pehle jaise  *
+ *  lagte hain -- sirf columns chhant-te hain. Billing Amount form ka      *
+ *  field hai; khaali ho to "Billing Amount (incl. 18% GST)" wala.          *
+ * ====================================================================== */
+(function(){
+'use strict';
+var ORDER_COLS = ['Date','Order ID','Customer','Product','Qty','Salesperson','Billing Amount','Freight Amount',
+  'Total Amount','Full Amount','Pending Balance Amount','Advance Payment Amt','Number of Boxes','Box Amount (without GST)','Status'];
+window.OC_ORDER_EXPORT_COLS = ORDER_COLS;
+function blank(v){ return v == null || String(v).trim() === ''; }
+function shape(rows){
+  return rows.map(function(r){
+    var o = {};
+    ORDER_COLS.forEach(function(k){
+      var v = r[k];
+      if(k === 'Billing Amount' && blank(v)) v = r['Billing Amount (incl. 18% GST)'];
+      o[k] = (v == null) ? '' : v;
+    });
+    return o;
+  });
+}
+var _ex = window.exportExcel;
+if(typeof _ex === 'function' && !_ex.__v68){
+  var w = function(section){
+    if(section !== 'orders') return _ex.apply(this, arguments);
+    var self = this, args = arguments;
+    var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+    return Promise.resolve(pre).then(function(ok){
+      if(ok === false || typeof XLSX === 'undefined') return false;
+      var u = XLSX.utils, js = u.json_to_sheet, done = false;
+      u.json_to_sheet = function(rows){
+        try{ if(Array.isArray(rows) && rows.length && rows[0] && ('Order ID' in rows[0]) && ('Fed On' in rows[0])) rows = shape(rows); }catch(e){}
+        var a = Array.prototype.slice.call(arguments); a[0] = rows;
+        return js.apply(this, a);
+      };
+      /* column widths dobara (base export purane columns ke hisaab se lagata hai) */
+      var wf = XLSX.writeFile;
+      XLSX.writeFile = function(wb){
+        try{
+          var ws = wb.Sheets[wb.SheetNames[0]], data = u.sheet_to_json(ws, { header:1, defval:'' });
+          if(data[0] && data[0][0] === ORDER_COLS[0] && data[0][1] === ORDER_COLS[1]){
+            ws['!cols'] = ORDER_COLS.map(function(k, i){
+              var m = k.length; data.forEach(function(r){ m = Math.max(m, String(r[i] == null ? '' : r[i]).length); });
+              return { wch: Math.min(m + 2, 40) };
+            });
+          }
+        }catch(e){}
+        return wf.apply(this, arguments);
+      };
+      function fin(){ if(!done){ done = true; u.json_to_sheet = js; XLSX.writeFile = wf; } }
+      var p;
+      try{ p = _ex.apply(self, args); }catch(e){ fin(); throw e; }
+      return Promise.resolve(p).then(function(v){ fin(); return v; }, function(e){ fin(); throw e; });
+    });
+  };
+  w.__v68 = 1; window.exportExcel = w;
+}
+console.log('[oc v68] orders Excel: 15 fixed columns');
 })();
 </script>
 

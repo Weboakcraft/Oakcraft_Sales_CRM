@@ -30,6 +30,10 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Orders Excel — fixed 15 columns (v68, build 2026.10.08.6)
+
+Orders section ka "Excel" ab sirf ye columns, isi order me: Date, Order ID, Customer, Product, Qty, Salesperson, Billing Amount, Freight Amount, Total Amount, Full Amount, Pending Balance Amount, Advance Payment Amt, Number of Boxes, Box Amount (without GST), Status. Billing Amount = order form ka field (khaali ho to amount + 18% GST). Status card / dropdown, salesperson aur date-range filters pehle jaise lagte hain. List badalni ho to `OC_ORDER_EXPORT_COLS` (v68 block).
+
 ## Order PDF + Gem Bulk Upload (v67, build 2026.10.08.5)
 
 **Order detail → "PDF".** "WhatsApp Update" ke right me. Dabate hi `Order-<ID>-Products.pdf` download: har product ki badi image (66 mm), product naam + Specification, Qty (+ total). Price / customer nahi. Drive images `lh3.googleusercontent.com/d/<id>` se aati hain (CORS). jsPDF `lib/jspdf.umd.min.js` se lazy load (fallback cdnjs).
