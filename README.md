@@ -30,6 +30,14 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Order PDF + Gem Bulk Upload (v67, build 2026.10.08.5)
+
+**Order detail → "PDF".** "WhatsApp Update" ke right me. Dabate hi `Order-<ID>-Products.pdf` download: har product ki badi image (66 mm), product naam + Specification, Qty (+ total). Price / customer nahi. Drive images `lh3.googleusercontent.com/d/<id>` se aati hain (CORS). jsPDF `lib/jspdf.umd.min.js` se lazy load (fallback cdnjs).
+
+**"Edit PDF"** — sirf `pc2oakcraft@gmail.com` (aur Administrator). Image / Specification / Qty PDF ke liye badal sakti hain. Badlaav order ke `pdfSheet` field me (`{items:[{image,spec,qty}], by, byName, at}`); order ke products, billing qty aur amount nahi badalte. Nayi image backend `_driveify` Drive par daal deta hai (Code.gs ka generic deep walk) — Apps Script me koi badlaav nahi. Editor list: `OC_PDF_EDITORS`.
+
+**Gem → "Bulk Upload"** — sirf `mis@oakcraft.in` (`BULK_USERS`). Pehle format dikhta hai + "Download Template (.xlsx)" (sheets: Gem Leads, Salespersons, Instructions). Columns: Customer Name*, Contact Number*, Total Qty*, Salesperson (naam ya email, khaali = Unassigned). File chunte hi preview: galat rows (phone < 10 digit, qty, anjaan salesperson) aur duplicate phone (CRM me ya file me) skip. Max 500 rows. Leads `metaLeads` me `platform:'gem'`, status New, `bulk:1`.
+
 ## Orders + Dispatch status cards (v66, build 2026.10.08.3)
 
 **Orders.** Upar Meta jaise clickable cards: Total Orders (Orders + Dispatch dono milakar, saare orders — build 2026.10.08.4), Confirmed, In Production, Ready, Dispatched ↗, Delivered ↗, Cancelled. Card dabao = table usi status par (All Status dropdown bhi badal jaata hai, isliye Excel export bhi wahi). Wahi card dobara = filter hat jaata hai. Dispatched / Delivered orders Dispatch section me rehte hain, isliye un cards se Dispatch section khulta hai, usi status ke filter ke saath. Ginti me salesperson, date range aur search lagte hain.

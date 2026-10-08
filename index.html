@@ -8369,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.08.4';
+var OC_WEB_BUILD = '2026.10.08.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -20146,6 +20146,8 @@ function renderGem(){
         + '</select>' : '')
     + '<button class="btn sm" onclick="GEM.exportXlsx()">' + ((typeof I !== 'undefined' && I.download) ? I.download : '') + 'Excel</button>'
     + (canDo('create') ? '<button class="btn primary sm" onclick="GEM.form()">' + ((typeof I !== 'undefined' && I.plus) ? I.plus : '') + 'Add Gem Lead</button>' : '')
+    /* v67: Bulk Upload -- sirf mis@oakcraft.in (ocGemCanBulk) */
+    + ((window.ocGemCanBulk && window.ocGemCanBulk()) ? '<button class="btn sm" id="ocgb-btn" onclick="ocGemBulk()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>Bulk Upload</button>' : '')
     + '</div>';
 
   var lim = Math.min(window.__gemLim, list.length);
@@ -20614,6 +20616,589 @@ try{
   }
 }catch(e){}
 console.log('[oc v66] Orders + Dispatch status cards');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ *  v67 — (a) ORDER "PDF" BUTTON   (b) GEM BULK UPLOAD                     *
+ *                                                                        *
+ *  a) Order detail ke neeche, "WhatsApp Update" ke right me "PDF" button. *
+ *     Dabate hi PDF download: har product ki BADI image, Specification    *
+ *     aur Qty -- table me. Price / customer kuch nahi.                    *
+ *     pc2oakcraft@gmail.com (aur Administrator) ko "Edit PDF" button bhi *
+ *     milta hai: image, specification aur qty PDF ke liye badal sakti     *
+ *     hai. Ye badlaav order ke `pdfSheet` field me save hote hain (nayi   *
+ *     image backend Drive par daal deta hai). Order ke products/billing   *
+ *     qty / amount nahi badalte (wo locked hain).                        *
+ *                                                                        *
+ *  b) Gem section me "Bulk Upload" -- sirf mis@oakcraft.in ko dikhta hai. *
+ *     Pehle format (template) dikhta hai + template download, phir file   *
+ *     chuno -> preview (galat rows laal, duplicate skip) -> Import.       *
+ *     Leads wahi raaste se banti hain jaise "Add Gem Lead" se.            *
+ * ====================================================================== */
+(function(){
+'use strict';
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LC(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function $$(id){ return document.getElementById(id); }
+function tell(m){ try{ toast(m); }catch(e){ try{ alert(m); }catch(_){} } }
+function me(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function icon(k){ try{ return (typeof I !== 'undefined' && I[k]) ? I[k] : ''; }catch(e){ return ''; } }
+
+/* ====================================================================== *
+ *  (a) ORDER PDF                                                         *
+ * ====================================================================== */
+var PDF_EDITORS = ['pc2oakcraft@gmail.com'];
+window.OC_PDF_EDITORS = PDF_EDITORS;
+function canEditPdf(){ return isAdm() || PDF_EDITORS.indexOf(me()) >= 0; }
+
+function orderById(id){ return (DB.orders() || []).filter(function(o){ return o && T(o.id) === T(id); })[0] || null; }
+function itemsOf(o){
+  o = o || {};
+  if(o.items && o.items.length) return o.items;
+  if(o.product) return [{ product:o.product, spec:'', image:o.image || '', qty:o.qty || 1 }];
+  return [];
+}
+function unitOf(it){
+  try{ var p = (DB.products() || []).filter(function(x){ return x && x.id === it.prodId; })[0]; return (p && p.unit) || 'pc'; }catch(e){ return 'pc'; }
+}
+/* PDF me jaane wali rows: order ke items + pc2 ke badlaav (pdfSheet) */
+function pdfRows(o){
+  var ov = (o && o.pdfSheet && o.pdfSheet.items) || [];
+  return itemsOf(o).map(function(it, i){
+    var x = ov[i] || {};
+    return {
+      n: i + 1,
+      product: TR(it.product) || '—',
+      image: x.image || it.image || '',
+      spec: (x.spec != null && x.spec !== '') ? T(x.spec) : T(it.spec),
+      qty: (x.qty != null && x.qty !== '') ? x.qty : (it.qty || ''),
+      unit: unitOf(it),
+      edited: !!(x.image || (x.spec != null && x.spec !== '') || (x.qty != null && x.qty !== ''))
+    };
+  });
+}
+window.ocOrderPdfRows = function(id){ return pdfRows(orderById(id)); };
+
+/* ---- jsPDF lazy load (repo me lib/ hai; na mile to cdnjs) ---- */
+var _jsP = null;
+function loadJsPDF(){
+  if(window.jspdf && window.jspdf.jsPDF) return Promise.resolve(true);
+  if(_jsP) return _jsP;
+  _jsP = new Promise(function(res){
+    function add(src, next){
+      var s = document.createElement('script'); s.src = src;
+      s.onload = function(){ res(!!(window.jspdf && window.jspdf.jsPDF)); };
+      s.onerror = function(){ if(next) next(); else res(false); };
+      document.head.appendChild(s);
+    }
+    add('lib/jspdf.umd.min.js', function(){ add('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'); });
+  }).then(function(ok){ if(!ok) _jsP = null; return ok; });
+  return _jsP;
+}
+
+/* ---- image -> {data,w,h}. Drive link CORS nahi deta, lh3 deta hai ---- */
+function driveId(u){
+  try{
+    var x = new URL(u, location.href);
+    if(!/(^|\.)google(usercontent)?\.com$/i.test(x.hostname)) return '';
+    var q = x.searchParams.get('id'); if(q) return q;
+    var m = /\/d\/([A-Za-z0-9_-]{10,})/.exec(x.pathname); return m ? m[1] : '';
+  }catch(e){ return ''; }
+}
+function loadImg(u, max, ms){
+  return new Promise(function(res){
+    var im = new Image(), done = false;
+    function fin(v){ if(!done){ done = true; res(v); } }
+    if(!/^data:/i.test(u)) im.crossOrigin = 'anonymous';
+    im.onload = function(){
+      try{
+        var w = im.naturalWidth || 1, h = im.naturalHeight || 1, sc = Math.min(1, max / Math.max(w, h));
+        var cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(w * sc)); cv.height = Math.max(1, Math.round(h * sc));
+        var c = cv.getContext('2d'); c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, cv.width, cv.height);
+        c.drawImage(im, 0, 0, cv.width, cv.height);
+        fin({ data: cv.toDataURL('image/jpeg', 0.88), w: cv.width, h: cv.height });
+      }catch(e){ fin(null); }
+    };
+    im.onerror = function(){ fin(null); };
+    setTimeout(function(){ fin(null); }, ms || 10000);
+    im.src = u;
+  });
+}
+function imgFor(src){
+  src = TR(src); if(!src) return Promise.resolve(null);
+  if(/^data:/i.test(src)) return loadImg(src, 1400);
+  var id = driveId(src);
+  var tries = id ? ['https://lh3.googleusercontent.com/d/' + id + '=w1400', src] : [src];
+  var i = 0;
+  function next(){
+    if(i >= tries.length) return Promise.resolve(null);
+    return loadImg(tries[i++], 1400).then(function(r){ return r || next(); });
+  }
+  return next();
+}
+
+/* jsPDF ka helvetica sirf Latin-1 -- baaki characters saaf kar do */
+function pdfText(s){
+  return T(s).replace(/₹/g, 'Rs.').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-').replace(/•/g, '-').replace(/×/g, 'x').replace(/\r/g, '')
+    .replace(/[^\n\x20-\x7E -ÿ]/g, '');
+}
+function fmtDate(d){
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(T(d));
+  return m ? (m[3] + '/' + m[2] + '/' + m[1]) : T(d);
+}
+
+window.ocOrderPdf = function(id){
+  var o = orderById(id);
+  if(!o){ tell('Order not found'); return Promise.resolve(false); }
+  var rows = pdfRows(o);
+  if(!rows.length){ tell('Is order me koi product nahi hai'); return Promise.resolve(false); }
+  var btn = $$('oc-opdf-btn'), old = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled = true; btn.innerHTML = 'Preparing PDF…'; }
+  function done(v){ if(btn){ btn.disabled = false; btn.innerHTML = old; } return v; }
+  return Promise.all([loadJsPDF(), loadImg('logo.png', 400, 5000)].concat(rows.map(function(r){ return imgFor(r.image); })))
+    .then(function(res){
+      if(!res[0]){ tell('PDF engine load nahi hua — internet check karke dobara try karein'); return done(false); }
+      var logo = res[1], imgs = res.slice(2);
+      var J = window.jspdf.jsPDF;
+      var doc = new J({ unit:'mm', format:'a4', orientation:'portrait', compress:true });
+      var PW = 210, PH = 297, M = 12, W = PW - 2 * M;
+      var C1 = 10, C2 = 74, C4 = 24, C3 = W - C1 - C2 - C4;        /* #, Image, Specification, Qty */
+      var X1 = M, X2 = X1 + C1, X3 = X2 + C2, X4 = X3 + C3;
+      var IMG = 66;                                                  /* badi image: 66 x 66 mm box */
+      var brand = [11, 61, 145], line = [205, 211, 222], soft = [242, 245, 250];
+      var y = 0;
+
+      function header(first){
+        y = M;
+        if(logo){ var lh = 12, lw = Math.min(40, lh * logo.w / logo.h); try{ doc.addImage(logo.data, 'JPEG', M, y, lw, lh); }catch(e){} }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(20, 24, 33);
+        doc.text('Order Product Sheet', PW - M, y + 5, { align:'right' });
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90, 98, 112);
+        doc.text(pdfText('Order: ' + o.id + (o.date ? '   |   Date: ' + fmtDate(o.date) : '')), PW - M, y + 10.5, { align:'right' });
+        y += 16;
+        doc.setDrawColor(brand[0], brand[1], brand[2]); doc.setLineWidth(0.6); doc.line(M, y, PW - M, y);
+        y += 4;
+        /* table head */
+        doc.setFillColor(brand[0], brand[1], brand[2]); doc.rect(M, y, W, 9, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(255, 255, 255);
+        doc.text('#', X1 + C1 / 2, y + 6, { align:'center' });
+        doc.text('ITEM IMAGE', X2 + C2 / 2, y + 6, { align:'center' });
+        doc.text('SPECIFICATION', X3 + 3, y + 6);
+        doc.text('QTY', X4 + C4 / 2, y + 6, { align:'center' });
+        y += 9;
+      }
+      header(true);
+
+      rows.forEach(function(r, i){
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+        var specLines = doc.splitTextToSize(pdfText(r.spec || '-'), C3 - 6);
+        var titleLines = doc.splitTextToSize(pdfText(r.product), C3 - 6);
+        var textH = 6 + titleLines.length * 5.2 + 2 + specLines.length * 4.6 + 4;
+        var rowH = Math.max(IMG + 8, textH);
+        if(y + rowH > PH - 16){ doc.addPage(); header(false); }
+        if(i % 2 === 1){ doc.setFillColor(soft[0], soft[1], soft[2]); doc.rect(M, y, W, rowH, 'F'); }
+        doc.setDrawColor(line[0], line[1], line[2]); doc.setLineWidth(0.25);
+        doc.rect(M, y, W, rowH);
+        [X2, X3, X4].forEach(function(x){ doc.line(x, y, x, y + rowH); });
+        /* # */
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(20, 24, 33);
+        doc.text(String(r.n), X1 + C1 / 2, y + 8, { align:'center' });
+        /* image -- box me fit, aspect ratio same */
+        var im = imgs[i], bx = X2 + (C2 - IMG) / 2, by = y + 4;
+        if(im){
+          var sc = Math.min(IMG / im.w, IMG / im.h), w = im.w * sc, h = im.h * sc;
+          try{ doc.addImage(im.data, 'JPEG', bx + (IMG - w) / 2, by + (IMG - h) / 2, w, h); }catch(e){}
+        } else {
+          doc.setDrawColor(190, 196, 206); doc.setLineDashPattern([1.2, 1.2], 0); doc.rect(bx, by, IMG, IMG);
+          doc.setLineDashPattern([], 0);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150, 156, 166);
+          doc.text('No image', bx + IMG / 2, by + IMG / 2, { align:'center' });
+        }
+        /* specification: product naam (bold) + spec */
+        var ty = y + 7;
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(20, 24, 33);
+        doc.text(titleLines, X3 + 3, ty); ty += titleLines.length * 5.2 + 2;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(55, 62, 75);
+        doc.text(specLines, X3 + 3, ty, { lineHeightFactor: 1.3 });
+        /* qty */
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(20, 24, 33);
+        doc.text(pdfText(String(r.qty)), X4 + C4 / 2, y + rowH / 2, { align:'center' });
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(110, 118, 130);
+        doc.text(pdfText(r.unit), X4 + C4 / 2, y + rowH / 2 + 5, { align:'center' });
+        y += rowH;
+      });
+
+      /* total qty */
+      var tq = rows.reduce(function(a, r){ return a + (+r.qty || 0); }, 0);
+      if(y + 9 > PH - 16){ doc.addPage(); header(false); }
+      doc.setFillColor(soft[0], soft[1], soft[2]); doc.rect(M, y, W, 9, 'F');
+      doc.setDrawColor(line[0], line[1], line[2]); doc.rect(M, y, W, 9);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 24, 33);
+      doc.text('Total - ' + rows.length + ' item' + (rows.length > 1 ? 's' : ''), X3 + 3, y + 6);
+      doc.text(String(tq), X4 + C4 / 2, y + 6, { align:'center' });
+
+      /* footer: page no. */
+      var n = doc.getNumberOfPages(), stamp = new Date().toLocaleString('en-IN');
+      for(var p = 1; p <= n; p++){
+        doc.setPage(p);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(140, 146, 156);
+        doc.text(pdfText(o.id + '  |  Generated ' + stamp), M, PH - 7);
+        doc.text('Page ' + p + ' of ' + n, PW - M, PH - 7, { align:'right' });
+      }
+      var fname = 'Order-' + T(o.id).replace(/[^A-Za-z0-9_-]+/g, '-') + '-Products.pdf';
+      doc.save(fname);
+      tell('PDF downloaded ✓');
+      return done(fname);
+    })
+    .catch(function(e){ console.warn('[oc v67] pdf', e); tell('PDF nahi ban paya — dobara try karein'); return done(false); });
+};
+
+/* ---- Edit PDF details (pc2 + admin) ---- */
+var _edit = { id:'', imgs:{} };
+function compress(file, max, q){
+  return new Promise(function(res){
+    var fr = new FileReader();
+    fr.onload = function(){ loadImg(fr.result, max).then(function(r){
+      if(!r) return res('');
+      /* save par backend (_driveify) ye image Drive par daal kar link bana deta hai */
+      var im = new Image();
+      im.onload = function(){
+        var cv = document.createElement('canvas'); cv.width = r.w; cv.height = r.h;
+        var c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, r.w, r.h); c.drawImage(im, 0, 0);
+        res(cv.toDataURL('image/jpeg', q));
+      };
+      im.onerror = function(){ res(r.data); };
+      im.src = r.data;
+    }); };
+    fr.onerror = function(){ res(''); };
+    fr.readAsDataURL(file);
+  });
+}
+window.ocOrderPdfEdit = function(id){
+  if(!canEditPdf()){ tell('PDF details sirf pc2oakcraft@gmail.com / Admin badal sakte hain'); return; }
+  var o = orderById(id); if(!o){ tell('Order not found'); return; }
+  var rows = pdfRows(o), items = itemsOf(o);
+  _edit = { id: o.id, imgs:{} };
+  var body = rows.map(function(r, i){
+    var it = items[i] || {};
+    return '<div style="display:grid;grid-template-columns:120px 1fr 110px;gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid var(--border)">'
+      + '<div><div style="font-weight:700;font-size:12.5px;margin-bottom:6px">' + r.n + '. ' + E(r.product) + '</div>'
+      +   '<img id="ocpe-img-' + i + '" src="' + E(r.image) + '" style="width:110px;height:110px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff' + (r.image ? '' : ';visibility:hidden') + '">'
+      +   '<label class="btn sm" style="margin-top:6px;display:inline-flex;cursor:pointer">Change image<input type="file" accept="image/*" style="display:none" onchange="ocPdfImg(' + i + ',this)"></label>'
+      +   (((o.pdfSheet || {}).items || [])[i] && o.pdfSheet.items[i].image ? '<button class="btn sm" style="margin-top:4px" onclick="ocPdfImgReset(' + i + ')">Original image</button>' : '')
+      + '</div>'
+      + '<div><label style="font-size:12px">Specification</label><textarea id="ocpe-spec-' + i + '" rows="5" style="width:100%">' + E(r.spec) + '</textarea>'
+      +   (T(it.spec) && T(it.spec) !== r.spec ? '<div class="sub" style="font-size:11px;margin-top:3px">Order me: ' + E(it.spec) + '</div>' : '')
+      + '</div>'
+      + '<div><label style="font-size:12px">Qty</label><input id="ocpe-qty-' + i + '" type="number" min="0" value="' + E(r.qty) + '" style="width:100%">'
+      +   (String(r.qty) !== String(it.qty || '') ? '<div class="sub" style="font-size:11px;margin-top:3px">Order me: ' + E(it.qty) + '</div>' : '')
+      + '</div></div>';
+  }).join('');
+  openModal('<div class="modal-head"><h3>Edit PDF — ' + E(o.id) + '</h3><button class="icon-btn" onclick="closeModal();openOrderDetail(\'' + E(o.id) + '\')">✕</button></div>'
+    + '<div class="modal-body">'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Ye badlaav sirf PDF ke liye hain — order ke products, billing qty aur amount nahi badalte.</div>'
+    + body
+    + (o.pdfSheet && o.pdfSheet.by ? '<div class="sub" style="font-size:11.5px;margin-top:8px">Last edited by ' + E(o.pdfSheet.byName || o.pdfSheet.by) + ' · ' + E(new Date(o.pdfSheet.at).toLocaleString('en-IN')) + '</div>' : '')
+    + '</div>'
+    + '<div class="modal-foot"><button class="btn" onclick="closeModal();openOrderDetail(\'' + E(o.id) + '\')">Cancel</button>'
+    + '<button class="btn" onclick="ocPdfEditSave(false)">Save</button>'
+    + '<button class="btn primary" onclick="ocPdfEditSave(true)">' + icon('download') + 'Save &amp; Download PDF</button></div>');
+};
+window.ocPdfImg = function(i, inp){
+  var f = inp && inp.files && inp.files[0]; if(!f) return;
+  compress(f, 1400, 0.85).then(function(d){
+    if(!d){ tell('Image read nahi hui'); return; }
+    if(d.length > 4000000){ tell('Image bahut badi hai — chhoti image chunein'); return; }
+    _edit.imgs[i] = d;
+    var im = $$('ocpe-img-' + i); if(im){ im.src = d; im.style.visibility = ''; }
+  });
+};
+window.ocPdfImgReset = function(i){
+  _edit.imgs[i] = '__reset__';
+  var o = orderById(_edit.id), it = itemsOf(o)[i] || {};
+  var im = $$('ocpe-img-' + i); if(im){ im.src = it.image || ''; im.style.visibility = it.image ? '' : 'hidden'; }
+};
+window.ocPdfEditSave = function(andDownload){
+  if(!canEditPdf()) return;
+  var list = DB.orders() || [], o = list.filter(function(x){ return x && x.id === _edit.id; })[0];
+  if(!o){ tell('Order not found'); return; }
+  var items = itemsOf(o), prev = (o.pdfSheet && o.pdfSheet.items) || [];
+  var out = items.map(function(it, i){
+    var p = prev[i] || {}, x = {};
+    var sp = T(($$('ocpe-spec-' + i) || {}).value), q = TR(($$('ocpe-qty-' + i) || {}).value);
+    if(sp !== T(it.spec)) x.spec = sp;
+    if(q !== '' && String(q) !== String(it.qty || '')) x.qty = +q;
+    var ni = _edit.imgs[i];
+    if(ni === '__reset__'){ /* original */ }
+    else if(ni) x.image = ni;
+    else if(p.image) x.image = p.image;
+    return x;
+  });
+  var any = out.some(function(x){ return Object.keys(x).length; });
+  var u = {}; try{ u = AUTH.current() || {}; }catch(e){}
+  o.pdfSheet = any ? { items: out, by: me(), byName: TR(u.name) || me(), at: new Date().toISOString() } : null;
+  if(!any) delete o.pdfSheet;
+  o.updatedAt = new Date().toISOString();
+  DB.save('orders', list);
+  tell('PDF details saved ✓');
+  var id = o.id;
+  try{ closeModal(); }catch(e){}
+  try{ openOrderDetail(id); }catch(e){}
+  if(andDownload) setTimeout(function(){ window.ocOrderPdf(id); }, 200);
+};
+
+/* ---- buttons in order detail footer: WhatsApp Update ke right me ---- */
+function addPdfBtns(id){
+  try{
+    var m = $$('modal'); if(!m) return;
+    var foot = m.querySelector('.modal-foot'); if(!foot || $$('oc-opdf-btn')) return;
+    var h = m.querySelector('.modal-head h3');
+    if(!h || h.textContent.indexOf(T(id)) < 0) return;               /* sirf order detail */
+    var wa = Array.prototype.filter.call(foot.querySelectorAll('button'), function(b){ return /whatsapp/i.test(b.textContent); })[0];
+    var b = document.createElement('button');
+    b.className = 'btn'; b.id = 'oc-opdf-btn'; b.type = 'button';
+    b.title = 'Download PDF: item image, specification, qty';
+    b.style.cssText = 'color:#b42318;border-color:rgba(180,35,24,.35)';
+    b.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:-2px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>PDF';
+    b.onclick = function(){ window.ocOrderPdf(id); };
+    if(wa && wa.parentNode) wa.parentNode.insertBefore(b, wa.nextSibling); else foot.appendChild(b);
+    if(canEditPdf()){
+      var e = document.createElement('button');
+      e.className = 'btn'; e.id = 'oc-opdf-edit'; e.type = 'button';
+      e.title = 'PDF ki image / specification / qty badlein';
+      e.innerHTML = icon('edit') + 'Edit PDF';
+      e.onclick = function(){ window.ocOrderPdfEdit(id); };
+      b.parentNode.insertBefore(e, b.nextSibling);
+    }
+  }catch(err){ console.warn('[oc v67] pdf btn', err); }
+}
+var _od = window.openOrderDetail;
+if(typeof _od === 'function' && !_od.__v67){
+  var wod = function(id){
+    var r = _od.apply(this, arguments);
+    [0, 150, 400, 900].forEach(function(t){ setTimeout(function(){ addPdfBtns(id); }, t); });
+    return r;
+  };
+  wod.__v67 = 1; window.openOrderDetail = wod;
+}
+
+/* ====================================================================== *
+ *  (b) GEM BULK UPLOAD — sirf mis@oakcraft.in                            *
+ * ====================================================================== */
+var BULK_USERS = ['mis@oakcraft.in'];
+var BULK_MAX = 500;
+function canBulk(){ return BULK_USERS.indexOf(me()) >= 0; }
+window.ocGemCanBulk = canBulk;
+var COLS = [
+  { key:'name',  head:'Customer Name',  req:true,  eg:['Ramesh Traders', 'Sunita Enterprises'], note:'Customer / company ka naam' },
+  { key:'phone', head:'Contact Number', req:true,  eg:['9876543210', '9123456780'],            note:'10 digit mobile (+91 / 0 chalega)' },
+  { key:'qty',   head:'Total Qty',      req:true,  eg:['25', '10'],                            note:'Sirf number, 1 ya zyada' },
+  { key:'sp',    head:'Salesperson',    req:false, eg:['', ''],                                note:'CRM salesperson ka naam ya email. Khaali = Unassigned' }
+];
+var ALIAS = {
+  name:  ['customer name', 'customer', 'name', 'full name', 'company', 'company name', 'buyer name'],
+  phone: ['contact number', 'contact', 'phone', 'phone number', 'mobile', 'mobile number', 'contact no', 'contact no.', 'mobile no', 'mobile no.'],
+  qty:   ['total qty', 'qty', 'quantity', 'total quantity', 'total qty.'],
+  sp:    ['salesperson', 'sales person', 'assigned to', 'assignee', 'salesperson email', 'owner']
+};
+function roster(){ try{ return (window.ocLeadRoster ? window.ocLeadRoster() : []) || []; }catch(e){ return []; } }
+function rosterEg(){
+  var r = roster(); return [r[0] ? (r[0].name || r[0].email) : 'Amira Saikh', r[1] ? r[1].email : ''];
+}
+function allLeads(){ try{ var a = store.get('metaLeads', []); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function last10(p){ return T(p).replace(/\D/g, '').slice(-10); }
+function istStamp(d){
+  try{
+    var p = new Intl.DateTimeFormat('en-GB', { timeZone:'Asia/Kolkata', day:'2-digit', month:'2-digit', year:'numeric',
+              hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).formatToParts(d);
+    var g = function(t){ var x = p.filter(function(y){ return y.type === t; })[0]; return x ? x.value : '00'; };
+    return g('day') + '-' + g('month') + '-' + g('year') + ' ' + (g('hour') === '24' ? '00' : g('hour')) + ':' + g('minute') + ':' + g('second');
+  }catch(e){ return ''; }
+}
+function newId(have){
+  for(var i = 0; i < 80; i++){
+    var id = 'GEM-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+    if(!have[id]){ have[id] = 1; return id; }
+  }
+  var f = 'GEM-' + Date.now().toString(36).toUpperCase(); have[f] = 1; return f;
+}
+
+var _bulk = { rows: [] };
+window.ocGemBulk = function(){
+  if(!canBulk()){ tell('Bulk upload sirf mis@oakcraft.in ke liye hai'); return; }
+  var eg = rosterEg();
+  COLS[3].eg = eg;
+  var th = 'padding:8px 10px;border:1px solid var(--border);background:var(--surface-2);font-size:12px;text-align:left;white-space:nowrap';
+  var td = 'padding:7px 10px;border:1px solid var(--border);font-size:12px';
+  var tbl = '<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;margin:6px 0 4px">'
+    + '<thead><tr>' + COLS.map(function(c){ return '<th style="' + th + '">' + E(c.head) + (c.req ? ' <span style="color:#d03b3b">*</span>' : ' <span class="sub">(optional)</span>') + '</th>'; }).join('') + '</tr></thead>'
+    + '<tbody>' + [0, 1].map(function(r){ return '<tr>' + COLS.map(function(c){ return '<td style="' + td + '">' + (E(c.eg[r]) || '<span class="sub">— khaali —</span>') + '</td>'; }).join('') + '</tr>'; }).join('')
+    + '<tr>' + COLS.map(function(c){ return '<td style="' + td + ';color:var(--muted);font-size:11px">' + E(c.note) + '</td>'; }).join('') + '</tr>'
+    + '</tbody></table></div>';
+  openModal('<div class="modal-head"><h3>Gem — Bulk Upload</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body">'
+    + '<div style="font-weight:700;margin-bottom:4px">Step 1 — File ka format (template)</div>'
+    + '<div style="font-size:12.5px;color:var(--text-2)">Pehli row me yahi headings honi chahiye (order kuch bhi ho). <b>Enquiry ID, Source (Gem) aur Enquiry Timestamp apne aap</b> lagte hain. Status har lead ka <b>New</b> rehta hai — Qualified / Not Qualified baad me Gem table se (remark ke saath) karein.</div>'
+    + tbl
+    + '<button class="btn sm" onclick="ocGemTemplate()">' + icon('download') + 'Download Template (.xlsx)</button>'
+    + '<div style="font-weight:700;margin:16px 0 4px">Step 2 — Bhari hui file chunein</div>'
+    + '<input type="file" id="ocgb-file" accept=".xlsx,.xls,.csv" onchange="ocGemBulkRead(this)">'
+    + '<div class="sub" style="font-size:11.5px;margin-top:4px">.xlsx / .xls / .csv · ek baar me max ' + BULK_MAX + ' rows · same Contact Number wali lead (CRM me ya file me) skip hoti hai.</div>'
+    + '<div id="ocgb-prev" style="margin-top:12px"></div>'
+    + '</div>'
+    + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button>'
+    + '<button class="btn primary" id="ocgb-go" disabled onclick="ocGemBulkImport()">' + icon('check') + 'Import</button></div>');
+};
+
+window.ocGemTemplate = function(){
+  var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+  Promise.resolve(pre).then(function(ok){
+    if(ok === false || typeof XLSX === 'undefined'){ tell('Excel engine load nahi hua'); return; }
+    var aoa = [COLS.map(function(c){ return c.head; })];
+    var eg = rosterEg();
+    aoa.push(['Ramesh Traders', '9876543210', 25, eg[0]]);
+    aoa.push(['Sunita Enterprises', '9123456780', 10, '']);
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch:28 }, { wch:16 }, { wch:10 }, { wch:28 }];
+    var r = roster();
+    var ws2 = XLSX.utils.aoa_to_sheet([['Salesperson (Name)', 'Email']].concat(r.map(function(u){ return [u.name || '', u.email || '']; })));
+    ws2['!cols'] = [{ wch:28 }, { wch:32 }];
+    var ws3 = XLSX.utils.aoa_to_sheet([['Column', 'Required', 'Rule']].concat(COLS.map(function(c){ return [c.head, c.req ? 'Yes' : 'No', c.note]; }))
+      .concat([[], ['Note', '', 'Example rows (2-3) hata kar apna data bharein. Enquiry ID / Source / Timestamp apne aap lagte hain.']]));
+    ws3['!cols'] = [{ wch:18 }, { wch:10 }, { wch:70 }];
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Gem Leads');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Salespersons');
+    XLSX.utils.book_append_sheet(wb, ws3, 'Instructions');
+    XLSX.writeFile(wb, 'Gem-Bulk-Upload-Template.xlsx');
+  });
+};
+
+function headIdx(hdr){
+  var m = {};
+  hdr.forEach(function(h, i){
+    var k = LC(h).replace(/\s*\*$/, '').replace(/\s+/g, ' ');
+    Object.keys(ALIAS).forEach(function(f){ if(m[f] == null && ALIAS[f].indexOf(k) >= 0) m[f] = i; });
+  });
+  return m;
+}
+window.ocGemBulkRead = function(inp){
+  var f = inp && inp.files && inp.files[0], box = $$('ocgb-prev'), go = $$('ocgb-go');
+  _bulk.rows = []; if(go) go.disabled = true;
+  if(!f){ if(box) box.innerHTML = ''; return; }
+  if(box) box.innerHTML = '<div class="sub">File padh rahe hain…</div>';
+  var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+  Promise.resolve(pre).then(function(ok){
+    if(ok === false || typeof XLSX === 'undefined'){ box.innerHTML = '<div style="color:#d03b3b">Excel engine load nahi hua.</div>'; return; }
+    var fr = new FileReader();
+    fr.onload = function(){
+      try{
+        var wb = XLSX.read(new Uint8Array(fr.result), { type:'array' });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false, blankrows:false });
+        preview(aoa);
+      }catch(e){ box.innerHTML = '<div style="color:#d03b3b">File padhi nahi ja saki: ' + E(e.message || e) + '</div>'; }
+    };
+    fr.readAsArrayBuffer(f);
+  });
+};
+function preview(aoa){
+  var box = $$('ocgb-prev'), go = $$('ocgb-go');
+  var hi = -1, idx = null;
+  for(var r = 0; r < Math.min(aoa.length, 10); r++){
+    var m = headIdx(aoa[r] || []);
+    if(m.name != null && m.phone != null && m.qty != null){ hi = r; idx = m; break; }
+  }
+  if(hi < 0){
+    box.innerHTML = '<div style="color:#d03b3b;font-size:13px">Headings nahi mili. Pehli row me <b>Customer Name, Contact Number, Total Qty</b> (aur optional <b>Salesperson</b>) honi chahiye — template download karke usi me data bharein.</div>';
+    return;
+  }
+  var ros = roster(), byMail = {}, byName = {};
+  ros.forEach(function(u){ if(u.email) byMail[LC(u.email)] = u; if(u.name) byName[LC(u.name)] = u; });
+  var have = {}; allLeads().forEach(function(l){ var p = last10(l && (l.phone_number || l.phone)); if(p) have[p] = l; });
+  var seen = {}, out = [];
+  aoa.slice(hi + 1).forEach(function(row, k){
+    var g = function(f){ return idx[f] == null ? '' : TR(row[idx[f]]); };
+    var name = g('name'), phone = g('phone'), qty = g('qty'), sp = g('sp');
+    if(!name && !phone && !qty && !sp) return;
+    var errs = [], skip = '', owner = '';
+    if(!name) errs.push('Customer Name khaali');
+    var p10 = last10(phone);
+    if(p10.length < 10) errs.push('Contact Number 10 digit ka nahi');
+    var qn = +String(qty).replace(/,/g, '');
+    if(!(qn > 0)) errs.push('Total Qty galat');
+    if(sp){
+      var u = byMail[LC(sp)] || byName[LC(sp)];
+      if(!u){ var hit = ros.filter(function(x){ return LC(x.name).indexOf(LC(sp)) === 0; }); if(hit.length === 1) u = hit[0]; }
+      if(u) owner = LC(u.email); else errs.push('Salesperson "' + sp + '" CRM me nahi mila');
+    }
+    if(!errs.length && p10.length === 10){
+      if(have[p10]) skip = 'Duplicate — CRM me pehle se (' + T(have[p10].id) + ')';
+      else if(seen[p10]) skip = 'Duplicate — file me row ' + seen[p10] + ' jaisa';
+    }
+    if(p10.length === 10 && !seen[p10]) seen[p10] = hi + 2 + k;
+    out.push({ line: hi + 2 + k, name: name, phone: phone, qty: qn, owner: owner, spLabel: owner ? (byMail[owner].name || owner) : '', errs: errs, skip: skip });
+  });
+  _bulk.rows = out;
+  var ok = out.filter(function(r){ return !r.errs.length && !r.skip; });
+  var bad = out.filter(function(r){ return r.errs.length; }), dup = out.filter(function(r){ return !r.errs.length && r.skip; });
+  var td = 'padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;vertical-align:top';
+  var show = out.slice(0, 300);
+  box.innerHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
+    + '<span class="chip c-won">' + ok.length + ' import honge</span>'
+    + (dup.length ? '<span class="chip c-prog">' + dup.length + ' duplicate (skip)</span>' : '')
+    + (bad.length ? '<span class="chip c-lost">' + bad.length + ' galat (skip)</span>' : '')
+    + '</div>'
+    + (out.length > BULK_MAX ? '<div style="color:#d03b3b;font-size:12.5px;margin-bottom:6px">File me ' + out.length + ' rows hain — ek baar me max ' + BULK_MAX + '. File chhoti karke dobara chunein.</div>' : '')
+    + '<div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:8px"><table style="width:100%;border-collapse:collapse">'
+    + '<thead><tr><th style="' + td + '">Row</th><th style="' + td + '">Customer Name</th><th style="' + td + '">Contact</th><th style="' + td + '">Qty</th><th style="' + td + '">Salesperson</th><th style="' + td + '">Result</th></tr></thead><tbody>'
+    + show.map(function(r){
+        var res = r.errs.length ? '<span style="color:#d03b3b">' + E(r.errs.join('; ')) + '</span>'
+                : r.skip ? '<span style="color:#b06a00">' + E(r.skip) + '</span>' : '<span style="color:#0c8a0c">OK</span>';
+        return '<tr' + (r.errs.length ? ' style="background:rgba(208,59,59,.06)"' : '') + '><td style="' + td + '">' + r.line + '</td><td style="' + td + '">' + E(r.name) + '</td><td style="' + td + '">' + E(r.phone) + '</td><td style="' + td + '">' + E(r.qty || '') + '</td><td style="' + td + '">' + (E(r.spLabel) || '<span class="sub">Unassigned</span>') + '</td><td style="' + td + '">' + res + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div>'
+    + (out.length > show.length ? '<div class="sub" style="font-size:11.5px;margin-top:4px">Pehli ' + show.length + ' rows dikh rahi hain.</div>' : '');
+  if(go){ go.disabled = !(ok.length && out.length <= BULK_MAX); go.innerHTML = icon('check') + 'Import ' + ok.length + ' lead' + (ok.length === 1 ? '' : 's'); }
+}
+window.ocGemBulkImport = function(){
+  if(!canBulk()) return;
+  var ok = (_bulk.rows || []).filter(function(r){ return !r.errs.length && !r.skip; });
+  if(!ok.length || _bulk.rows.length > BULK_MAX) return;
+  var arr = allLeads(), have = {}, now = new Date(), iso = now.toISOString(), st = istStamp(now), my = me();
+  arr.forEach(function(x){ if(x && x.id) have[T(x.id)] = 1; });
+  var phones = {}; arr.forEach(function(l){ var p = last10(l && (l.phone_number || l.phone)); if(p) phones[p] = 1; });
+  var recs = [];
+  ok.forEach(function(r){
+    var p = last10(r.phone); if(phones[p]) return; phones[p] = 1;
+    var rec = {
+      id: newId(have), platform:'gem', source:'Gem',
+      full_name: r.name, phone_number: r.phone, qty: r.qty, qualQty: r.qty, city_state: '',
+      lead_status: 'CREATED', stage: 'New',
+      owner: r.owner, assigned_to: r.owner ? r.spLabel : '',
+      created_time_ist: st, createdAt: iso, updatedAt: iso, createdBy: my, bulk: 1
+    };
+    if(r.owner) rec.assignedAt = iso;
+    recs.push(rec);
+  });
+  if(!recs.length){ tell('Import ke liye koi nayi lead nahi'); return; }
+  store.set('metaLeads', recs.concat(arr));
+  try{ closeModal(); }catch(e){}
+  tell(recs.length + ' Gem lead' + (recs.length === 1 ? '' : 's') + ' imported ✓');
+  try{ refreshBadges(); }catch(e){}
+  try{ if(typeof state !== 'undefined' && state.view === 'gem' && window.renderGem) window.renderGem(); }catch(e){}
+};
+
+/* Gem toolbar ka "Bulk Upload" button v65 ke renderGem me hi hai (ocGemCanBulk) */
+try{ if(typeof state !== 'undefined' && state.view === 'gem' && window.renderGem) window.renderGem(); }catch(e){}
+console.log('[oc v67] order PDF button + Gem bulk upload');
 })();
 </script>
 
