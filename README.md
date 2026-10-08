@@ -30,6 +30,19 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Gem section + export = chuna hua filter (v64/v65, build 2026.10.08.2)
+
+**Export filter (v64).** Excel ab wahi nikaalta hai jo upar chuna hai:
+Orders (Status + Employee), Enquiries (Stage + Salesperson), Quotations (naye filter: Salesperson + Status — table aur export dono).
+Meta / IndiaMART / Qualified / Gem ke export pehle se chune hue filter maante hain. Kuch na chuna ho to export pehle jaisa (sab rows).
+File ke naam me filter likha aata hai (jaise `OakCraft-orders-2026-10-08-UJALA-RAJPUT.xlsx`).
+
+**Meta Leads → "Meta", naya section "Gem" (v65).** Sidebar me Meta ke theek neeche.
+Form: Enquiry ID (auto, `GEM-XXXXXX`) · Source (Gem) · Enquiry Timestamp (salesperson assign hote hi apne aap) · Customer Name · Contact Number · Total Qty · Status (Qualified / Not Qualified) · Salesperson (CRM ke salesperson; non-admin ki banayi lead uske apne naam par).
+Data alag collection me nahi — `metaLeads` me `platform = gem`, `source = Gem`. Isliye server badle bina Meta ke saare niyam lagte hain: owner / pool security, status ka remark popup (Qualified par Customer Type), Qualified section, Follow-ups, response timer, Activity Log, Sheet sync, permissions (Gem = Meta Leads ki permission).
+Meta section, uska badge aur export Gem leads ko nahi ginte; Qualified / Follow-ups me source "Gem" dikhta hai; dashboard me source "Gem".
+Dhyan: MetaAutoSync phone number se duplicate rokta hai — jis number ki Gem lead hai, usi number ki Meta lead auto-import me "duplicate" maani jayegi.
+
 ## Dashboard — Salesperson-wise Payments (v59, build 2026.10.07.3)
 
 Orders & Payments cards ke theek neeche ek table: har salesperson ki **Total Sale Value · Total Received · Total Pending** (naam ke neeche orders ki ginti), sabse zyada pending upar, aakhri line me Total. Wahi order list aur wahi hisaab jo upar ke cards ka (`ocPayStats`) — period filter, user scope, Admin ke test orders bahar, Cancelled bahar. Salesperson = order ka `salesperson` field (khaali ho to owner ka naam). Dashboard har sync par data badalte hi dobara banta hai, isliye table live rehta hai. Console: `ocPayBySales(DB.orders())`.

@@ -8369,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.08.1';
+var OC_WEB_BUILD = '2026.10.08.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -19781,5 +19781,627 @@ setTimeout(function(){ try{ TRACK.forEach(function(k){ resend(k, false); }); pai
 console.log('[oc v54] edit journal active — changes made during a sheet sync are no longer lost (' + TRACK.join(', ') + ')');
 })();
 </script>
+<script>
+/* ====================================================================== *
+ * 60. OAKCRAFT v64 — EXPORT = JO FILTER CHUNA HAI WAHI                     *
+ *                                                                        *
+ *   Orders, Enquiries aur Quotations ka "Excel" button poori list nikaal  *
+ *   deta tha -- upar chuna hua Salesperson / Status filter nahi maanta    *
+ *   tha. Ab:                                                             *
+ *     Orders      -> All Status (f-ostat) + All Employees (f-oemp)        *
+ *     Enquiries   -> All Stages (f-stage) + All Salespersons (f-sales)    *
+ *     Quotations  -> naye filter: Salesperson + Status (pehle the hi nahi) *
+ *   Date-range filter (v26) pehle jaisa saath me lagta hai.               *
+ *   Meta, IndiaMART aur Qualified ke Export pehle se chune hue filter     *
+ *   maante hain (visibleLeads / visible / filtered) -- unhe chhua nahi.   *
+ *   Kuch na chuna ho to export bilkul pehle jaisa (sab rows).             *
+ * ====================================================================== */
+(function(){
+'use strict';
+function T(v){ return v == null ? '' : String(v); }
+function LC(v){ return T(v).trim().toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function val(id){ var e = document.getElementById(id); return e ? T(e.value) : ''; }
+
+window.__quoFilt = window.__quoFilt || { sp:'', st:'' };
+function quoMatch(q){
+  var f = window.__quoFilt;
+  if(!q) return false;
+  if(f.sp && LC(q.salesperson) !== LC(f.sp)) return false;
+  if(f.st && T(q.status) !== f.st) return false;
+  return true;
+}
+
+function filterFor(section){
+  if(section === 'orders'){
+    var st = val('f-ostat'), emp = val('f-oemp');
+    if(!st && !emp) return null;
+    return { coll:'orders', tag:[emp, st], fn:function(o){
+      return !!o && (!st || o.status === st) && (!emp || LC(o.salesperson) === LC(emp)); } };
+  }
+  if(section === 'enquiries'){
+    var ef = (typeof enqFilter !== 'undefined' && enqFilter) ? enqFilter : {};
+    var es = T(ef.stage) || val('f-stage'), sp = T(ef.sales) || val('f-sales');
+    if(!es && !sp) return null;
+    return { coll:'enquiries', tag:[sp, es], fn:function(e){
+      return !!e && (!es || e.stage === es) && (!sp || T(e.salesperson) === sp); } };
+  }
+  if(section === 'quotations'){
+    var f = window.__quoFilt;
+    if(!f.sp && !f.st) return null;
+    return { coll:'quotations', tag:[f.sp, f.st], fn:quoMatch };
+  }
+  return null;
+}
+function patchColl(coll, fn){
+  var od = DB[coll];
+  if(typeof od !== 'function') return function(){};
+  DB[coll] = function(){ var a = od.apply(DB, arguments); return Array.isArray(a) ? a.filter(fn) : a; };
+  return function(){ DB[coll] = od; };
+}
+function stampName(tag){
+  var parts = (tag || []).filter(Boolean).map(function(s){ return T(s).trim().replace(/[^A-Za-z0-9]+/g, '-'); }).filter(Boolean);
+  if(!parts.length || typeof XLSX === 'undefined' || !XLSX.writeFile) return function(){};
+  var _w = XLSX.writeFile, done = false;
+  XLSX.writeFile = function(wb, name){
+    var nm = T(name).replace(/\.xlsx$/i, '') + '-' + parts.join('-') + '.xlsx';
+    return _w.call(XLSX, wb, nm);
+  };
+  return function(){ if(done) return; done = true; XLSX.writeFile = _w; };
+}
+
+/* ---- export wrapper ---- */
+var _exp = window.exportExcel;
+if(typeof _exp === 'function' && !_exp.__v64){
+  var w = function(section){
+    var F = filterFor(section);
+    if(!F) return _exp.apply(this, arguments);
+    var undoDB = patchColl(F.coll, F.fn), undoName = stampName(F.tag), p;
+    try{ p = _exp.apply(this, arguments); }
+    catch(e){ undoDB(); undoName(); throw e; }
+    return Promise.resolve(p).then(function(v){ undoDB(); undoName(); return v; },
+                                   function(e){ undoDB(); undoName(); throw e; });
+  };
+  w.__v64 = 1;
+  window.exportExcel = w;
+}
+
+/* ---- Quotations: Salesperson + Status filter (table + export) ---- */
+function quoToolsHTML(){
+  var list = [];
+  try{ list = scope(DB.quotations(), 'quotations') || []; }catch(e){}
+  var sp = {}, st = {};
+  list.forEach(function(q){ if(!q) return; if(T(q.salesperson).trim()) sp[T(q.salesperson).trim()] = 1; if(T(q.status).trim()) st[T(q.status).trim()] = 1; });
+  var f = window.__quoFilt;
+  var spNames = Object.keys(sp).sort(function(a, b){ return a.localeCompare(b); });
+  var stNames = Object.keys(st).sort();
+  if(f.sp && !spNames.some(function(n){ return LC(n) === LC(f.sp); })) f.sp = '';
+  if(f.st && stNames.indexOf(f.st) < 0) f.st = '';
+  return '<span id="oc-quo-filt" style="display:inline-flex;gap:6px;flex-wrap:wrap">'
+    + '<select class="field" id="f-qsp" onchange="ocQuoFilt(\'sp\',this.value)"><option value="">All Salespersons</option>'
+    + spNames.map(function(n){ return '<option value="' + E(n) + '"' + (LC(n) === LC(f.sp) ? ' selected' : '') + '>' + E(n) + '</option>'; }).join('')
+    + '</select>'
+    + '<select class="field" id="f-qst" onchange="ocQuoFilt(\'st\',this.value)"><option value="">All Status</option>'
+    + stNames.map(function(n){ return '<option value="' + E(n) + '"' + (n === f.st ? ' selected' : '') + '>' + E(n) + '</option>'; }).join('')
+    + '</select></span>';
+}
+window.ocQuoFilt = function(k, v){
+  window.__quoFilt[k] = T(v);
+  try{ paintTable('quo-body'); }catch(e){}
+};
+var _rq = window.renderQuotations;
+if(typeof _rq === 'function' && !_rq.__v64){
+  var wr = function(){
+    var r = _rq.apply(this, arguments);
+    try{
+      if(!document.getElementById('oc-quo-filt')){
+        var btn = content.querySelector('.card-head .tools button[onclick^="exportExcel("]');
+        if(btn) btn.insertAdjacentHTML('beforebegin', quoToolsHTML());
+      }
+    }catch(e){ console.warn('[oc v64] quo filters', e); }
+    return r;
+  };
+  wr.__v64 = 1;
+  window.renderQuotations = wr;
+}
+var _pt = window.paintTable;
+if(typeof _pt === 'function' && !_pt.__v64){
+  var wp = function(bodyId){
+    if(bodyId !== 'quo-body') return _pt.apply(this, arguments);
+    var f = window.__quoFilt;
+    if(!f.sp && !f.st) return _pt.apply(this, arguments);
+    var undo = patchColl('quotations', quoMatch);
+    try{ return _pt.apply(this, arguments); } finally { undo(); }
+  };
+  wp.__v64 = 1;
+  window.paintTable = wp;
+}
+console.log('[oc v64] export follows the selected salesperson / status (orders, enquiries, quotations)');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ * 61. OAKCRAFT v65 — "META LEADS" -> "META" + NAYA SECTION "GEM"          *
+ *                                                                        *
+ *   Gem leads haath se banti hain (form). Data ALAG collection me nahi,   *
+ *   usi `metaLeads` me jaata hai -- platform = 'gem', source = 'Gem',     *
+ *   id = GEM-XXXXXX. Isse bina server badle sab kuch pehle jaisa chalta   *
+ *   hai: owner / pool security, status remark modal, Qualified section,   *
+ *   Follow-ups, 10-min response timer, Activity Log, Sheet sync.          *
+ *                                                                        *
+ *   Meta section me Gem leads nahi dikhti (aur Meta ka badge / export     *
+ *   bhi unhe nahi ginta); Gem section me sirf Gem leads.                  *
+ *                                                                        *
+ *   Form: Enquiry ID (auto) · Source (Gem) · Enquiry Timestamp (assign    *
+ *   hote hi apne aap) · Customer Name · Contact Number · Total Qty ·      *
+ *   Status (Qualified / Not Qualified) · Salesperson (CRM ke salesperson). *
+ *   Qualified hote hi lead Qualified section me; wahan se Follow-up par   *
+ *   Follow-ups section me -- Meta leads jaisa hi.                         *
+ * ====================================================================== */
+(function(){
+'use strict';
+var VIEW = 'gem', COLL = 'metaLeads';
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LC(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function $$(id){ return document.getElementById(id); }
+function tell(m){ try{ toast(m); }catch(e){ try{ alert(m); }catch(_){} } }
+function isAdm(){ try{ return !!AUTH.isAdmin(); }catch(e){ return false; } }
+function me(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function nameOfEmail(em){
+  var e = LC(em); if(!e) return '';
+  try{ var u = AUTH.find(e); if(u && u.name) return TR(u.name); }catch(_){}
+  try{ var r = window.ocLeadRoster ? window.ocLeadRoster(e) : []; for(var i = 0; i < r.length; i++) if(LC(r[i].email) === e) return TR(r[i].name) || e; }catch(_){}
+  return e;
+}
+function isGem(l){ return !!l && (LC(l.platform) === 'gem' || /^GEM-/i.test(T(l.id))); }
+window.ocIsGem = isGem;
+function allRaw(){ try{ var a = store.get(COLL, []); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function canDo(action){ try{ return typeof can !== 'function' || can('metaLeads', action) !== false; }catch(e){ return true; } }
+function touch(l){ try{ return typeof canTouch !== 'function' || canTouch(l, 'metaLeads') !== false; }catch(e){ return true; } }
+var LABEL = function(code){
+  try{ if(window.OC_LEAD_STATUS_LABEL && window.OC_LEAD_STATUS_LABEL[code]) return window.OC_LEAD_STATUS_LABEL[code]; }catch(e){}
+  return T(code).replace(/_/g, ' ').toLowerCase().replace(/(^|\s)\w/g, function(m){ return m.toUpperCase(); }) || 'New';
+};
+function code(s){ return TR(s).toUpperCase().replace(/[\s\-]+/g, '_') || 'CREATED'; }
+function ink(c){ try{ return ocToneInk(c); }catch(e){ return 'var(--text)'; } }
+
+/* IST "DD-MM-YYYY HH:MM:SS" -- Meta leads ka hi format */
+function istStamp(d){
+  try{
+    var p = new Intl.DateTimeFormat('en-GB', { timeZone:'Asia/Kolkata', day:'2-digit', month:'2-digit', year:'numeric',
+              hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).formatToParts(d);
+    var g = function(t){ var x = p.filter(function(y){ return y.type === t; })[0]; return x ? x.value : '00'; };
+    var hh = g('hour') === '24' ? '00' : g('hour');
+    return g('day') + '-' + g('month') + '-' + g('year') + ' ' + hh + ':' + g('minute') + ':' + g('second');
+  }catch(e){ return ''; }
+}
+function showTs(l){
+  if(l.assignedAt){ var d = new Date(l.assignedAt); if(!isNaN(d)) return istStamp(d).slice(0, 16); }
+  return (l.owner || l.assigned_to) ? TR(l.created_time_ist).slice(0, 16) : '';
+}
+function newId(arr){
+  var have = {}; arr.forEach(function(x){ if(x && x.id) have[T(x.id)] = 1; });
+  for(var i = 0; i < 50; i++){
+    var id = 'GEM-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+    if(!have[id]) return id;
+  }
+  return 'GEM-' + Date.now().toString(36).toUpperCase();
+}
+
+/* ---------------------------------------------------------------- 1. Meta se Gem bahar */
+window.__mlNoGem = 0;
+var _scope = window.scope;
+if(typeof _scope === 'function' && !_scope.__v65){
+  var ws = function(list, coll){
+    var r = _scope.apply(this, arguments);
+    if(coll === COLL && Array.isArray(r) && window.__mlNoGem > 0) return r.filter(function(l){ return !isGem(l); });
+    return r;
+  };
+  ws.__v65 = 1;
+  window.scope = ws;
+}
+function noGem(fn){
+  return function(){
+    window.__mlNoGem++;
+    try{ return fn.apply(this, arguments); } finally { window.__mlNoGem--; }
+  };
+}
+function wrapMeta(){
+  var rml = window.renderMetaLeads;
+  if(typeof rml === 'function' && !rml.__v65){
+    var w = function(){
+      if(typeof state !== 'undefined' && state.view === VIEW) return renderGem();   /* ML.* ke andar wala re-render */
+      return noGem(rml).apply(this, arguments);
+    };
+    w.__v65 = 1;
+    window.renderMetaLeads = w;
+  }
+  if(window.ML && typeof window.ML.exportSheet === 'function' && !window.ML.exportSheet.__v65){
+    var ex = noGem(window.ML.exportSheet); ex.__v65 = 1; window.ML.exportSheet = ex;
+  }
+}
+wrapMeta();
+[300, 1500, 4000].forEach(function(t){ setTimeout(wrapMeta, t); });
+
+/* ---------------------------------------------------------------- 2. nav + routing */
+try{ PAGE_META.metaLeads = ['Meta', 'Facebook / Instagram leads']; PAGE_META.gem = ['Gem', 'Gem enquiries · assign, qualify & follow up']; }catch(e){}
+function addNav(){
+  try{
+    var ma = document.querySelector('.nav a[data-view="metaLeads"]');
+    if(!ma) return;
+    var sp = ma.querySelector('span'); if(sp && sp.textContent !== 'Meta') sp.textContent = 'Meta';
+    if(document.querySelector('.nav a[data-view="gem"]')) return;
+    var a = document.createElement('a');
+    a.setAttribute('data-view', VIEW);
+    a.innerHTML = ((typeof I !== 'undefined' && I.flow) ? I.flow : '') + '<span>Gem</span><span class="badge" id="nb-gem">0</span>';
+    a.addEventListener('click', function(){ setView(VIEW); });
+    ma.parentNode.insertBefore(a, ma.nextSibling);
+    try{ if(typeof applyNavPerms === 'function') applyNavPerms(); }catch(e){}
+    try{ refreshBadges(); }catch(e){}
+  }catch(e){ console.warn('[oc v65] nav', e); }
+}
+addNav();
+[200, 800, 2000, 5000].forEach(function(t){ setTimeout(addNav, t); });
+
+/* Gem ki permission = Meta ki permission (same security) */
+var _can = window.can;
+if(typeof _can === 'function' && !_can.__v65){
+  var wc = function(section, action){ return _can.call(this, section === VIEW ? COLL : section, action); };
+  wc.__v65 = 1; window.can = wc;
+}
+
+var _sv = window.setView;
+if(typeof _sv === 'function'){
+  window.setView = function(v){
+    if(v !== VIEW) return _sv.apply(this, arguments);
+    if(!canDo('view')){ try{ permToast('view'); }catch(e){} return _sv.call(this, 'dashboard'); }
+    try{ state.view = VIEW; }catch(e){}
+    try{
+      document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active', a.dataset.view === VIEW); });
+      var t = $$('pageTitle'), s = $$('pageSub');
+      if(t && t.childNodes[0]) t.childNodes[0].nodeValue = 'Gem';
+      if(s) s.textContent = PAGE_META.gem[1];
+      var sb = $$('searchBox'); if(sb) sb.style.display = 'none';
+      var qa = $$('quickAdd'); if(qa) qa.style.display = 'none';
+      Object.keys(state.charts || {}).forEach(function(k){ try{ state.charts[k].destroy(); }catch(e){} });
+      state.charts = {};
+    }catch(e){}
+    try{ localStorage.setItem('oc_lastView', VIEW); }catch(e){}
+    renderGem();
+    try{ content.scrollTop = 0; }catch(e){}
+    try{ if(typeof navOpen === 'function') navOpen(false); }catch(e){}
+    try{ refreshBadges(); }catch(e){}
+    return true;
+  };
+}
+
+/* ---------------------------------------------------------------- 3. badges */
+var _rb = window.refreshBadges;
+if(typeof _rb === 'function' && !_rb.__v65){
+  var wb = function(){
+    var r = _rb.apply(this, arguments);
+    try{
+      var all = scope(allRaw(), COLL) || [];
+      var g = all.filter(isGem).length;
+      var m = $$('nb-meta'), b = $$('nb-gem');
+      if(m) m.textContent = String(all.length - g);
+      if(b) b.textContent = String(g);
+    }catch(e){}
+    return r;
+  };
+  wb.__v65 = 1; window.refreshBadges = wb;
+}
+
+/* ---------------------------------------------------------------- 4. list */
+window.__gemF = window.__gemF || { q:'', st:'', sp:'' };
+window.__gemLim = window.__gemLim || 100;
+function mine(){ return (scope(allRaw(), COLL) || []).filter(isGem); }
+function visible(skipCard){
+  var f = window.__gemF, q = LC(f.q);
+  return mine().filter(function(l){
+    if(!skipCard){
+      if(f.st && code(l.lead_status) !== f.st) return false;
+      if(f.sp === '__none__'){ if(l.owner || l.assigned_to) return false; }
+      else if(f.sp && LC(l.owner) !== LC(f.sp)) return false;
+    }
+    if(!q) return true;
+    return [l.id, l.full_name, l.phone_number, l.assigned_to, LABEL(code(l.lead_status)), l.qty].join(' ').toLowerCase().indexOf(q) >= 0;
+  }).sort(function(a, b){
+    return T(b.assignedAt || b.createdAt || '').localeCompare(T(a.assignedAt || a.createdAt || ''));
+  });
+}
+
+/* ---------------------------------------------------------------- 5. render */
+function renderGem(){
+  try{ addNav(); }catch(e){}
+  var adm = isAdm(), my = me(), f = window.__gemF;
+  var base = visible(true), list = visible(false);
+  var by = {}, unassigned = 0;
+  base.forEach(function(l){ var c = code(l.lead_status); by[c] = (by[c] || 0) + 1; if(!l.owner && !l.assigned_to) unassigned++; });
+  var order = ['CREATED','QUALIFIED','NOT_QUALIFIED','FOLLOW_UP','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
+  Object.keys(by).forEach(function(c){ if(order.indexOf(c) < 0) order.push(c); });
+  function card(on, n, lbl, call, tone){
+    var k = tone ? ink(tone) : '';
+    return '<div class="kpi" onclick="' + call + '" style="cursor:pointer' + (k ? ';border-left:4px solid ' + k : '') + (on ? ';outline:2px solid var(--brand)' : '') + '">'
+      + '<div class="val tabular"' + (k ? ' style="color:' + k + '"' : '') + '>' + n + '</div><div class="lbl">' + E(lbl) + '</div></div>';
+  }
+  var kpi = '<div class="kpi-grid" style="margin-bottom:16px">'
+    + card(!f.st && !f.sp, base.length, 'Total leads', "GEM.tab('')", '')
+    + order.filter(function(c){ return by[c]; }).map(function(c){ return card(f.st === c, by[c], LABEL(c), "GEM.tab('" + c + "')", c); }).join('')
+    + card(f.sp === '__none__', unassigned, 'Unassigned', "GEM.tab('__none__')", 'UNASSIGNED')
+    + '</div>';
+
+  var roster = []; try{ roster = window.ocLeadRoster ? window.ocLeadRoster() : []; }catch(e){}
+  var tools = '<div class="tools" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+    + '<input class="field" id="gemQ" placeholder="Search ID / name / phone…" value="' + E(f.q) + '" style="min-width:200px">'
+    + '<select class="field" onchange="GEM.filt(\'st\',this.value)"><option value="">All status</option>'
+    + order.filter(function(c){ return by[c]; }).map(function(c){ return '<option value="' + c + '"' + (f.st === c ? ' selected' : '') + '>' + E(LABEL(c)) + '</option>'; }).join('')
+    + '</select>'
+    + (adm ? '<select class="field" onchange="GEM.filt(\'sp\',this.value)"><option value="">All salespersons</option>'
+        + '<option value="__none__"' + (f.sp === '__none__' ? ' selected' : '') + '>— Unassigned —</option>'
+        + roster.map(function(u){ return '<option value="' + E(LC(u.email)) + '"' + (LC(f.sp) === LC(u.email) ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>'; }).join('')
+        + '</select>' : '')
+    + '<button class="btn sm" onclick="GEM.exportXlsx()">' + ((typeof I !== 'undefined' && I.download) ? I.download : '') + 'Excel</button>'
+    + (canDo('create') ? '<button class="btn primary sm" onclick="GEM.form()">' + ((typeof I !== 'undefined' && I.plus) ? I.plus : '') + 'Add Gem Lead</button>' : '')
+    + '</div>';
+
+  var lim = Math.min(window.__gemLim, list.length);
+  var rows = list.slice(0, lim).map(function(l){
+    var c = code(l.lead_status), mineOk = touch(l);
+    var stCell;
+    if(mineOk && canDo('edit')){
+      var opts = ['QUALIFIED', 'NOT_QUALIFIED'];
+      if(opts.indexOf(c) < 0) opts.unshift(c);
+      stCell = '<select class="field" style="color:' + ink(c) + ';font-weight:600;min-width:140px" onchange="GEM.setStatus(\'' + E(l.id) + '\',this.value)">'
+        + opts.map(function(o){ return '<option value="' + o + '"' + (o === c ? ' selected' : '') + '>' + E(LABEL(o)) + '</option>'; }).join('') + '</select>';
+    } else {
+      stCell = '<span class="chip" style="color:' + ink(c) + '">' + E(LABEL(c)) + '</span>';
+    }
+    var own = LC(l.owner), ownName = TR(l.assigned_to) || nameOfEmail(own);
+    var spCell;
+    if(adm){
+      spCell = '<select class="field" onchange="GEM.assign(\'' + E(l.id) + '\',this.value)"><option value="">— Unassigned —</option>'
+        + (own && !roster.some(function(u){ return LC(u.email) === own; }) ? '<option value="' + E(own) + '" selected>' + E(ownName) + '</option>' : '')
+        + roster.map(function(u){ return '<option value="' + E(LC(u.email)) + '"' + (LC(u.email) === own ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>'; }).join('')
+        + '</select>';
+    } else if(!own && !l.assigned_to && roster.some(function(u){ return LC(u.email) === my; })){
+      spCell = '<select class="field" onchange="GEM.assign(\'' + E(l.id) + '\',this.value)"><option value="">— Unassigned —</option><option value="' + E(my) + '">' + E(nameOfEmail(my)) + '</option></select>';
+    } else {
+      spCell = ownName ? E(ownName) : '<span class="sub">— Unassigned —</span>';
+    }
+    var acts = '';
+    if(mineOk && canDo('edit')) acts += '<button title="Edit" onclick="GEM.form(\'' + E(l.id) + '\')">' + ((typeof I !== 'undefined' && I.edit) ? I.edit : 'Edit') + '</button>';
+    if(mineOk && canDo('delete')) acts += '<button title="Delete" onclick="GEM.del(\'' + E(l.id) + '\')">' + ((typeof I !== 'undefined' && I.trash) ? I.trash : 'Del') + '</button>';
+    return '<tr>'
+      + '<td class="strong tabular">' + E(l.id) + '<div class="sub">Gem</div></td>'
+      + '<td class="sub tabular" style="white-space:nowrap">' + (E(showTs(l)) || '<span class="sub">— not assigned —</span>') + '</td>'
+      + '<td class="strong">' + E(l.full_name) + '</td>'
+      + '<td class="tabular">' + E(l.phone_number) + '</td>'
+      + '<td class="tabular">' + E(l.qty) + '</td>'
+      + '<td>' + stCell + '</td>'
+      + '<td>' + spCell + '</td>'
+      + '<td><div class="row-actions" style="display:flex">' + acts + '</div></td></tr>';
+  }).join('');
+
+  content.innerHTML = kpi
+    + '<div class="card"><div class="card-head"><h3>Gem leads <span class="chip c-neutral">' + list.length + '</span></h3>' + tools + '</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr><th>Enquiry ID</th><th>Enquiry Timestamp</th><th>Customer Name</th><th>Contact Number</th><th>Total Qty</th><th>Status</th><th>Salesperson</th><th></th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="8" class="empty">No Gem leads yet.' + (canDo('create') ? ' Click <b>Add Gem Lead</b> to create one.' : '') + '</td></tr>') + '</tbody></table></div>'
+    + (list.length > lim ? '<div style="padding:12px 20px"><button class="btn sm" onclick="GEM.more()">Show more (' + (list.length - lim) + ')</button></div>' : '')
+    + '<div style="padding:10px 20px 14px;font-size:12px;color:var(--muted)">Qualified hote hi lead <b>Qualified</b> section me chali jaati hai; wahan Follow-up karne par <b>Follow-ups</b> me. Lead ka data Meta wali sheet (metaLeads) me Source = Gem ke saath save hota hai.</div>'
+    + '</div>';
+  var q = $$('gemQ');
+  if(q){
+    q.addEventListener('input', function(){
+      window.__gemF.q = q.value;
+      clearTimeout(window.__gemQT);
+      window.__gemQT = setTimeout(function(){ var pos = q.selectionStart; renderGem(); var n = $$('gemQ'); if(n){ n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} } }, 250);
+    });
+  }
+  try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+}
+window.renderGem = renderGem;
+
+/* ---------------------------------------------------------------- 6. actions */
+var GEM = window.GEM = window.GEM || {};
+GEM.tab = function(k){
+  var f = window.__gemF;
+  if(k === ''){ f.st = ''; f.sp = ''; }
+  else if(k === '__none__'){ f.st = ''; f.sp = (f.sp === '__none__') ? '' : '__none__'; }
+  else { f.sp = ''; f.st = (f.st === k) ? '' : k; }
+  window.__gemLim = 100; renderGem();
+};
+GEM.filt = function(k, v){ window.__gemF[k] = T(v); window.__gemLim = 100; renderGem(); };
+GEM.more = function(){ window.__gemLim += 100; renderGem(); };
+GEM.setStatus = function(id, v){
+  if(!window.ML || typeof window.ML.setStatus !== 'function'){ tell('Status could not be changed — reload the CRM.'); return; }
+  window.ML.setStatus(id, v);              /* Meta ka hi raasta: remark modal, owner check, timer, history */
+  try{ var ti = document.getElementById('oc-rem-title'); if(ti) ti.textContent = ti.textContent.replace(/^Meta lead/, 'Gem lead'); }catch(e){}
+  /* remark popup band hote hi (Save ya Cancel) Gem table dobara -- Cancel par dropdown purani value par lautega */
+  var n = 0, t = setInterval(function(){
+    n++;
+    var w = document.getElementById('oc-rem-wrap');
+    if(!w || w.style.display === 'none' || n > 3000){
+      clearInterval(t);
+      try{ if(typeof state !== 'undefined' && state.view === VIEW) renderGem(); }catch(e){}
+    }
+  }, 300);
+};
+GEM.assign = function(id, email){
+  if(!window.ML || typeof window.ML.setAssign !== 'function'){ tell('Could not assign — reload the CRM.'); return; }
+  var arr = allRaw(), l = arr.filter(function(x){ return x && x.id === id; })[0];
+  window.ML.setAssign(id, email);
+  /* Enquiry Timestamp = jis waqt salesperson assign hua */
+  try{
+    var a2 = allRaw(), l2 = a2.filter(function(x){ return x && x.id === id; })[0];
+    if(l2 && isGem(l2) && LC(l2.owner) && LC(l2.owner) !== LC(l && l.owner)){
+      var now = new Date();
+      if(!l2.assignedAt || LC(l && l.owner) !== LC(l2.owner)) l2.assignedAt = now.toISOString();
+      l2.created_time_ist = istStamp(now);
+      l2.updatedAt = now.toISOString();
+      store.set(COLL, a2);
+      if(typeof state !== 'undefined' && state.view === VIEW) renderGem();
+    }
+  }catch(e){ console.warn('[oc v65] assign stamp', e); }
+};
+GEM.del = function(id){
+  if(!canDo('delete')){ try{ permToast('delete'); }catch(e){} return; }
+  if(window.ML && typeof window.ML.del === 'function') return window.ML.del(id);
+};
+
+GEM.form = function(id){
+  var arr = allRaw(), l = id ? arr.filter(function(x){ return x && x.id === id; })[0] : null;
+  if(id && !l) return;
+  if(l && !touch(l)){ tell('This lead is not yours.'); return; }
+  if(!l && !canDo('create')){ try{ permToast('create'); }catch(e){} return; }
+  if(l && !canDo('edit')){ try{ permToast('edit'); }catch(e){} return; }
+  var adm = isAdm(), my = me(), roster = [];
+  try{ roster = window.ocLeadRoster ? window.ocLeadRoster(l && l.owner) : []; }catch(e){}
+  var own = l ? LC(l.owner) : (adm ? '' : my);
+  var spSel;
+  if(adm){
+    spSel = '<select id="gemSp"><option value="">— Unassigned —</option>'
+      + roster.map(function(u){ return '<option value="' + E(LC(u.email)) + '"' + (LC(u.email) === own ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>'; }).join('') + '</select>';
+  } else if(!l){
+    spSel = '<select id="gemSp" disabled><option value="' + E(my) + '">' + E(nameOfEmail(my) || my) + '</option></select>'
+      + '<div class="sub" style="margin-top:4px">Aapki banayi lead aapke naam par hi rehti hai.</div>';
+  } else {
+    spSel = '<input disabled value="' + E(TR(l.assigned_to) || nameOfEmail(own) || '— Unassigned —') + '">';
+  }
+  var c = l ? code(l.lead_status) : '';
+  var stSel = '<select id="gemSt"><option value=""' + (!l || c === 'CREATED' ? ' selected' : '') + '>— New (not called yet) —</option>'
+    + ['QUALIFIED', 'NOT_QUALIFIED'].map(function(o){ return '<option value="' + o + '"' + (o === c ? ' selected' : '') + '>' + E(LABEL(o)) + '</option>'; }).join('')
+    + (l && ['CREATED', 'QUALIFIED', 'NOT_QUALIFIED'].indexOf(c) < 0 ? '<option value="' + c + '" selected>' + E(LABEL(c)) + '</option>' : '')
+    + '</select>';
+  openModal('<div class="modal-head"><h3>' + (l ? 'Edit' : 'New') + ' Gem Lead</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'
+    + '<div class="modal-body">'
+    + '<div class="form-row two"><div><label>Enquiry ID</label><input disabled value="' + E(l ? l.id : 'Auto-generated on save') + '"></div>'
+    +   '<div><label>Source</label><input disabled value="Gem"></div></div>'
+    + '<div class="form-row"><label>Enquiry Timestamp</label><input disabled value="' + E(l ? (showTs(l) || 'Set automatically when a salesperson is assigned') : 'Set automatically when a salesperson is assigned') + '"></div>'
+    + '<div class="form-row"><label>Customer Name <span style="color:var(--danger,#d03b3b)">*</span></label><input id="gemName" value="' + E(l ? l.full_name : '') + '"></div>'
+    + '<div class="form-row two"><div><label>Contact Number <span style="color:var(--danger,#d03b3b)">*</span></label><input id="gemPhone" inputmode="tel" value="' + E(l ? l.phone_number : '') + '"></div>'
+    +   '<div><label>Total Qty <span style="color:var(--danger,#d03b3b)">*</span></label><input id="gemQty" type="number" min="1" value="' + E(l ? l.qty : '') + '"></div></div>'
+    + '<div class="form-row two"><div><label>Status</label>' + stSel + '</div><div><label>Salesperson</label>' + spSel + '</div></div>'
+    + '<div id="gemErr" style="color:#d03b3b;font-size:12.5px;min-height:16px"></div>'
+    + '</div>'
+    + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button>'
+    + '<button class="btn primary" onclick="GEM.save(\'' + E(l ? l.id : '') + '\')">' + ((typeof I !== 'undefined' && I.check) ? I.check : '') + 'Save</button></div>');
+};
+
+GEM.save = function(id){
+  var name = TR(($$('gemName') || {}).value), phone = TR(($$('gemPhone') || {}).value), qty = TR(($$('gemQty') || {}).value);
+  var st = TR(($$('gemSt') || {}).value), spEl = $$('gemSp');
+  var miss = [];
+  [['gemName', name, 'Customer Name'], ['gemPhone', phone, 'Contact Number'], ['gemQty', qty, 'Total Qty']].forEach(function(x){
+    var el = $$(x[0]); if(el) el.style.borderColor = '';
+    if(!x[1] || (x[0] === 'gemQty' && !(+x[1] > 0))){ miss.push(x[2]); if(el) el.style.borderColor = '#d03b3b'; }
+  });
+  if(phone && phone.replace(/\D/g, '').length < 10){ miss.push('Contact Number (10 digits)'); var pe = $$('gemPhone'); if(pe) pe.style.borderColor = '#d03b3b'; }
+  if(miss.length){ var er = $$('gemErr'); if(er) er.textContent = 'Required: ' + miss.join(', '); return; }
+
+  var adm = isAdm(), my = me(), arr = allRaw(), now = new Date(), iso = now.toISOString();
+  var digits = phone.replace(/\D/g, '').slice(-10);
+  if(!id){
+    var dup = arr.filter(function(x){ return x && TR(x.phone_number).replace(/\D/g, '').slice(-10) === digits; })[0];
+    if(dup && !confirm('Is number ki lead pehle se hai: ' + (dup.id || '') + ' — ' + (dup.full_name || '') + (isGem(dup) ? ' (Gem)' : ' (Meta)') + '\n\nPhir bhi nayi Gem lead banayein?')) return;
+    var owner = adm ? LC(spEl && spEl.value) : my;
+    var rec = {
+      id: newId(arr), platform: 'gem', source: 'Gem',
+      full_name: name, phone_number: phone, qty: +qty, qualQty: +qty, city_state: '',
+      lead_status: 'CREATED', stage: 'New',
+      owner: owner, assigned_to: owner ? nameOfEmail(owner) : '',
+      created_time_ist: istStamp(now), createdAt: iso, updatedAt: iso, createdBy: my
+    };
+    if(owner) rec.assignedAt = iso;
+    arr.unshift(rec);
+    store.set(COLL, arr);
+    closeModal();
+    tell('Gem lead ' + rec.id + ' saved ✓');
+    if(st && st !== 'CREATED') setTimeout(function(){ GEM.setStatus(rec.id, st); }, 50);   /* remark modal wala asli raasta */
+    else renderGem();
+    return;
+  }
+  var l = arr.filter(function(x){ return x && x.id === id; })[0];
+  if(!l || !touch(l)){ tell('This lead is not yours.'); return; }
+  l.full_name = name; l.phone_number = phone; l.qty = +qty;
+  if(!l.qualQty) l.qualQty = +qty;
+  l.updatedAt = iso;
+  var newOwner = adm && spEl ? LC(spEl.value) : LC(l.owner);
+  var ownerChanged = adm && newOwner !== LC(l.owner);
+  store.set(COLL, arr);
+  closeModal();
+  if(ownerChanged) GEM.assign(id, newOwner);
+  if(st && st !== code(l.lead_status)) setTimeout(function(){ GEM.setStatus(id, st); }, 50);
+  else if(!ownerChanged) renderGem();
+  tell('Gem lead updated ✓');
+};
+
+GEM.exportXlsx = function(){
+  var list = visible(false);
+  if(!list.length){ tell('Nothing to export'); return; }
+  var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
+  Promise.resolve(pre).then(function(ok){
+    if(ok === false || typeof XLSX === 'undefined') return;
+    var rows = list.map(function(l){
+      return { 'Enquiry ID': l.id, 'Source': 'Gem', 'Enquiry Timestamp': showTs(l), 'Customer Name': l.full_name,
+               'Contact Number': l.phone_number, 'Total Qty': l.qty, 'Status': LABEL(code(l.lead_status)),
+               'Salesperson': TR(l.assigned_to) || nameOfEmail(l.owner) };
+    });
+    var ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = Object.keys(rows[0]).map(function(k){ var w = k.length; rows.forEach(function(r){ w = Math.max(w, T(r[k]).length); }); return { wch: Math.min(w + 2, 40) }; });
+    var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Gem');
+    var f = window.__gemF, tag = [f.sp === '__none__' ? 'Unassigned' : nameOfEmail(f.sp), f.st ? LABEL(f.st) : ''].filter(Boolean).join('-').replace(/[^A-Za-z0-9]+/g, '-');
+    XLSX.writeFile(wb, 'OakCraft-gem-' + new Date().toISOString().slice(0, 10) + (tag ? '-' + tag : '') + '.xlsx');
+    tell('Downloaded ' + rows.length + ' rows ✓');
+  });
+};
+
+/* ---------------------------------------------------------------- 7. Qualified / Follow-ups / Dashboard me "Gem" naam */
+function relabel(){
+  try{
+    if(typeof state === 'undefined' || (state.view !== 'qualified' && state.view !== 'followups')) return;
+    content.querySelectorAll('tbody tr').forEach(function(tr){
+      if(!/GEM-[A-Z0-9]+/.test(tr.textContent)) return;
+      var chip = tr.querySelector('td .chip');
+      if(chip && TR(chip.textContent) === 'Meta') chip.textContent = 'Gem';
+    });
+  }catch(e){}
+}
+['renderQualified', 'renderFollowUps'].forEach(function(fn){
+  var o = window[fn];
+  if(typeof o !== 'function' || o.__v65) return;
+  var w = function(){ var r = o.apply(this, arguments); relabel(); return r; };
+  w.__v65 = 1; window[fn] = w;
+});
+if(typeof XLSX !== 'undefined' && XLSX.utils && XLSX.utils.json_to_sheet && !XLSX.utils.json_to_sheet.__v65){
+  var _j = XLSX.utils.json_to_sheet;
+  var wj = function(rows){
+    try{
+      if(Array.isArray(rows)) rows.forEach(function(r){
+        if(r && r['Source'] === 'Meta' && /^GEM-/i.test(T(r['Record Id']))) r['Source'] = 'Gem';
+      });
+    }catch(e){}
+    return _j.apply(this, arguments);
+  };
+  wj.__v65 = 1; XLSX.utils.json_to_sheet = wj;
+}
+var _mae = window.ocMetaAsEnq;
+if(typeof _mae === 'function' && !_mae.__v65){
+  var wm = function(){
+    var a = _mae.apply(this, arguments) || [];
+    a.forEach(function(r){ if(r && /^GEM-/i.test(T(r.id))) r.source = 'Gem'; });
+    return a;
+  };
+  wm.__v65 = 1; window.ocMetaAsEnq = wm;
+}
+
+try{ if(typeof state !== 'undefined' && state.view === VIEW) renderGem(); }catch(e){}
+console.log('[oc v65] Meta Leads -> Meta, new Gem section (stored in metaLeads, platform=gem)');
+})();
+</script>
+
 </body>
 </html>
