@@ -8369,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.08.2';
+var OC_WEB_BUILD = '2026.10.08.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -20400,6 +20400,220 @@ if(typeof _mae === 'function' && !_mae.__v65){
 
 try{ if(typeof state !== 'undefined' && state.view === VIEW) renderGem(); }catch(e){}
 console.log('[oc v65] Meta Leads -> Meta, new Gem section (stored in metaLeads, platform=gem)');
+})();
+</script>
+
+<script>
+/* ====================================================================== *
+ *  v66 — ORDERS + DISPATCH: STATUS CARDS (Meta jaise)                     *
+ *  Dono section ke upar clickable status cards. Status wahi jo Order      *
+ *  section ke hain: Confirmed, In Production, Ready, Dispatched,          *
+ *  Delivered, Cancelled.                                                  *
+ *   Orders   -> card dabao = table us status par filter (f-ostat). Wahi   *
+ *               card dobara dabao = filter hat jaata hai. Dispatched /     *
+ *               Delivered orders Dispatch section me rehte hain, isliye   *
+ *               un cards se seedha Dispatch section khulta hai (filter    *
+ *               ke saath).                                                *
+ *   Dispatch -> har dispatch row ka status = uske ORDER ka status         *
+ *               (order na mile to: Delivered -> Delivered, baaki ->       *
+ *               Dispatched). Card dabao = table + Excel export dono       *
+ *               filter.                                                   *
+ *  Ginti me baaki filters (salesperson, date range, search, delivery      *
+ *  status) lagte hain, sirf card wala status nahi -- taaki ek card        *
+ *  chunne par baaki cards 0 na ho jaayen.                                 *
+ * ====================================================================== */
+(function(){
+'use strict';
+var ORD_ST = ['Confirmed','In Production','Ready','Dispatched','Delivered','Cancelled'];
+var MOVED  = { 'Dispatched':1, 'Delivered':1 };
+var INK = { 'Confirmed':'var(--brand)', 'In Production':'#b06a00', 'Ready':'#7a2fa8',
+            'Dispatched':'#0b7a8a', 'Delivered':'var(--good-ink)', 'Cancelled':'var(--crit)' };
+function T(v){ return v == null ? '' : String(v); }
+function LC(v){ return T(v).trim().toLowerCase(); }
+function E(v){ return T(v).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function el(id){ return document.getElementById(id); }
+function val(id){ var e = el(id); return e ? T(e.value) : ''; }
+function q(){ return LC(val('globalSearch')); }
+function scoped(coll){ try{ return scope(DB[coll](), coll) || []; }catch(e){ return []; } }
+
+if(typeof window.__disOSt !== 'string') window.__disOSt = '';
+
+function card(on, count, label, call, title, ink, note){
+  return '<div class="kpi" onclick="' + call + '" title="' + E(title) + '" style="cursor:pointer'
+    + (ink ? ';border-left:4px solid ' + ink : '')
+    + (on ? ';outline:2px solid var(--brand)' : '') + '">'
+    + '<div class="val tabular"' + (ink ? ' style="color:' + ink + '"' : '') + '>' + count + '</div>'
+    + '<div class="lbl">' + E(label) + (note ? ' <span style="opacity:.6">' + note + '</span>' : '') + '</div></div>';
+}
+function holder(id){
+  var c = (typeof content !== 'undefined' && content) || el('content');
+  if(!c) return null;
+  var h = el(id);
+  if(!h){
+    h = document.createElement('div');
+    h.id = id; h.className = 'kpi-grid';
+    h.style.cssText = 'margin-bottom:16px;grid-template-columns:repeat(auto-fill,minmax(120px,1fr))';
+    c.insertBefore(h, c.firstChild);
+  }
+  return h;
+}
+
+/* ------------------------------ ORDERS -------------------------------- */
+function ordBase(){
+  var rg = {};
+  try{ rg = (window.ocRangeOf && window.ocRangeOf('orders')) || {}; }catch(e){ rg = {}; }
+  var emp = LC(val('f-oemp')), qq = q();
+  return scoped('orders').filter(function(o){
+    if(!o) return false;
+    if(rg.from || rg.to){
+      var d = T(o.date || o.createdAt || o.updatedAt).slice(0, 10);
+      if(!d || (rg.from && d < rg.from) || (rg.to && d > rg.to)) return false;
+    }
+    if(emp && LC(o.salesperson) !== emp) return false;
+    if(qq && [o.id, o.customer, o.product, o.salesperson].join(' ').toLowerCase().indexOf(qq) < 0) return false;
+    return true;
+  });
+}
+function paintOrdKpi(){
+  if(!el('ord-body')) return;
+  var h = holder('oc-ord-kpi'); if(!h) return;
+  var base = ordBase(), by = {}, live = 0;
+  base.forEach(function(o){ var s = T(o.status) || 'Confirmed'; by[s] = (by[s] || 0) + 1; if(!MOVED[s]) live++; });
+  var f = val('f-ostat');
+  h.innerHTML = card(!f, live, 'Total Orders', "ocOrdCard('')", 'Show all orders in this section', '')
+    + ORD_ST.map(function(s){
+        if(MOVED[s]) return card(false, by[s] || 0, s, "ocOrdCard('" + s + "')",
+                                 'These orders are in the Dispatch section — click to open it', INK[s], '↗');
+        return card(f === s, by[s] || 0, s, "ocOrdCard('" + s + "')", 'Only ' + s + ' orders', INK[s]);
+      }).join('');
+}
+window.ocOrdCard = function(s){
+  if(MOVED[s]){ window.__disOSt = s; window.__disOStKeep = 1; try{ setView('dispatch'); }catch(e){} return; }
+  var se = el('f-ostat'); if(!se) return;
+  se.value = (se.value === s) ? '' : s;
+  paintTable('ord-body');
+};
+
+/* ----------------------------- DISPATCH ------------------------------- */
+function ordMap(){
+  var m = {};
+  try{ (DB.orders() || []).forEach(function(o){ if(o && o.id) m[T(o.id)] = o; }); }catch(e){}
+  return m;
+}
+function disOSt(d, m){
+  var o = m[T(d && d.orderId)];
+  var s = T(o && o.status);
+  if(s) return s;
+  return T(d && d.status) === 'Delivered' ? 'Delivered' : 'Dispatched';
+}
+window.ocDisOrderStatus = function(d){ return disOSt(d, ordMap()); };
+function disBase(){
+  var f = val('f-dstat'), qq = q();
+  return scoped('dispatch').filter(function(d){
+    if(!d) return false;
+    if(f && d.status !== f) return false;
+    return !qq || [d.id, d.customer, d.tracking, d.orderId, d.courier, d.product].join(' ').toLowerCase().indexOf(qq) >= 0;
+  });
+}
+function paintDisKpi(){
+  if(!el('dis-body')) return;
+  var h = holder('oc-dis-kpi'); if(!h) return;
+  var m = ordMap(), base = disBase(), by = {};
+  base.forEach(function(d){ var s = disOSt(d, m); by[s] = (by[s] || 0) + 1; });
+  var f = window.__disOSt;
+  h.innerHTML = card(!f, base.length, 'Total Dispatch', "ocDisCard('')", 'Show all dispatch records', '')
+    + ORD_ST.filter(function(s){ return MOVED[s] || by[s] || f === s; }).map(function(s){
+        return card(f === s, by[s] || 0, s, "ocDisCard('" + s + "')", 'Only dispatch records whose order is ' + s, INK[s]);
+      }).join('');
+}
+window.ocDisCard = function(s){
+  window.__disOSt = (window.__disOSt === s) ? '' : s;
+  paintTable('dis-body');
+};
+function disMatch(m){
+  var f = window.__disOSt;
+  return function(d){ return !!d && (!f || disOSt(d, m) === f); };
+}
+function patchDis(fn){
+  var od = DB.dispatch;
+  if(typeof od !== 'function') return function(){};
+  DB.dispatch = function(){ var a = od.apply(DB, arguments); return Array.isArray(a) ? a.filter(fn) : a; };
+  return function(){ DB.dispatch = od; };
+}
+
+/* ----------------------------- wrappers ------------------------------- */
+var _ro = window.renderOrders;
+if(typeof _ro === 'function' && !_ro.__v66){
+  var wro = function(){ var r = _ro.apply(this, arguments); try{ paintOrdKpi(); }catch(e){ console.warn('[oc v66]', e); } return r; };
+  wro.__v66 = 1; window.renderOrders = wro;
+}
+var _rd = window.renderDispatch;
+if(typeof _rd === 'function' && !_rd.__v66){
+  var wrd = function(){ var r = _rd.apply(this, arguments); try{ paintDisKpi(); }catch(e){ console.warn('[oc v66]', e); } return r; };
+  wrd.__v66 = 1; window.renderDispatch = wrd;
+}
+var _pt = window.paintTable;
+if(typeof _pt === 'function' && !_pt.__v66){
+  var wpt = function(bodyId){
+    if(bodyId === 'dis-body'){
+      var undo = window.__disOSt ? patchDis(disMatch(ordMap())) : function(){}, r;
+      try{ r = _pt.apply(this, arguments); } finally { undo(); }
+      if(window.__disOSt){
+        var b = el('dis-body');
+        if(b && !b.querySelector('tr')) b.innerHTML = '<tr><td colspan="10" class="empty">No dispatch records whose order is ' + E(window.__disOSt) + '.</td></tr>';
+      }
+      try{ paintDisKpi(); }catch(e){}
+      return r;
+    }
+    var r2 = _pt.apply(this, arguments);
+    if(bodyId === 'ord-body'){ try{ paintOrdKpi(); }catch(e){} }
+    return r2;
+  };
+  wpt.__v66 = 1; window.paintTable = wpt;
+}
+
+/* Dispatch Excel: card + delivery-status dropdown dono follow */
+var _ex = window.exportExcel;
+if(typeof _ex === 'function' && !_ex.__v66){
+  var wex = function(section){
+    if(section !== 'dispatch') return _ex.apply(this, arguments);
+    var os = window.__disOSt, ds = val('f-dstat');
+    if(!os && !ds) return _ex.apply(this, arguments);
+    var m = ordMap(), mt = disMatch(m);
+    var undo = patchDis(function(d){ return mt(d) && (!ds || T(d.status) === ds); });
+    var tag = [os, ds].filter(Boolean).map(function(s){ return s.replace(/[^A-Za-z0-9]+/g, '-'); }).join('-');
+    var _w = (typeof XLSX !== 'undefined' && XLSX.writeFile) ? XLSX.writeFile : null;
+    if(_w) XLSX.writeFile = function(wb, name){ return _w.call(XLSX, wb, T(name).replace(/\.xlsx$/i, '') + '-' + tag + '.xlsx'); };
+    var done = false;
+    function fin(){ if(done) return; done = true; undo(); if(_w) XLSX.writeFile = _w; }
+    var p;
+    try{ p = _ex.apply(this, arguments); }catch(e){ fin(); throw e; }
+    return Promise.resolve(p).then(function(v){ fin(); return v; }, function(e){ fin(); throw e; });
+  };
+  wex.__v66 = 1; window.exportExcel = wex;
+}
+
+/* Dispatch me nav se aao to card filter saaf; Orders ke card se aao to rahe */
+var _sv = window.setView;
+if(typeof _sv === 'function' && !_sv.__v66){
+  var wsv = function(v){
+    try{
+      var prev = (typeof state !== 'undefined') ? state.view : '';
+      if(v === 'dispatch' && prev !== 'dispatch' && !window.__disOStKeep) window.__disOSt = '';
+    }catch(e){}
+    window.__disOStKeep = 0;
+    return _sv.apply(this, arguments);
+  };
+  wsv.__v66 = 1; window.setView = wsv;
+}
+
+try{
+  if(typeof state !== 'undefined'){
+    if(state.view === 'orders') paintOrdKpi();
+    else if(state.view === 'dispatch') paintDisKpi();
+  }
+}catch(e){}
+console.log('[oc v66] Orders + Dispatch status cards');
 })();
 </script>
 

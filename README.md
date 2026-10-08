@@ -30,6 +30,12 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Orders + Dispatch status cards (v66, build 2026.10.08.3)
+
+**Orders.** Upar Meta jaise clickable cards: Total Orders, Confirmed, In Production, Ready, Dispatched ↗, Delivered ↗, Cancelled. Card dabao = table usi status par (All Status dropdown bhi badal jaata hai, isliye Excel export bhi wahi). Wahi card dobara = filter hat jaata hai. Dispatched / Delivered orders Dispatch section me rehte hain, isliye un cards se Dispatch section khulta hai, usi status ke filter ke saath. Ginti me salesperson, date range aur search lagte hain.
+
+**Dispatch.** Cards: Total Dispatch, Dispatched, Delivered (aur koi order kisi aur status par ho to wo bhi). Status = dispatch row ke ORDER ka status; order na mile to Delivered → Delivered, baaki → Dispatched. Card table aur Excel export dono filter karta hai; delivery-status dropdown (Packed / Shipped …) saath me bhi chalta hai aur export par bhi lagta hai. Sidebar se Dispatch kholo to card filter saaf rehta hai.
+
 ## Gem section + export = chuna hua filter (v64/v65, build 2026.10.08.2)
 
 **Export filter (v64).** Excel ab wahi nikaalta hai jo upar chuna hai:
