@@ -8369,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.08.6';
+var OC_WEB_BUILD = '2026.10.13.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21267,6 +21267,566 @@ if(typeof _ex === 'function' && !_ex.__v68){
   w.__v68 = 1; window.exportExcel = w;
 }
 console.log('[oc v68] orders Excel: 15 fixed columns');
+})();
+</script>
+
+
+<script>
+/* ====================================================================== *
+ * 62. OAKCRAFT v69 — LEAD COORDINATOR                                     *
+ *                                                                        *
+ *   Kaun: oakcraftcoordinator@gmail.com (OC_COORDINATORS) -- ya koi bhi   *
+ *   user jiska role "Lead Coordinator" ho.                               *
+ *                                                                        *
+ *   KYA DIKHTA HAI                                                       *
+ *     Sidebar me sirf 4 section: Enquiries · IndiaMART · Meta · Gem.      *
+ *     Har section me SIRF wo leads jinka status New / Created hai         *
+ *     (Enquiries: stage "New"; IndiaMART / Meta / Gem: lead_status        *
+ *     "CREATED") -- sabhi salespersons ki, sirf apni nahi.                *
+ *                                                                        *
+ *   KYA KAR SAKTI HAI                                                    *
+ *     Har lead ke saamne "Assign to" dropdown me saare salesperson        *
+ *     (ocLeadRoster -- wahi log jo leads uthate hain). Assign dabate hi    *
+ *     lead us salesperson ke naam ho jaati hai, Activity Log me entry     *
+ *     jaati hai, aur lead coordinator ki list se HAT jaati hai -- uske    *
+ *     baad sirf wahi salesperson use dekhta hai.                          *
+ *     Status badalna, edit, delete, naya record -- kuch nahi.             *
+ *                                                                        *
+ *   KAISE PATA CHALTA HAI KI ASSIGN HO CHUKI                              *
+ *     Record par `coordAt` (kab) + `coordBy` (kisne) likh diya jaata hai. *
+ *     Coordinator ko sirf wahi New/Created lead dikhti hai jisme coordAt  *
+ *     NAHI hai.                                                          *
+ *                                                                        *
+ *   ZAROORI -- BACKEND                                                   *
+ *     Data server se aata hai. apps-script/CodeGs_LeadCoordinator.gs ko   *
+ *     Apps Script project me paste karke "New version" deploy kijiye,     *
+ *     warna coordinator ko server se ek bhi lead nahi milegi aur assign   *
+ *     server par "skipped" ho jayega. Dono jagah email list ek jaisi.     *
+ * ====================================================================== */
+(function(){
+'use strict';
+if(window.__ocCoord) return; window.__ocCoord = true;
+
+var COORD_EMAILS = ['oakcraftcoordinator@gmail.com'];
+var COORD_ROLE   = 'lead coordinator';
+window.OC_COORDINATORS = COORD_EMAILS;
+
+var VIEWS = ['enquiries', 'indiamart', 'metaLeads', 'gem'];
+var COLLS = ['enquiries', 'metaLeads', 'indiamartLeads'];
+var ALLOWED_SECTIONS = { enquiries:1, indiamart:1, indiamartLeads:1, metaLeads:1, gem:1 };
+var ROOT_ID = 'oc-coord-root';
+var META = {
+  enquiries: { title:'Enquiries', coll:'enquiries',      badge:'nb-enq',  label:'stage: New' },
+  indiamart: { title:'IndiaMART', coll:'indiamartLeads', badge:'nb-im',   label:'status: Created' },
+  metaLeads: { title:'Meta',      coll:'metaLeads',      badge:'nb-meta', label:'status: Created' },
+  gem:       { title:'Gem',       coll:'metaLeads',      badge:'nb-gem',  label:'status: Created' }
+};
+
+/* ---------------------------------------------------------------- 0. helpers */
+function T(v){ return v == null ? '' : String(v); }
+function TR(v){ return T(v).trim(); }
+function LC(v){ return TR(v).toLowerCase(); }
+function E(v){ return T(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function $$(id){ return document.getElementById(id); }
+function tell(m){ try{ toast(m); }catch(e){ try{ alert(m); }catch(_){} } }
+function raw(k){ try{ var a = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+
+/* AUTH.isAdmin ki asli copy -- coordinator ki pehchaan kabhi bhi kisi
+   doosre module ke isAdmin-override se na bigde. */
+var REAL_IS_ADMIN = (typeof AUTH !== 'undefined' && AUTH && AUTH.isAdmin) ? AUTH.isAdmin : null;
+function realAdmin(){ try{ return !!(REAL_IS_ADMIN && REAL_IS_ADMIN.call(AUTH)); }catch(e){ return false; } }
+function myMail(){ try{ return LC((AUTH.current() || {}).email); }catch(e){ return ''; } }
+function myRole(){ try{ return LC((AUTH.current() || {}).role).replace(/[\s_\-]+/g, ' '); }catch(e){ return ''; } }
+function isCoordEmail(em){ return COORD_EMAILS.indexOf(LC(em)) >= 0; }
+function isCoordUser(u){ return !!u && (isCoordEmail(u.email) || LC(u.role).replace(/[\s_\-]+/g, ' ') === COORD_ROLE); }
+function isCoord(){
+  if(realAdmin()) return false;                       /* admin par koi rok nahi */
+  var m = myMail(); if(!m) return false;
+  return isCoordEmail(m) || myRole() === COORD_ROLE;
+}
+window.ocIsCoordinator = isCoord;
+window.ocIsCoordinatorUser = isCoordUser;
+
+function isGem(l){ try{ if(typeof window.ocIsGem === 'function') return !!window.ocIsGem(l); }catch(e){} return !!l && (LC(l.platform) === 'gem' || /^GEM-/i.test(T(l.id))); }
+function leadCode(r){ return TR(r && r.lead_status).toUpperCase().replace(/[\s\-]+/g, '_'); }
+/* New / Created? -- server (CodeGs_LeadCoordinator.gs) par bhi bilkul yahi rule */
+function isFresh(r, coll){
+  if(!r) return false;
+  if(coll === 'enquiries'){ var s = LC(r.stage); return s === '' || s === 'new'; }
+  var c = leadCode(r); return c === '' || c === 'CREATED' || c === 'NEW';
+}
+function coordVisible(r, coll){ return !!r && isFresh(r, coll) && !TR(r.coordAt); }
+window.ocCoordVisible = coordVisible;
+
+function users(){ return raw('users').filter(function(u){ return u && u.email; }); }
+function nameOfEmail(em){
+  var e = LC(em); if(!e) return '';
+  var u = users().filter(function(x){ return LC(x.email) === e; })[0];
+  return (u && TR(u.name)) || e;
+}
+/* dropdown ke salesperson -- wahi jo leads uthate hain (admin wala dropdown) */
+function roster(){
+  var list = [];
+  try{ if(typeof window.ocLeadRoster === 'function') list = window.ocLeadRoster() || []; }catch(e){ list = []; }
+  if(!list.length){
+    list = users().filter(function(u){
+      var st = LC(u.status); if(st && st !== 'active') return false;
+      try{ return typeof window.ocIsSalesRole === 'function' ? !!window.ocIsSalesRole(u.role) : true; }catch(e){ return true; }
+    });
+  }
+  var seen = {};
+  return list.filter(function(u){
+    var e = LC(u && u.email);
+    if(!e || seen[e] || isCoordUser(u)) return false;
+    seen[e] = 1; return true;
+  }).sort(function(a, b){ return TR(a.name || a.email).localeCompare(TR(b.name || b.email)); });
+}
+
+/* coordinator ko lead dene wale roster se bahar rakho (wo khud lead nahi uthati) */
+(function(){
+  var r = window.ocLeadRoster;
+  if(typeof r !== 'function' || r.__ocCoord) return;
+  var w = function(){
+    var out = r.apply(this, arguments);
+    return Array.isArray(out) ? out.filter(function(u){ return !isCoordUser(u); }) : out;
+  };
+  w.__ocCoord = 1; window.ocLeadRoster = w;
+})();
+
+/* ---------------------------------------------------------------- 1. data access */
+/* v13 FULL_DATA_USERS me email jodo -> scope(), canTouch() aur push ke
+   mayWrite() teeno is user ko in collections ka poora data dene lagte hain.
+   (Server par bhi yahi list -- CodeGs_LeadCoordinator.gs) */
+try{
+  var FD = window.OC_FULL_DATA_USERS;
+  if(FD){
+    COLLS.forEach(function(c){
+      var arr = FD[c] = FD[c] || [];
+      COORD_EMAILS.forEach(function(em){ if(arr.indexOf(em) < 0) arr.push(em); });
+    });
+  }
+}catch(e){ console.warn('[oc v69] full-data grant failed', e); }
+
+/* role wale coordinator ke liye bhi (email list me na ho tab bhi) */
+(function(){
+  var m = window.meSeesAll;
+  if(typeof m !== 'function' || m.__ocCoord) return;
+  var w = function(coll){
+    if(isCoord() && COLLS.indexOf(T(coll)) >= 0) return true;
+    return m.apply(this, arguments);
+  };
+  w.__ocCoord = 1; window.meSeesAll = w;
+})();
+
+/* scope(): coordinator ko in teen collections me sirf New/Created + abhi tak
+   assign na ki gayi leads. Baaki collections pehle jaise (sirf apna = kuch nahi). */
+function installScope(){
+  var base = window.scope;
+  if(typeof base !== 'function' || base.__ocCoord) return;
+  var w = function(list, coll){
+    if(!isCoord() || COLLS.indexOf(T(coll)) < 0) return base.apply(this, arguments);
+    var arr = Array.isArray(list) ? list : [];
+    var noGem = (coll === 'metaLeads' && window.__mlNoGem > 0);
+    return arr.filter(function(r){ return coordVisible(r, coll) && !(noGem && isGem(r)); });
+  };
+  w.__ocCoord = 1; w.__v65 = 1;
+  window.scope = w;
+}
+installScope();
+
+/* permissions: sirf 4 section dekh sakti hai; create / edit / delete kahin nahi */
+(function(){
+  var base = window.can;
+  if(typeof base !== 'function' || base.__ocCoord) return;
+  var w = function(section, action){
+    if(!isCoord()) return base.apply(this, arguments);
+    if(action === 'view') return !!ALLOWED_SECTIONS[T(section)];
+    return false;
+  };
+  w.__ocCoord = 1; w.__v65 = 1;
+  window.can = w;
+})();
+
+/* purane edit / delete / status raaste band (agar kahin se bhi bula liye jaayein) */
+function blockFn(obj, name){
+  try{
+    var f = obj && obj[name];
+    if(typeof f !== 'function' || f.__ocCoord) return;
+    var w = function(){
+      if(isCoord()){ tell('Lead Coordinator sirf lead assign kar sakti hain.'); return; }
+      return f.apply(this, arguments);
+    };
+    w.__ocCoord = 1; obj[name] = w;
+  }catch(e){}
+}
+function blockAll(){
+  ['openEnqModal','saveEnq','delRow','ocEnqStagePick','ocQuoteFromEnq','ocMoveEnq'].forEach(function(n){ blockFn(window, n); });
+  ['form','save','del','setStatus','selStatus','selAssign','selDelete','bulkBox','importBox'].forEach(function(n){
+    blockFn(window.ML, n); blockFn(window.IM, n);
+  });
+  ['form','save','del','setStatus','assign'].forEach(function(n){ blockFn(window.GEM, n); });
+}
+blockAll();
+[500, 2000, 5000].forEach(function(t){ setTimeout(blockAll, t); });
+
+/* ---------------------------------------------------------------- 2. sidebar */
+function navFix(){
+  if(!isCoord()) return;
+  try{
+    var nav = document.querySelector('.nav'); if(!nav) return;
+    nav.querySelectorAll('a[data-view]').forEach(function(a){
+      var want = VIEWS.indexOf(a.getAttribute('data-view')) >= 0 ? '' : 'none';
+      if(a.style.display !== want) a.style.display = want;
+    });
+    /* section heading tabhi jab uske neeche koi link dikh raha ho */
+    var kids = Array.prototype.slice.call(nav.children);
+    kids.forEach(function(el, i){
+      if(!el.classList || !el.classList.contains('nav-label')) return;
+      var vis = false;
+      for(var j = i + 1; j < kids.length; j++){
+        if(kids[j].classList && kids[j].classList.contains('nav-label')) break;
+        if(kids[j].style.display !== 'none') { vis = true; break; }
+      }
+      var want = vis ? '' : 'none';
+      if(el.style.display !== want) el.style.display = want;
+    });
+    var qa = $$('quickAdd'); if(qa && qa.style.display !== 'none') qa.style.display = 'none';
+    var sb = $$('searchBox'); if(sb && sb.style.display !== 'none') sb.style.display = 'none';
+  }catch(e){}
+}
+window.ocCoordNavFix = navFix;
+
+/* badges = coordinator ki list ki ginti */
+function counts(){
+  var enq = raw('enquiries'), im = raw('indiamartLeads'), ml = raw('metaLeads');
+  try{ if(typeof window.ocImTooOld === 'function') im = im.filter(function(l){ return !window.ocImTooOld(l); }); }catch(e){}
+  return {
+    enquiries: enq.filter(function(r){ return coordVisible(r, 'enquiries'); }).length,
+    indiamart: im.filter(function(r){ return coordVisible(r, 'indiamartLeads'); }).length,
+    metaLeads: ml.filter(function(r){ return !isGem(r) && coordVisible(r, 'metaLeads'); }).length,
+    gem:       ml.filter(function(r){ return isGem(r) && coordVisible(r, 'metaLeads'); }).length
+  };
+}
+function badges(){
+  if(!isCoord()) return;
+  try{
+    var c = counts();
+    VIEWS.forEach(function(v){ var b = $$(META[v].badge); if(b && b.textContent !== String(c[v])) b.textContent = String(c[v]); });
+  }catch(e){}
+}
+(function(){
+  var rb = window.refreshBadges;
+  if(typeof rb !== 'function' || rb.__ocCoord) return;
+  var w = function(){
+    var r = rb.apply(this, arguments);
+    try{ badges(); }catch(e){}
+    return r;
+  };
+  w.__ocCoord = 1; window.refreshBadges = w;
+})();
+
+/* ---------------------------------------------------------------- 3. list */
+var UI = { q:'', lim:100, pick:{}, sig:'', view:'' };
+
+function dmyKey(s){   /* 'DD-MM-YYYY HH:MM:SS' / 'YYYY-MM-DD...' -> 'YYYYMMDDHHMMSS' */
+  var t = TR(s), m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  var p = function(n){ n = +n || 0; return (n < 10 ? '0' : '') + n; };
+  if(m) return m[3] + p(m[2]) + p(m[1]) + p(m[4]) + (m[5] || '00') + (m[6] || '00');
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(m) return m[1] + m[2] + m[3] + p(m[4]) + (m[5] || '00') + (m[6] || '00');
+  return '';
+}
+function istStamp(d){
+  try{
+    var parts = new Intl.DateTimeFormat('en-GB', { timeZone:'Asia/Kolkata', day:'2-digit', month:'2-digit', year:'numeric',
+              hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).formatToParts(d);
+    var g = function(t){ var x = parts.filter(function(y){ return y.type === t; })[0]; return x ? x.value : '00'; };
+    var hh = g('hour') === '24' ? '00' : g('hour');
+    return g('day') + '-' + g('month') + '-' + g('year') + ' ' + hh + ':' + g('minute') + ':' + g('second');
+  }catch(e){ return ''; }
+}
+
+/* ek view ki rows -> ek jaisa shape */
+function rowsFor(view){
+  var out = [];
+  if(view === 'enquiries'){
+    raw('enquiries').forEach(function(e){
+      if(!coordVisible(e, 'enquiries')) return;
+      out.push({ id:T(e.id), when:TR(e.date), key:dmyKey(e.createdAt || e.date), name:TR(e.customer), sub:'',
+                 phone:'', city:'', what:TR(e.product), qty:TR(e.qty), src:TR(e.source),
+                 cur:TR(e.salesperson) || nameOfEmail(e.owner), owner:LC(e.owner), rec:e });
+    });
+  } else if(view === 'indiamart'){
+    raw('indiamartLeads').forEach(function(l){
+      if(!coordVisible(l, 'indiamartLeads')) return;
+      try{ if(typeof window.ocImTooOld === 'function' && window.ocImTooOld(l)) return; }catch(e){}
+      out.push({ id:T(l.id), when:TR(l.query_time).slice(0, 16), key:dmyKey(l.query_time) || dmyKey(l.createdAt), name:TR(l.sender_name),
+                 sub:TR(l.company), phone:TR(l.sender_mobile), city:TR(l.sender_city_state), what:TR(l.product || l.subject),
+                 qty:TR(l.qty), src:TR(l.query_type) || 'IndiaMART', cur:TR(l.assigned_to) || nameOfEmail(l.owner), owner:LC(l.owner), rec:l });
+    });
+  } else {
+    var gem = (view === 'gem');
+    raw('metaLeads').forEach(function(l){
+      if(isGem(l) !== gem || !coordVisible(l, 'metaLeads')) return;
+      out.push({ id:T(l.id), when:TR(l.created_time_ist).slice(0, 16), key:dmyKey(l.created_time_ist) || dmyKey(l.createdAt), name:TR(l.full_name),
+                 sub:'', phone:TR(l.phone_number), city:TR(l.city_state), what:TR(l.product), qty:TR(l.qty),
+                 src:gem ? 'Gem' : TR(l.platform), cur:TR(l.assigned_to) || nameOfEmail(l.owner), owner:LC(l.owner), rec:l });
+    });
+  }
+  var q = LC(UI.q);
+  if(q) out = out.filter(function(r){ return LC([r.id, r.name, r.sub, r.phone, r.city, r.what, r.src, r.cur].join(' ')).indexOf(q) >= 0; });
+  out.sort(function(a, b){ return b.key.localeCompare(a.key) || b.id.localeCompare(a.id); });
+  return out;
+}
+
+function head(view){
+  var m = META[view];
+  return '<div class="card" id="' + ROOT_ID + '" data-view="' + E(view) + '">'
+    + '<div class="card-head"><h3>' + E(m.title) + ' — New leads <span class="chip c-neutral" id="occ-count" style="margin-left:4px">0</span></h3>'
+    +   '<div class="tools">'
+    +     '<input class="field" id="occ-q" placeholder="Search name, mobile, product…" value="' + E(UI.q) + '" style="min-width:220px" oninput="ocCoord.search(this.value)">'
+    +     '<button class="btn sm" onclick="ocCoord.refresh()" title="Server se dobara laao">Refresh</button>'
+    +   '</div></div>'
+    + '<div style="padding:10px 18px;font-size:12.5px;color:var(--muted,#6b7280);border-bottom:1px solid var(--border,#e7ecf4)">'
+    +   'Yahan sirf <b>' + E(m.label) + '</b> wali leads hain. Salesperson chun kar <b>Assign</b> dabaiye — lead usi ke naam ho jayegi aur is list se hat jayegi.'
+    + '</div>'
+    + '<div style="overflow-x:auto"><table><thead><tr>'
+    +   '<th>Lead ID / Date</th><th>Customer</th><th>Mobile</th><th>Product</th><th>Source</th><th>Currently with</th><th>Assign to</th>'
+    + '</tr></thead><tbody id="occ-body"></tbody></table></div>'
+    + '<div id="occ-more" style="padding:12px 18px;text-align:center"></div>'
+    + '</div>';
+}
+
+function options(sel){
+  return '<option value="">— Select salesperson —</option>'
+    + roster().map(function(u){
+        var e = LC(u.email);
+        return '<option value="' + E(e) + '"' + (e === sel ? ' selected' : '') + '>' + E(TR(u.name) || e) + '</option>';
+      }).join('');
+}
+
+function body(view){
+  var rows = rowsFor(view), shown = rows.slice(0, UI.lim);
+  var cnt = $$('occ-count'); if(cnt) cnt.textContent = String(rows.length);
+  var tb = $$('occ-body'); if(!tb) return;
+  tb.innerHTML = shown.length ? shown.map(function(r, i){
+    var k = encodeURIComponent(r.id), pick = UI.pick[r.id] || '';
+    var subs = [r.sub, r.city].filter(Boolean).join(' · ');
+    return '<tr>'
+      + '<td style="white-space:nowrap"><span class="strong tabular">' + E(r.id) + '</span><div class="sub tabular">' + E(r.when || '—') + '</div></td>'
+      + '<td><span class="strong">' + E(r.name || '—') + '</span>' + (subs ? '<div class="sub">' + E(subs) + '</div>' : '') + '</td>'
+      + '<td class="tabular" style="white-space:nowrap">' + (r.phone ? '<a href="tel:' + E(r.phone.replace(/[^\d+]/g, '')) + '">' + E(r.phone) + '</a>' : '—') + '</td>'
+      + '<td class="wrap">' + E(r.what || '—') + (r.qty ? '<div class="sub">Qty ' + E(r.qty) + '</div>' : '') + '</td>'
+      + '<td>' + (r.src ? '<span class="chip c-neutral">' + E(r.src) + '</span>' : '—') + '</td>'
+      + '<td>' + (r.cur ? E(r.cur) : '<span class="sub">Unassigned</span>') + '</td>'
+      + '<td style="white-space:nowrap">'
+      +   '<select class="field" style="padding:4px 8px;font-size:12px;max-width:170px" data-occ="' + E(k) + '" onchange="ocCoord.pick(\'' + E(k) + '\',this.value)">' + options(pick) + '</select> '
+      +   '<button class="btn primary sm" data-occ-btn="' + E(k) + '" onclick="ocCoord.assign(\'' + E(k) + '\')">Assign</button>'
+      + '</td></tr>';
+  }).join('') : '<tr><td colspan="7" class="empty">' + (UI.q ? 'Search se koi lead nahi mili.' : 'Koi New / Created lead assign hone ke liye baaki nahi hai.') + '</td></tr>';
+  var mo = $$('occ-more');
+  if(mo) mo.innerHTML = rows.length > shown.length
+    ? '<button class="btn sm" onclick="ocCoord.more()">Show more (' + (rows.length - shown.length) + ' baaki)</button>' : '';
+  UI.sig = sigOf(view);
+}
+function sigOf(view){
+  return view + '|' + UI.q + '|' + UI.lim + '|' + rowsFor(view).map(function(r){ return r.id + ':' + r.owner + ':' + r.cur; }).join(',')
+       + '|' + roster().map(function(u){ return LC(u.email); }).join(',');
+}
+
+function curView(){ try{ return state.view; }catch(e){ return ''; } }
+function paint(force){
+  if(!isCoord()) return;
+  var v = curView();
+  if(VIEWS.indexOf(v) < 0) return;
+  var c = $$('content'); if(!c) return;
+  var root = $$(ROOT_ID);
+  if(!root || root.getAttribute('data-view') !== v){
+    if(UI.view !== v){ UI.view = v; UI.q = ''; UI.lim = 100; UI.pick = {}; }
+    c.innerHTML = head(v);
+    body(v);
+  } else if(force || sigOf(v) !== UI.sig){
+    body(v);
+  }
+  navFix(); badges();
+}
+window.ocCoordPaint = paint;
+
+/* ---------------------------------------------------------------- 4. assign */
+function findIn(arr, id){ for(var i = 0; i < arr.length; i++) if(arr[i] && T(arr[i].id) === T(id)) return i; return -1; }
+function post(payload){
+  return fetch(CLOUD.url, { method:'POST', redirect:'follow', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+                            body: JSON.stringify(payload) })
+    .then(function(r){ return r.json(); });
+}
+var busy = {};
+function assign(key){
+  if(!isCoord()) return;
+  var id = decodeURIComponent(key), v = curView(), m = META[v]; if(!m) return;
+  if(busy[id]) return;
+  var email = LC(UI.pick[id]);
+  if(!email){ tell('Pehle salesperson chuniye.'); return; }
+  if(!roster().some(function(u){ return LC(u.email) === email; })){ tell('Ye salesperson list me nahi hai.'); return; }
+  var coll = m.coll, arr = raw(coll), at = findIn(arr, id);
+  if(at < 0){ tell('Lead nahi mili — Refresh kijiye.'); return; }
+  var rec = arr[at];
+  if(!coordVisible(rec, coll)){ tell('Ye lead ab New / Created nahi hai.'); paint(true); return; }
+
+  var name = nameOfEmail(email), fromName = (coll === 'enquiries' ? TR(rec.salesperson) : TR(rec.assigned_to)) || nameOfEmail(rec.owner) || 'Unassigned';
+  var now = new Date(), iso = now.toISOString();
+  var upd = {}; for(var k in rec) if(Object.prototype.hasOwnProperty.call(rec, k)) upd[k] = rec[k];
+  upd.owner = email;
+  if(coll === 'enquiries') upd.salesperson = name.toUpperCase();     /* enquiries me naam CAPS me rehta hai */
+  else upd.assigned_to = name;
+  if(coll !== 'enquiries' && LC(rec.owner) !== email){
+    /* 10-min response timer naye salesperson ke liye shuru (v47 jaisa) */
+    upd.assignedAt = iso;
+    delete upd.respAt; delete upd.respMins; delete upd.respResult; delete upd.respBy;
+  }
+  if(v === 'gem') upd.created_time_ist = istStamp(now) || upd.created_time_ist;   /* Gem: Enquiry Timestamp = assign ka waqt (v65 jaisa) */
+  upd.updatedAt = iso;
+  upd.coordAt = iso;
+  upd.coordBy = myMail();
+
+  busy[id] = 1;
+  var btn = document.querySelector('[data-occ-btn="' + key.replace(/"/g, '\\"') + '"]');
+  if(btn){ btn.disabled = true; btn.textContent = 'Assigning…'; }
+  function undo(msg){
+    delete busy[id];
+    if(btn){ btn.disabled = false; btn.textContent = 'Assign'; }
+    tell(msg);
+  }
+  post({ action:'saveMany', collection:coll, records:[{ id:upd.id, data:upd }] }).then(function(res){
+    if(!res || res.error || res.ok === false || !(+res.done > 0)){
+      var why = (res && (res.message || res.error)) || '';
+      if(res && +res.skipped > 0) why = 'server ne lead skip kar di (backend patch CodeGs_LeadCoordinator.gs deploy hai?)';
+      if(res && res.rejected && res.rejected.length) why = 'zaroori fields adhoore: ' + (res.rejected[0].missing || []).join(', ');
+      undo('Assign nahi hua — ' + (why || 'server se jawab nahi aaya') + '.');
+      if(res && res.error === 'coord_not_fresh') refresh();
+      return;
+    }
+    /* server ne likh diya -> local copy bhi wahi */
+    try{
+      var a2 = raw(coll), j = findIn(a2, id);
+      if(j >= 0){ a2[j] = upd; } else { a2.unshift(upd); }
+      if(coll === 'enquiries' && typeof DB !== 'undefined' && typeof DB.save === 'function') DB.save('enquiries', a2);
+      else if(typeof store !== 'undefined' && store.set) store.set(coll, a2);
+      else localStorage.setItem(coll, JSON.stringify(a2));
+    }catch(e){ console.warn('[oc v69] local save', e); }
+    try{
+      if(typeof window.ocLogChange === 'function'){
+        window.ocLogChange({ coll:coll, recId:id, recName:(upd.customer || upd.full_name || upd.sender_name || upd.sender_mobile || upd.phone_number || ''),
+                             field:'assigned', from:fromName, to:name, remark:'Assigned by Lead Coordinator',
+                             owner:email, sp:name,
+                             createdAt:(rec.createdAt || (rec.date ? rec.date + 'T09:00:00.000Z' : '')) });
+      }
+    }catch(e){}
+    delete busy[id]; delete UI.pick[id];
+    tell('Lead ' + id + ' → ' + name);
+    paint(true);
+    try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
+  }).catch(function(e){
+    undo('Assign nahi hua — internet / server error. Dobara try kijiye.');
+  });
+}
+
+function refresh(){
+  var jobs = [];
+  try{ if(typeof CLOUD !== 'undefined' && CLOUD.pull) jobs.push(Promise.resolve(CLOUD.pull())); }catch(e){}
+  tell('Refreshing…');
+  Promise.all(jobs).then(function(){ setTimeout(function(){ paint(true); }, 300); }, function(){ paint(true); });
+}
+
+window.ocCoord = {
+  search: function(q){ UI.q = T(q); UI.lim = 100; body(curView()); },
+  pick:   function(key, val){ UI.pick[decodeURIComponent(key)] = LC(val); },
+  assign: assign,
+  more:   function(){ UI.lim += 100; body(curView()); },
+  refresh: refresh
+};
+
+/* ---------------------------------------------------------------- 5. routing */
+function wrapRender(name){
+  var f = window[name];
+  if(typeof f !== 'function' || f.__ocCoord) return;
+  var w = function(){
+    if(isCoord()){ paint(); return; }
+    return f.apply(this, arguments);
+  };
+  w.__ocCoord = 1; w.__v65 = 1;
+  window[name] = w;
+}
+function wrapRenders(){ ['renderEnquiries','paintEnq','renderIndiamart','renderMetaLeads','renderPipeline'].forEach(wrapRender); }
+wrapRenders();
+[400, 1600, 4500].forEach(function(t){ setTimeout(wrapRenders, t); });
+
+(function(){
+  var sv = window.setView;
+  if(typeof sv !== 'function' || sv.__ocCoord) return;
+  var w = function(v){
+    if(!isCoord()) return sv.apply(this, arguments);
+    if(VIEWS.indexOf(v) < 0) v = 'enquiries';
+    var r;
+    try{ r = sv.call(this, v); }catch(e){ console.warn('[oc v69] setView', e); }
+    try{ state.view = v; }catch(e){}
+    try{ document.querySelectorAll('.nav a[data-view]').forEach(function(a){ a.classList.toggle('active', a.getAttribute('data-view') === v); }); }catch(e){}
+    paint();
+    return r;
+  };
+  w.__ocCoord = 1;
+  window.setView = w;
+})();
+
+/* koi bhi purana module #content badal de (sync ke baad re-render, Gem ka
+   apna render ...) to coordinator wali list wapas laga do */
+var tmo = null;
+function guard(){
+  clearTimeout(tmo);
+  tmo = setTimeout(function(){
+    if(!isCoord()) return;
+    var v = curView();
+    if(VIEWS.indexOf(v) < 0){ try{ window.setView('enquiries'); }catch(e){} return; }
+    var root = $$(ROOT_ID);
+    if(!root || root.getAttribute('data-view') !== v) paint();
+    else navFix();
+  }, 40);
+}
+function watch(){
+  try{
+    var c = $$('content');
+    if(c && !c.__ocCoordMo){ c.__ocCoordMo = 1; new MutationObserver(guard).observe(c, { childList:true }); }
+    var n = document.querySelector('.nav');
+    if(n && !n.__ocCoordMo){ n.__ocCoordMo = 1; new MutationObserver(function(){ if(isCoord()) navFix(); }).observe(n, { childList:true, subtree:true, attributes:true, attributeFilter:['style'] }); }
+  }catch(e){}
+}
+watch();
+/* login ke baad / pehli baar khulne par */
+[0, 300, 1200, 3000, 8000].forEach(function(t){ setTimeout(function(){ watch(); if(isCoord()) guard(); }, t); });
+/* sync har ~25 sec data badalta hai -> list taaza rakho (selection bachi rehti hai) */
+setInterval(function(){ if(isCoord() && $$(ROOT_ID)) paint(); }, 5000);
+
+/* ---------------------------------------------------------------- 6. Admin: role option */
+(function(){
+  var f = window.openUserModal;
+  if(typeof f !== 'function' || f.__ocCoord) return;
+  var w = function(email){
+    var r = f.apply(this, arguments);
+    try{
+      var sel = $$('u-role');
+      if(sel && !Array.prototype.some.call(sel.options, function(o){ return o.value === 'Lead Coordinator'; })){
+        var o = document.createElement('option'); o.value = o.textContent = 'Lead Coordinator';
+        sel.appendChild(o);
+        var u = null;
+        try{ u = (typeof DB_users === 'function' ? DB_users() : users()).filter(function(x){ return x && x.email === email; })[0]; }catch(e){}
+        if(u && LC(u.role) === 'lead coordinator') sel.value = 'Lead Coordinator';
+      }
+    }catch(e){}
+    return r;
+  };
+  w.__ocCoord = 1; window.openUserModal = w;
+})();
+
+console.log('[oc v69] lead coordinator:', COORD_EMAILS.join(', '), '+ role "Lead Coordinator"');
 })();
 </script>
 

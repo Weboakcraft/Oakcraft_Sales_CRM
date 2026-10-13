@@ -30,6 +30,31 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Lead Coordinator (v69, build 2026.10.13.1)
+
+**Kaun:** `oakcraftcoordinator@gmail.com` (`OC_COORDINATORS` in `index.html`, `LC_EMAILS` in
+`apps-script/CodeGs_LeadCoordinator.gs`) — ya koi bhi user jiska role **Lead Coordinator** ho
+(Admin Panel → Add User → Role me naya option). Admin par koi asar nahi.
+
+**Kya dikhta hai:** sidebar me sirf **Enquiries · IndiaMART · Meta · Gem**. Har section me sirf
+New / Created leads (Enquiries `stage = New`; IndiaMART / Meta / Gem `lead_status = CREATED`) —
+saare salespersons ki. Dashboard, Qualified, Orders, Quotations, Tracking, Masters, Admin — sab chhupe;
+koi bhi doosra section khole to Enquiries par aa jaata hai.
+
+**Kya kar sakti hai:** har lead ke saamne **Assign to** dropdown (wahi salesperson jo leads uthate
+hain — `ocLeadRoster`) + **Assign**. Assign = server par seedha `saveMany` (jawab check hota hai),
+phir local copy, Activity Log (`Assigned by Lead Coordinator`) aur IndiaMART / Meta / Gem par
+10-min response timer naye salesperson ke liye. Record par `coordAt` + `coordBy` likh diya jaata
+hai — isi se lead coordinator ki list se hat jaati hai aur uske baad sirf wahi salesperson dekhta
+hai. Status badalna, edit, delete, naya record — sab band (UI me bhi, aur `ML/IM/GEM.*`,
+`openEnqModal`, `delRow` waghaira bulaane par bhi).
+
+**Backend (zaroori):** `apps-script/CodeGs_LeadCoordinator.gs` ko Apps Script project me sabse
+neeche nayi file ki tarah paste → `checkLeadCoordinator` Run → **Deploy → New version**.
+Ye `_scope` (sirf New/Created + bina `coordAt`), `_seesAll` (assign "skipped" na ho) aur `_route`
+(delete / naya record / status badalna / ab-New-nahi wali lead — sab mana) ko lapet-ta hai.
+Bina iske coordinator ko server se ek bhi lead nahi milti. Band karna: `LC_ON = false` + deploy.
+
 ## Orders Excel — fixed 15 columns (v68, build 2026.10.08.6)
 
 Orders section ka "Excel" ab sirf ye columns, isi order me: Date, Order ID, Customer, Product, Qty, Salesperson, Billing Amount, Freight Amount, Total Amount, Full Amount, Pending Balance Amount, Advance Payment Amt, Number of Boxes, Box Amount (without GST), Status. Billing Amount = order form ka field (khaali ho to amount + 18% GST). Status card / dropdown, salesperson aur date-range filters pehle jaise lagte hain. List badalni ho to `OC_ORDER_EXPORT_COLS` (v68 block).
