@@ -30,6 +30,20 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Lead Coordinator — Add Enquiry (v72, build 2026.10.13.4)
+
+Coordinator ki Enquiries list me **Add Enquiry** button — wahi purana New Enquiry form. Salesperson
+dropdown = form ke naam + saare lead lene wale salesperson (`ocLeadRoster`), upar
+"— Select salesperson —" (field required hai, isliye chunna zaroori). Save par enquiry **usi
+salesperson ki** (`owner` = uska email, `coordAt` lag jaata hai) — coordinator ki list se seedha
+salesperson ke paas. Customer dropdown me saare customers (coordinator ko ab poori customer list
+padhne ki ijazat); form ke andar naya customer bhi bana sakti hai — wo customer bhi salesperson ke
+naam ho jaata hai (`handoffCustomer`), taaki salesperson ko mobile / address dikhe. Purani enquiry
+kholna / edit / delete ab bhi band (`openEnqModal(id)` / `saveEnq(id)` rukte hain).
+Backend (`CodeGs_LeadCoordinator.gs` v72): coordinator ko poori `customers` list; nayi enquiry
+(New / Qualified / Not Qualified) bana sakti hai; naya customer bana sakti hai aur sirf apna banaya
+customer badal sakti hai; customers delete band.
+
 ## Enquiries — Mobile column (v71, build 2026.10.13.3)
 
 Enquiry record me number hota hi nahi — wo customer master (`customers.phone`) me hai. Enquiries

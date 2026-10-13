@@ -8411,7 +8411,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.13.3';
+var OC_WEB_BUILD = '2026.10.13.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21465,7 +21465,7 @@ try{
   var m = window.meSeesAll;
   if(typeof m !== 'function' || m.__ocCoord) return;
   var w = function(coll){
-    if(isCoord() && COLLS.indexOf(T(coll)) >= 0) return true;
+    if(isCoord() && (COLLS.indexOf(T(coll)) >= 0 || T(coll) === 'customers')) return true;   /* v72: customers -- Add Enquiry ke liye */
     return m.apply(this, arguments);
   };
   w.__ocCoord = 1; window.meSeesAll = w;
@@ -21477,6 +21477,7 @@ function installScope(){
   var base = window.scope;
   if(typeof base !== 'function' || base.__ocCoord) return;
   var w = function(list, coll){
+    if(isCoord() && T(coll) === 'customers') return Array.isArray(list) ? list : [];   /* v72: Add Enquiry me customer chun sake */
     if(!isCoord() || COLLS.indexOf(T(coll)) < 0) return base.apply(this, arguments);
     var arr = Array.isArray(list) ? list : [];
     var noGem = (coll === 'metaLeads' && window.__mlNoGem > 0);
@@ -21525,6 +21526,52 @@ installScope();
   w.__ocCoord = 1; store.set = w;
 })();
 
+/* v72: salesperson ke naam (enquiry form ka dropdown, jaise "UJALA RAJPUT") se email */
+function emailOfSalesName(nm){
+  var n = LC(nm); if(!n) return '';
+  var hit = users().filter(function(u){ return LC(u.name) === n && !isCoordUser(u); });
+  return hit.length === 1 ? LC(hit[0].email) : '';
+}
+/* coordinator ka banaya customer salesperson ke naam -- taaki salesperson ko
+   customer (mobile, address) dikhe. Sirf wahi customer jo coordinator ka hai. */
+function handoffCustomer(custId, email){
+  if(!custId || !email) return;
+  try{
+    var me = myMail(), arr = raw('customers'), i = findIn(arr, custId);
+    if(i < 0 || LC(arr[i].owner) !== me) return;
+    arr[i].owner = email;
+    arr[i].updatedAt = new Date().toISOString();
+    if(typeof DB !== 'undefined' && typeof DB.save === 'function') DB.save('customers', arr);
+    else if(typeof store !== 'undefined' && store.set) store.set('customers', arr);
+  }catch(e){ console.warn('[oc v72] customer handoff', e); }
+}
+/* v72: coordinator ki nayi enquiry -- form me jo salesperson chuna, enquiry
+   usi ki (assign ho chuki, coordAt). Salesperson na mile to coordinator ki
+   list me rehti hai, baad me Assign se de sakti hai. */
+(function(){
+  var st = window.stampOwner;
+  if(typeof st !== 'function' || st.__ocCoord) return;
+  var w = function(rec){
+    var r = st.apply(this, arguments);
+    try{
+      var x = r || rec;
+      if(isCoord() && x && /^ENQ-/i.test(T(x.id))){
+        var email = emailOfSalesName(x.salesperson), iso = new Date().toISOString();
+        if(email){
+          x.owner = email; if(x.ownerEmail) x.ownerEmail = email;
+          x.coordAt = iso; x.coordBy = myMail();
+          handoffCustomer(x.custId, email);
+          setTimeout(function(){ tell('Nayi enquiry ' + x.id + ' → ' + nameOfEmail(email)); }, 400);
+        } else {
+          x.owner = ''; if(x.ownerEmail) x.ownerEmail = '';
+        }
+      }
+    }catch(e){ console.warn('[oc v72] new enquiry owner', e); }
+    return r;
+  };
+  w.__ocCoord = 1; window.stampOwner = w;
+})();
+
 /* permissions: sirf 4 section dekh sakti hai; create / edit / delete kahin nahi */
 (function(){
   var base = window.can;
@@ -21532,6 +21579,7 @@ installScope();
   var w = function(section, action){
     if(!isCoord()) return base.apply(this, arguments);
     if(action === 'view' || action === 'edit') return !!ALLOWED_SECTIONS[T(section)];   /* edit = sirf status (v70); forms / delete alag se band */
+    if(action === 'create') return T(section) === 'enquiries';                            /* v72: Add Enquiry */
     return false;
   };
   w.__ocCoord = 1; w.__v65 = 1;
@@ -21550,8 +21598,47 @@ function blockFn(obj, name){
     w.__ocCoord = 1; obj[name] = w;
   }catch(e){}
 }
+/* v72: naya enquiry (id ke bina) chalta hai, purana kholna / badalna nahi */
+function blockEditOnly(obj, name){
+  try{
+    var f = obj && obj[name];
+    if(typeof f !== 'function' || f.__ocCoord) return;
+    var w = function(id){
+      if(isCoord() && id){ tell('Lead Coordinator purani enquiry edit nahi kar sakti — sirf nayi enquiry, status aur assign.'); return; }
+      return f.apply(this, arguments);
+    };
+    w.__ocCoord = 1; obj[name] = w;
+  }catch(e){}
+}
+/* v72: Add Enquiry me Salesperson dropdown = form ke naam + saare lead lene
+   wale salesperson (roster), aur pehle "— Select salesperson —" taaki
+   coordinator khud chune (galti se pehla naam na lag jaye). */
+function fillSalesSelect(){
+  var sel = $$('m-sales'); if(!sel || sel.__ocCoord) return;
+  sel.__ocCoord = 1;
+  var have = {};
+  Array.prototype.forEach.call(sel.options, function(o){ have[LC(o.value || o.textContent)] = 1; });
+  roster().forEach(function(u){
+    var nm = TR(u.name).toUpperCase(); if(!nm || have[LC(nm)]) return;
+    var o = document.createElement('option'); o.value = o.textContent = nm; sel.appendChild(o); have[LC(nm)] = 1;
+  });
+  var ph = document.createElement('option'); ph.value = ''; ph.textContent = '— Select salesperson —';
+  sel.insertBefore(ph, sel.firstChild);
+  sel.value = '';
+}
+(function(){
+  var f = window.openEnqModal;
+  if(typeof f !== 'function' || f.__ocCoordFill) return;
+  var w = function(id){
+    var r = f.apply(this, arguments);
+    if(isCoord() && !id){ try{ fillSalesSelect(); }catch(e){} setTimeout(function(){ try{ fillSalesSelect(); }catch(e){} }, 150); }
+    return r;
+  };
+  w.__ocCoordFill = 1; window.openEnqModal = w;
+})();
 function blockAll(){
-  ['openEnqModal','saveEnq','delRow','ocQuoteFromEnq'].forEach(function(n){ blockFn(window, n); });
+  ['openEnqModal','saveEnq'].forEach(function(n){ blockEditOnly(window, n); });
+  ['delRow','ocQuoteFromEnq'].forEach(function(n){ blockFn(window, n); });
   ['form','save','del','selStatus','selAssign','selDelete','bulkBox','importBox'].forEach(function(n){
     blockFn(window.ML, n); blockFn(window.IM, n);
   });
@@ -21677,6 +21764,7 @@ function head(view){
     +   '<div class="tools">'
     +     '<input class="field" id="occ-q" placeholder="Search name, mobile, product…" value="' + E(UI.q) + '" style="min-width:220px" oninput="ocCoord.search(this.value)">'
     +     '<button class="btn sm" onclick="ocCoord.refresh()" title="Server se dobara laao">Refresh</button>'
+    +     (view === 'enquiries' ? '<button class="btn primary sm" onclick="openEnqModal()">' + ((typeof I !== 'undefined' && I.plus) || '+') + 'Add Enquiry</button>' : '')
     +   '</div></div>'
     + '<div style="padding:10px 18px;font-size:12.5px;color:var(--muted,#6b7280);border-bottom:1px solid var(--border,#e7ecf4)">'
     +   'Yahan sirf <b>' + E(m.label) + '</b> wali leads hain (aur jinhe aapne Qualified / Not Qualified kiya hai). <b>Status</b> badal sakti hain; salesperson chun kar <b>Assign</b> dabaiye — lead usi ke naam ho jayegi aur is list se hat jayegi.'
@@ -21844,6 +21932,7 @@ function assign(key){
                              createdAt:(rec.createdAt || (rec.date ? rec.date + 'T09:00:00.000Z' : '')) });
       }
     }catch(e){}
+    if(coll === 'enquiries') handoffCustomer(upd.custId, email);   /* v72 */
     delete busy[id]; delete UI.pick[id];
     tell('Lead ' + id + ' → ' + name);
     paint(true);
