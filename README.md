@@ -30,6 +30,18 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Lead Coordinator — Status column (v70, build 2026.10.13.2)
+
+Coordinator ki list me ab **Status** column bhi hai — wahi Qualified / Not Qualified dropdown jo
+sab ke paas hai (v52), wahi remark modal (Qualified par Customer Type + Purchase Quantity), wahi
+Activity Log / response timer. Coordinator ka status badalte hi record par `coordStatusAt` +
+`coordStatusBy` lagta hai, isliye lead (ab New nahi hone ke bawajood) **assign hone tak** uski list
+me rehti hai — pehle status, phir Assign; assign (`coordAt`) hote hi list se hat jaati hai.
+Bina naam wali IndiaMART / Meta / Gem lead par bhi status badal sakti hai ("pehle apne naam karo"
+wala rule coordinator par nahi lagta) — status badalne se lead kabhi coordinator ke naam nahi hoti.
+Backend (`CodeGs_LeadCoordinator.gs`): status sirf New / Created / Qualified / Not Qualified;
+coordinator ne badla to server bhi `coordStatusAt` likhta hai.
+
 ## Lead Coordinator (v69, build 2026.10.13.1)
 
 **Kaun:** `oakcraftcoordinator@gmail.com` (`OC_COORDINATORS` in `index.html`, `LC_EMAILS` in

@@ -8369,7 +8369,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.13.1';
+var OC_WEB_BUILD = '2026.10.13.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21355,7 +21355,18 @@ function isFresh(r, coll){
   if(coll === 'enquiries'){ var s = LC(r.stage); return s === '' || s === 'new'; }
   var c = leadCode(r); return c === '' || c === 'CREATED' || c === 'NEW';
 }
-function coordVisible(r, coll){ return !!r && isFresh(r, coll) && !TR(r.coordAt); }
+/* v70: coordinator ne khud Qualified / Not Qualified kiya ho (coordStatusAt)
+   to lead assign hone tak list me rehti hai -- taaki pehle status, phir assign. */
+function isQnq(r, coll){
+  if(!r) return false;
+  if(coll === 'enquiries'){ var s = LC(r.stage); return s === 'qualified' || s === 'not qualified'; }
+  var c = leadCode(r); return c === 'QUALIFIED' || c === 'NOT_QUALIFIED';
+}
+function statusKey(r, coll){ return coll === 'enquiries' ? LC(r && r.stage) : leadCode(r); }
+function coordVisible(r, coll){
+  if(!r || TR(r.coordAt)) return false;
+  return isFresh(r, coll) || (!!TR(r.coordStatusAt) && isQnq(r, coll));
+}
 window.ocCoordVisible = coordVisible;
 
 function users(){ return raw('users').filter(function(u){ return u && u.email; }); }
@@ -21434,13 +21445,51 @@ function installScope(){
 }
 installScope();
 
+/* canTouch(): ML.setStatus jaisi jagah coll ke bina bulati hain -- coordinator
+   ke liye in leads par haath lagana (sirf status) allowed */
+(function(){
+  var base = window.canTouch;
+  if(typeof base !== 'function' || base.__ocCoord) return;
+  var w = function(rec, coll){
+    if(isCoord() && (!coll || COLLS.indexOf(T(coll)) >= 0)) return true;
+    return base.apply(this, arguments);
+  };
+  w.__ocCoord = 1; window.canTouch = w;
+})();
+
+/* v70: coordinator ne status badla -> record par coordStatusAt / coordStatusBy.
+   Aur status badalne se lead kabhi coordinator ke naam na ho. */
+(function(){
+  if(typeof store === 'undefined' || typeof store.set !== 'function' || store.set.__ocCoord) return;
+  var _set = store.set;
+  var w = function(k, arr){
+    try{
+      if(isCoord() && COLLS.indexOf(k) >= 0 && Array.isArray(arr)){
+        var before = {}, me = myMail(), iso = new Date().toISOString();
+        raw(k).forEach(function(r){ if(r && r.id != null) before[T(r.id)] = r; });
+        arr.forEach(function(r){
+          if(!r || r.id == null) return;
+          var p = before[T(r.id)]; if(!p) return;
+          if(statusKey(p, k) !== statusKey(r, k)){ r.coordStatusAt = iso; r.coordStatusBy = me; }
+          if(me && LC(r.owner) === me && LC(p.owner) !== me){
+            r.owner = p.owner || '';
+            if(k === 'enquiries') r.salesperson = p.salesperson || ''; else r.assigned_to = p.assigned_to || '';
+          }
+        });
+      }
+    }catch(e){ console.warn('[oc v70] coord stamp', e); }
+    return _set.apply(this, arguments);
+  };
+  w.__ocCoord = 1; store.set = w;
+})();
+
 /* permissions: sirf 4 section dekh sakti hai; create / edit / delete kahin nahi */
 (function(){
   var base = window.can;
   if(typeof base !== 'function' || base.__ocCoord) return;
   var w = function(section, action){
     if(!isCoord()) return base.apply(this, arguments);
-    if(action === 'view') return !!ALLOWED_SECTIONS[T(section)];
+    if(action === 'view' || action === 'edit') return !!ALLOWED_SECTIONS[T(section)];   /* edit = sirf status (v70); forms / delete alag se band */
     return false;
   };
   w.__ocCoord = 1; w.__v65 = 1;
@@ -21460,11 +21509,11 @@ function blockFn(obj, name){
   }catch(e){}
 }
 function blockAll(){
-  ['openEnqModal','saveEnq','delRow','ocEnqStagePick','ocQuoteFromEnq','ocMoveEnq'].forEach(function(n){ blockFn(window, n); });
-  ['form','save','del','setStatus','selStatus','selAssign','selDelete','bulkBox','importBox'].forEach(function(n){
+  ['openEnqModal','saveEnq','delRow','ocQuoteFromEnq'].forEach(function(n){ blockFn(window, n); });
+  ['form','save','del','selStatus','selAssign','selDelete','bulkBox','importBox'].forEach(function(n){
     blockFn(window.ML, n); blockFn(window.IM, n);
   });
-  ['form','save','del','setStatus','assign'].forEach(function(n){ blockFn(window.GEM, n); });
+  ['form','save','del','assign'].forEach(function(n){ blockFn(window.GEM, n); });
 }
 blockAll();
 [500, 2000, 5000].forEach(function(t){ setTimeout(blockAll, t); });
@@ -21554,7 +21603,7 @@ function rowsFor(view){
       if(!coordVisible(e, 'enquiries')) return;
       out.push({ id:T(e.id), when:TR(e.date), key:dmyKey(e.createdAt || e.date), name:TR(e.customer), sub:'',
                  phone:'', city:'', what:TR(e.product), qty:TR(e.qty), src:TR(e.source),
-                 cur:TR(e.salesperson) || nameOfEmail(e.owner), owner:LC(e.owner), rec:e });
+                 cur:TR(e.salesperson) || nameOfEmail(e.owner), owner:LC(e.owner), st:LC(e.stage), rec:e });
     });
   } else if(view === 'indiamart'){
     raw('indiamartLeads').forEach(function(l){
@@ -21562,7 +21611,7 @@ function rowsFor(view){
       try{ if(typeof window.ocImTooOld === 'function' && window.ocImTooOld(l)) return; }catch(e){}
       out.push({ id:T(l.id), when:TR(l.query_time).slice(0, 16), key:dmyKey(l.query_time) || dmyKey(l.createdAt), name:TR(l.sender_name),
                  sub:TR(l.company), phone:TR(l.sender_mobile), city:TR(l.sender_city_state), what:TR(l.product || l.subject),
-                 qty:TR(l.qty), src:TR(l.query_type) || 'IndiaMART', cur:TR(l.assigned_to) || nameOfEmail(l.owner), owner:LC(l.owner), rec:l });
+                 qty:TR(l.qty), src:TR(l.query_type) || 'IndiaMART', cur:TR(l.assigned_to) || nameOfEmail(l.owner), owner:LC(l.owner), st:leadCode(l), rec:l });
     });
   } else {
     var gem = (view === 'gem');
@@ -21570,7 +21619,7 @@ function rowsFor(view){
       if(isGem(l) !== gem || !coordVisible(l, 'metaLeads')) return;
       out.push({ id:T(l.id), when:TR(l.created_time_ist).slice(0, 16), key:dmyKey(l.created_time_ist) || dmyKey(l.createdAt), name:TR(l.full_name),
                  sub:'', phone:TR(l.phone_number), city:TR(l.city_state), what:TR(l.product), qty:TR(l.qty),
-                 src:gem ? 'Gem' : TR(l.platform), cur:TR(l.assigned_to) || nameOfEmail(l.owner), owner:LC(l.owner), rec:l });
+                 src:gem ? 'Gem' : TR(l.platform), cur:TR(l.assigned_to) || nameOfEmail(l.owner), owner:LC(l.owner), st:leadCode(l), rec:l });
     });
   }
   var q = LC(UI.q);
@@ -21588,10 +21637,10 @@ function head(view){
     +     '<button class="btn sm" onclick="ocCoord.refresh()" title="Server se dobara laao">Refresh</button>'
     +   '</div></div>'
     + '<div style="padding:10px 18px;font-size:12.5px;color:var(--muted,#6b7280);border-bottom:1px solid var(--border,#e7ecf4)">'
-    +   'Yahan sirf <b>' + E(m.label) + '</b> wali leads hain. Salesperson chun kar <b>Assign</b> dabaiye — lead usi ke naam ho jayegi aur is list se hat jayegi.'
+    +   'Yahan sirf <b>' + E(m.label) + '</b> wali leads hain (aur jinhe aapne Qualified / Not Qualified kiya hai). <b>Status</b> badal sakti hain; salesperson chun kar <b>Assign</b> dabaiye — lead usi ke naam ho jayegi aur is list se hat jayegi.'
     + '</div>'
     + '<div style="overflow-x:auto"><table><thead><tr>'
-    +   '<th>Lead ID / Date</th><th>Customer</th><th>Mobile</th><th>Product</th><th>Source</th><th>Currently with</th><th>Assign to</th>'
+    +   '<th>Lead ID / Date</th><th>Customer</th><th>Mobile</th><th>Product</th><th>Source</th><th>Status</th><th>Currently with</th><th>Assign to</th>'
     + '</tr></thead><tbody id="occ-body"></tbody></table></div>'
     + '<div id="occ-more" style="padding:12px 18px;text-align:center"></div>'
     + '</div>';
@@ -21603,6 +21652,37 @@ function options(sel){
         var e = LC(u.email);
         return '<option value="' + E(e) + '"' + (e === sel ? ' selected' : '') + '>' + E(TR(u.name) || e) + '</option>';
       }).join('');
+}
+
+/* Status -- wahi Qualified / Not Qualified dropdown jo baaki sab ke paas hai (v52) */
+function statusCell(view, r, k){
+  try{
+    if(view === 'enquiries' && typeof window.ocEnqStageCell === 'function') return window.ocEnqStageCell(r.rec);
+    var st = r.st || 'CREATED';
+    var ink = 'inherit'; try{ ink = window.ocToneInk(st); }catch(e){}
+    return '<select class="field" style="padding:4px 8px;font-size:12px;font-weight:600;max-width:150px;color:' + ink + '" '
+      + 'onchange="ocCoord.status(\'' + E(k) + '\',this.value)">' + window.ocLeadQnqOptions(st) + '</select>';
+  }catch(e){ return E(r.st || '—'); }
+}
+function setStatus(key, val){
+  if(!isCoord()) return;
+  var id = decodeURIComponent(key), v = curView(), m = META[v]; if(!m || !val) return;
+  var fn = (v === 'gem') ? (window.GEM && window.GEM.setStatus) : (v === 'metaLeads') ? (window.ML && window.ML.setStatus) : (window.IM && window.IM.setStatus);
+  if(typeof fn !== 'function'){ tell('Status nahi badla — CRM reload kijiye.'); return; }
+  var rec = raw(m.coll).filter(function(x){ return x && T(x.id) === id; })[0];
+  var unowned = rec && !TR(rec.owner) && !TR(rec.assigned_to);
+  var self = (v === 'gem') ? window.GEM : (v === 'metaLeads') ? window.ML : window.IM;
+  /* bina naam wali lead par purana rule "pehle apne naam karo" lagta hai --
+     coordinator khud lead nahi uthati, isliye sirf is ek call ke liye admin
+     jaisa rasta (admin par wo rok nahi hai). Lead kisi ke naam nahi hoti. */
+  if(unowned && REAL_IS_ADMIN){
+    var o = AUTH.isAdmin;
+    AUTH.isAdmin = function(){ return true; };
+    try{ fn.call(self, id, val); } finally { AUTH.isAdmin = o; }
+  } else {
+    fn.call(self, id, val);
+  }
+  try{ window.ocQnqAfterModal(function(){ paint(true); }); }catch(e){ setTimeout(function(){ paint(true); }, 300); }
 }
 
 function body(view){
@@ -21618,19 +21698,20 @@ function body(view){
       + '<td class="tabular" style="white-space:nowrap">' + (r.phone ? '<a href="tel:' + E(r.phone.replace(/[^\d+]/g, '')) + '">' + E(r.phone) + '</a>' : '—') + '</td>'
       + '<td class="wrap">' + E(r.what || '—') + (r.qty ? '<div class="sub">Qty ' + E(r.qty) + '</div>' : '') + '</td>'
       + '<td>' + (r.src ? '<span class="chip c-neutral">' + E(r.src) + '</span>' : '—') + '</td>'
+      + '<td>' + statusCell(view, r, k) + '</td>'
       + '<td>' + (r.cur ? E(r.cur) : '<span class="sub">Unassigned</span>') + '</td>'
       + '<td style="white-space:nowrap">'
       +   '<select class="field" style="padding:4px 8px;font-size:12px;max-width:170px" data-occ="' + E(k) + '" onchange="ocCoord.pick(\'' + E(k) + '\',this.value)">' + options(pick) + '</select> '
       +   '<button class="btn primary sm" data-occ-btn="' + E(k) + '" onclick="ocCoord.assign(\'' + E(k) + '\')">Assign</button>'
       + '</td></tr>';
-  }).join('') : '<tr><td colspan="7" class="empty">' + (UI.q ? 'Search se koi lead nahi mili.' : 'Koi New / Created lead assign hone ke liye baaki nahi hai.') + '</td></tr>';
+  }).join('') : '<tr><td colspan="8" class="empty">' + (UI.q ? 'Search se koi lead nahi mili.' : 'Koi New / Created lead assign hone ke liye baaki nahi hai.') + '</td></tr>';
   var mo = $$('occ-more');
   if(mo) mo.innerHTML = rows.length > shown.length
     ? '<button class="btn sm" onclick="ocCoord.more()">Show more (' + (rows.length - shown.length) + ' baaki)</button>' : '';
   UI.sig = sigOf(view);
 }
 function sigOf(view){
-  return view + '|' + UI.q + '|' + UI.lim + '|' + rowsFor(view).map(function(r){ return r.id + ':' + r.owner + ':' + r.cur; }).join(',')
+  return view + '|' + UI.q + '|' + UI.lim + '|' + rowsFor(view).map(function(r){ return r.id + ':' + r.owner + ':' + r.cur + ':' + r.st; }).join(',')
        + '|' + roster().map(function(u){ return LC(u.email); }).join(',');
 }
 
@@ -21740,6 +21821,7 @@ function refresh(){
 window.ocCoord = {
   search: function(q){ UI.q = T(q); UI.lim = 100; body(curView()); },
   pick:   function(key, val){ UI.pick[decodeURIComponent(key)] = LC(val); },
+  status: setStatus,
   assign: assign,
   more:   function(){ UI.lim += 100; body(curView()); },
   refresh: refresh
@@ -21826,7 +21908,7 @@ setInterval(function(){ if(isCoord() && $$(ROOT_ID)) paint(); }, 5000);
   w.__ocCoord = 1; window.openUserModal = w;
 })();
 
-console.log('[oc v69] lead coordinator:', COORD_EMAILS.join(', '), '+ role "Lead Coordinator"');
+console.log('[oc v69/v70] lead coordinator (status + assign):', COORD_EMAILS.join(', '), '+ role "Lead Coordinator"');
 })();
 </script>
 
