@@ -1,5 +1,5 @@
 /**
- * LEAD COORDINATOR — backend patch (CRM v69 + v70 status + v71 mobile)
+ * LEAD COORDINATOR — backend patch (CRM v69 + v70 status + v71 mobile + v72 add enquiry)
  * ----------------------------------------------------------------------------
  * KAUN
  *   oakcraftcoordinator@gmail.com (LC_EMAILS) -- ya koi bhi user jiska role
@@ -19,7 +19,10 @@
  *        Not Qualified karna. `_route` me
  *        pehra:
  *          - delete band
- *          - naya record band
+ *          - naya record band -- sirf nayi Enquiry (New / Qualified / Not Qualified) ban sakti hai (v72)
+ *          - customers (v72): poori list padh sakti hai (Add Enquiry ka
+ *            dropdown); naya customer bana sakti hai, aur sirf apna banaya
+ *            customer badal sakti hai (owner -> salesperson)
  *          - sirf wahi lead jo sheet par abhi bhi New / Created hai
  *          - status sirf New / Created / Qualified / Not Qualified (v70);
  *            status badle to coordStatusAt likh diya jaata hai -- lead
@@ -122,6 +125,8 @@ function ocLeadCoordInstall_(){
     var oScope = _scope;
     var wScope = function(coll, rows, u){
       try{
+        /* v72: Add Enquiry ke form me customer chunne ke liye poori customer list */
+        if(lc_isCoord_(u) && coll === 'customers') return rows || [];
         if(lc_isCoord_(u) && LC_COLLS.indexOf(coll) >= 0){
           var out = [];
           (rows || []).forEach(function(r){ if(r && lc_visible_(lc_body_(r), coll)) out.push(r); });
@@ -139,7 +144,7 @@ function ocLeadCoordInstall_(){
   if(typeof _seesAll === 'function' && !_seesAll.__ocCoord){
     var oSees = _seesAll;
     var wSees = function(coll, u){
-      try{ if(lc_isCoord_(u) && LC_COLLS.indexOf(coll) >= 0) return true; }catch(e){}
+      try{ if(lc_isCoord_(u) && (LC_COLLS.indexOf(coll) >= 0 || coll === 'customers')) return true; }catch(e){}
       return oSees.apply(this, arguments);
     };
     wSees.__ocCoord = true; wSees.__orig = oSees;
@@ -152,7 +157,7 @@ function ocLeadCoordInstall_(){
     var wRoute = function(p, verb){
       try{
         var act = p && p.action;
-        if(LC_ON && (act === 'save' || act === 'saveMany' || act === 'delete') && LC_COLLS.indexOf(p.collection) >= 0){
+        if(LC_ON && (act === 'save' || act === 'saveMany' || act === 'delete') && (LC_COLLS.indexOf(p.collection) >= 0 || p.collection === 'customers')){
           var u = null;
           try{ u = _verify(p.sid); }catch(e){ u = null; }
           if(lc_isCoord_(u)){
@@ -165,7 +170,23 @@ function ocLeadCoordInstall_(){
             recs.forEach(function(r){
               if(!r || r.id == null){ bad++; return; }
               var cur = byId[lc_s_(r.id)];
-              if(!cur){ bad++; return; }                                  /* naya record nahi */
+              /* v72 customers: naya customer (Add Enquiry ke andar), ya wahi jo
+                 coordinator ne banaya -- uska owner salesperson ko de sakti hai */
+              if(coll === 'customers'){
+                if(!cur){ keep.push(r); return; }
+                var co = lc_lc_(lc_body_(cur).owner);
+                if(co === '' || co === lc_lc_(u.email)){ keep.push(r); return; }
+                bad++; return;
+              }
+              /* v72: nayi enquiry (status New) bana sakti hai; nayi lead nahi */
+              if(!cur){
+                if(coll === 'enquiries' && (lc_fresh_(lc_body_(r), coll) || lc_qnq_(lc_body_(r), coll))){
+                  var nb0 = lc_body_(r); delete nb0._cPhone; delete nb0._cContact;
+                  if(lc_qnq_(nb0, coll) && !lc_has_(nb0.coordStatusAt)){ nb0.coordStatusAt = new Date().toISOString(); nb0.coordStatusBy = lc_lc_(u.email); }
+                  keep.push(r); return;
+                }
+                bad++; return;
+              }
               var cb = lc_body_(cur), nb = lc_body_(r);
               delete nb._cPhone; delete nb._cContact;                    /* sirf dikhane ke liye -- sheet me nahi */
               /* sheet par lead abhi New / Created ho, ya coordinator ne hi Q / NQ ki ho */
