@@ -1,5 +1,5 @@
 /**
- * LEAD COORDINATOR — backend patch (CRM v69 + v70 status)
+ * LEAD COORDINATOR — backend patch (CRM v69 + v70 status + v71 mobile)
  * ----------------------------------------------------------------------------
  * KAUN
  *   oakcraftcoordinator@gmail.com (LC_EMAILS) -- ya koi bhi user jiska role
@@ -88,6 +88,29 @@ function lc_visible_(d, coll){
   return lc_fresh_(d, coll) || (lc_has_(d.coordStatusAt) && lc_qnq_(d, coll));
 }
 
+/** v71: coordinator ko customers nahi milte, isliye enquiry ke saath customer
+    ka mobile hint (_cPhone / _cContact) -- custId se, warna naam se (sirf jab
+    us naam ka ek hi customer ho). Sheet me save nahi hota (_route me strip). */
+function lc_withPhone_(rows){
+  if(!rows || !rows.length) return rows;
+  var byId = {}, byName = {};
+  try{
+    (_readAll('customers') || []).forEach(function(r){
+      var c = lc_body_(r); if(!c) return;
+      if(c.id != null) byId[lc_s_(c.id)] = c;
+      var n = lc_lc_(c.name); if(n) (byName[n] = byName[n] || []).push(c);
+    });
+  }catch(e){ return rows; }
+  return rows.map(function(r){
+    var b = lc_body_(r), copy = {}, k;
+    for(k in b) if(Object.prototype.hasOwnProperty.call(b, k)) copy[k] = b[k];
+    var c = byId[lc_s_(b.custId)];
+    if(!c){ var l = byName[lc_lc_(b.customer)]; if(l && l.length === 1) c = l[0]; }
+    if(c){ copy._cPhone = lc_s_(c.phone || c.mobile); copy._cContact = lc_s_(c.contact || c.name); }
+    return { id: r && r.id, updatedAt: r && r.updatedAt, data: copy };
+  });
+}
+
 /** Load hote hi apne aap lag jaata hai. */
 (function(){ try{ ocLeadCoordInstall_(); }catch(e){ Logger.log('LeadCoordinator install fail: ' + e); } })();
 
@@ -102,6 +125,7 @@ function ocLeadCoordInstall_(){
         if(lc_isCoord_(u) && LC_COLLS.indexOf(coll) >= 0){
           var out = [];
           (rows || []).forEach(function(r){ if(r && lc_visible_(lc_body_(r), coll)) out.push(r); });
+          if(coll === 'enquiries'){ try{ out = lc_withPhone_(out); }catch(e2){} }
           return out;
         }
       }catch(e){ Logger.log('LeadCoordinator _scope: ' + e); }
@@ -143,6 +167,7 @@ function ocLeadCoordInstall_(){
               var cur = byId[lc_s_(r.id)];
               if(!cur){ bad++; return; }                                  /* naya record nahi */
               var cb = lc_body_(cur), nb = lc_body_(r);
+              delete nb._cPhone; delete nb._cContact;                    /* sirf dikhane ke liye -- sheet me nahi */
               /* sheet par lead abhi New / Created ho, ya coordinator ne hi Q / NQ ki ho */
               if(!(lc_fresh_(cb, coll) || (lc_has_(cb.coordStatusAt) && lc_qnq_(cb, coll)))){ bad++; return; }
               /* status sirf New / Created / Qualified / Not Qualified (v70) */
