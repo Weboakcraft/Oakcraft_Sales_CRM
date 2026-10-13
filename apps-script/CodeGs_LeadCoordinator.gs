@@ -1,5 +1,5 @@
 /**
- * LEAD COORDINATOR — backend patch (CRM v69)
+ * LEAD COORDINATOR — backend patch (CRM v69 + v70 status)
  * ----------------------------------------------------------------------------
  * KAUN
  *   oakcraftcoordinator@gmail.com (LC_EMAILS) -- ya koi bhi user jiska role
@@ -9,17 +9,21 @@
  *   1. PADHNA -- `_scope()`:
  *        enquiries / metaLeads (Meta + Gem) / indiamartLeads me coordinator
  *        ko SABHI salespersons ki wo leads milti hain jinka status
- *        New / Created hai aur jo abhi tak coordinator ne assign nahi ki
- *        (`coordAt` khaali). Baaki collections pehle jaise -- sirf apna
+ *        New / Created hai -- ya jise coordinator ne khud Qualified /
+ *        Not Qualified kiya (`coordStatusAt`) -- aur jo abhi tak
+ *        coordinator ne assign nahi ki (`coordAt` khaali). Baaki collections pehle jaise -- sirf apna
  *        (yaani kuch nahi).
  *   2. LIKHNA -- `_seesAll()` + `_route()`:
- *        Coordinator in teen collections me sirf ek kaam kar sakti hai --
- *        New / Created lead ka owner (salesperson) badalna. `_route` me
+ *        Coordinator in teen collections me sirf do kaam kar sakti hai --
+ *        lead ka owner (salesperson) badalna aur status Qualified /
+ *        Not Qualified karna. `_route` me
  *        pehra:
  *          - delete band
  *          - naya record band
  *          - sirf wahi lead jo sheet par abhi bhi New / Created hai
- *          - status badalna band (aane wala record bhi New / Created ho)
+ *          - status sirf New / Created / Qualified / Not Qualified (v70);
+ *            status badle to coordStatusAt likh diya jaata hai -- lead
+ *            assign hone tak coordinator ki list me rehti hai
  *        Kuch na bache to { ok:false, error:'coord_not_fresh' } -- app ye
  *        dekh kar list refresh kar deta hai.
  *        `_seesAll` -> true, taaki Code.gs ka owner-hijack rok (scoped)
@@ -66,11 +70,22 @@ function lc_fresh_(d, coll){
   var c = lc_s_(d.lead_status).trim().toUpperCase().replace(/[\s\-]+/g, '_');
   return c === '' || c === 'CREATED' || c === 'NEW';
 }
+/** v70: Qualified / Not Qualified? */
+function lc_qnq_(d, coll){
+  if(!d) return false;
+  if(coll === 'enquiries'){ var s = lc_lc_(d.stage); return s === 'qualified' || s === 'not qualified'; }
+  var c = lc_s_(d.lead_status).trim().toUpperCase().replace(/[\s\-]+/g, '_');
+  return c === 'QUALIFIED' || c === 'NOT_QUALIFIED';
+}
+function lc_has_(v){ return (v instanceof Date) || !!lc_s_(v).trim(); }
+function lc_statusKey_(d, coll){
+  return coll === 'enquiries' ? lc_lc_(d && d.stage) : lc_s_(d && d.lead_status).trim().toUpperCase().replace(/[\s\-]+/g, '_');
+}
+/** coordinator ko dikhe: New/Created, ya jise usne khud Qualified / Not Qualified kiya
+    (coordStatusAt) -- aur abhi tak usne assign nahi ki (coordAt khaali). */
 function lc_visible_(d, coll){
-  if(!lc_fresh_(d, coll)) return false;
-  var at = d.coordAt;
-  if(at instanceof Date) return false;
-  return !lc_s_(at).trim();
+  if(!d || lc_has_(d.coordAt)) return false;
+  return lc_fresh_(d, coll) || (lc_has_(d.coordStatusAt) && lc_qnq_(d, coll));
 }
 
 /** Load hote hi apne aap lag jaata hai. */
@@ -127,8 +142,14 @@ function ocLeadCoordInstall_(){
               if(!r || r.id == null){ bad++; return; }
               var cur = byId[lc_s_(r.id)];
               if(!cur){ bad++; return; }                                  /* naya record nahi */
-              if(!lc_fresh_(lc_body_(cur), coll)){ bad++; return; }      /* sheet par ab New nahi */
-              if(!lc_fresh_(lc_body_(r), coll)){ bad++; return; }        /* status badalna nahi */
+              var cb = lc_body_(cur), nb = lc_body_(r);
+              /* sheet par lead abhi New / Created ho, ya coordinator ne hi Q / NQ ki ho */
+              if(!(lc_fresh_(cb, coll) || (lc_has_(cb.coordStatusAt) && lc_qnq_(cb, coll)))){ bad++; return; }
+              /* status sirf New / Created / Qualified / Not Qualified (v70) */
+              if(!(lc_fresh_(nb, coll) || lc_qnq_(nb, coll))){ bad++; return; }
+              if(lc_statusKey_(cb, coll) !== lc_statusKey_(nb, coll) && !lc_has_(nb.coordStatusAt)){
+                nb.coordStatusAt = new Date().toISOString(); nb.coordStatusBy = lc_lc_(u.email);
+              }
               keep.push(r);
             });
             if(!keep.length){
