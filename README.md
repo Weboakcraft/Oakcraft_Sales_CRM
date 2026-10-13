@@ -30,6 +30,17 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Enquiries — Mobile column (v71, build 2026.10.13.3)
+
+Enquiry record me number hota hi nahi — wo customer master (`customers.phone`) me hai. Enquiries
+table me ab **Customer ke baad "Mobile"** column (click = call): pehle `custId` se customer ka phone,
+warna server ka hint `_cPhone`, warna customer ke **naam** se (sirf jab us naam ka ek hi customer ho).
+Global search mobile number se bhi dhoondhta hai. Helper: `ocEnqPhone(e)` / `ocEnqPhoneCell(e)`.
+Jis enquiry par customer hi nahi hai (na custId, na naam) wahan "—".
+Lead Coordinator ko customers nahi milte, isliye backend (`CodeGs_LeadCoordinator.gs`, v71) uski
+enquiries ke saath `_cPhone` / `_cContact` bhejta hai (custId ya unique naam se) — ye sirf dikhane ke
+liye hai, uske save par strip ho jaata hai, sheet me nahi likha jaata.
+
 ## Lead Coordinator — Status column (v70, build 2026.10.13.2)
 
 Coordinator ki list me ab **Status** column bhi hai — wahi Qualified / Not Qualified dropdown jo

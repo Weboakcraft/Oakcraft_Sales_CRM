@@ -987,6 +987,48 @@ window.ocEnqStagePick = function(sel, id){
   });
 };
 
+/* v71: Enquiry ka mobile -- enquiry me number nahi hota, customer master
+   (customers.phone) me hota hai. Pehle custId se, phir server ka contact
+   hint (_cPhone -- Lead Coordinator ko customers nahi milte), phir customer
+   ke naam se (sirf jab us naam ka EK hi customer ho). */
+var __ocCustIdx = { sig:'', byId:{}, byName:{} };
+function ocCustIndex(){
+  var raw = '';
+  try{ raw = localStorage.getItem('customers') || ''; }catch(e){}
+  var sig = raw.length + ':' + raw.slice(0, 64) + raw.slice(-64);
+  if(__ocCustIdx.sig === sig) return __ocCustIdx;
+  var byId = {}, byName = {};
+  try{
+    (JSON.parse(raw || '[]') || []).forEach(function(c){
+      if(!c) return;
+      if(c.id) byId[String(c.id)] = c;
+      var n = String(c.name || '').trim().toLowerCase();
+      if(n) (byName[n] = byName[n] || []).push(c);
+    });
+  }catch(e){}
+  __ocCustIdx = { sig:sig, byId:byId, byName:byName };
+  return __ocCustIdx;
+}
+function ocEnqPhone(e){
+  if(!e) return '';
+  var ix = ocCustIndex(), c = e.custId ? ix.byId[String(e.custId)] : null;
+  var ph = c ? String(c.phone || c.mobile || '').trim() : '';
+  if(!ph) ph = String(e._cPhone || e.phone || e.mobile || '').trim();
+  if(!ph){
+    var l = ix.byName[String(e.customer || '').trim().toLowerCase()];
+    if(l && l.length === 1) ph = String(l[0].phone || l[0].mobile || '').trim();
+  }
+  return ph;
+}
+function ocEnqPhoneCell(e){
+  var ph = ocEnqPhone(e);
+  if(!ph) return '<span class="sub">—</span>';
+  var safe = ph.replace(/[&<>"]/g, function(ch){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[ch]; });
+  return '<a href="tel:' + ph.replace(/[^\d+]/g, '') + '">' + safe + '</a>';
+}
+window.ocEnqPhone = ocEnqPhone;
+window.ocEnqPhoneCell = ocEnqPhoneCell;
+
 function stageChip(s){return `<span class="chip ${ocToneClass(s)}">${s}</span>`;}
 function orderChip(s){const m={Confirmed:'c-new','In Production':'c-prog',Ready:'c-quo',Dispatched:'c-ship',Delivered:'c-won',Cancelled:'c-lost'};return `<span class="chip ${m[s]||'c-neutral'}">${s}</span>`;}
 function quoChip(s){const m={Draft:'c-neutral',Sent:'c-new',Accepted:'c-won',Rejected:'c-lost'};return `<span class="chip ${m[s]||'c-neutral'}">${s}</span>`;}
@@ -1009,7 +1051,7 @@ function renderEnquiries(){
         </div>
       </div>
       <div style="overflow-x:auto"><table><thead><tr>
-        <th>Enquiry ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Qty</th><th>Source</th><th>Salesperson</th><th>Value</th><th>Priority</th><th>Stage</th><th></th>
+        <th>Enquiry ID</th><th>Date</th><th>Customer</th><th>Mobile</th><th>Product</th><th>Qty</th><th>Source</th><th>Salesperson</th><th>Value</th><th>Priority</th><th>Stage</th><th></th>
       </tr></thead><tbody id="enq-body"></tbody></table></div>
     </div>`;
   paintEnq();
@@ -1018,16 +1060,16 @@ function paintEnq(){
   const q=(document.getElementById('globalSearch').value||'').toLowerCase();
   let rows=scope(DB.enquiries(), 'enquiries').filter(e=>
     (!enqFilter.stage||e.stage===enqFilter.stage)&&(!enqFilter.sales||e.salesperson===enqFilter.sales)&&
-    (!q||[e.id,e.customer,e.product].join(' ').toLowerCase().includes(q)));
+    (!q||[e.id,e.customer,e.product,ocEnqPhone(e)].join(' ').toLowerCase().includes(q)));
   rows=rows.sort((a,b)=>b.date.localeCompare(a.date));
   const body=document.getElementById('enq-body'); if(!body)return;
   body.innerHTML=rows.length?rows.map(e=>`<tr>
     <td class="strong tabular">${e.id}</td><td class="sub tabular">${e.date}</td>
-    <td>${userCell(e.customer)}</td><td>${e.product}</td><td class="tabular">${e.qty}</td>
+    <td>${userCell(e.customer)}</td><td class="tabular" style="white-space:nowrap">${ocEnqPhoneCell(e)}</td><td>${e.product}</td><td class="tabular">${e.qty}</td>
     <td>${e.source}</td><td>${e.salesperson}</td><td class="strong tabular">${money(e.value)}</td>
     <td>${prioTag(e.priority)}</td><td>${ocEnqStageCell(e)}</td>
     <td><div class="row-actions" style="display:flex"><button onclick="openEnqModal('${e.id}')" title="Edit">${I.edit}</button><button onclick="delRow('enquiries','${e.id}')" title="Delete">${I.trash}</button></div></td>
-  </tr>`).join(''):`<tr><td colspan="11" class="empty">No enquiries match your filters.</td></tr>`;
+  </tr>`).join(''):`<tr><td colspan="12" class="empty">No enquiries match your filters.</td></tr>`;
 }
 
 /* ---------- Pipeline board ---------- */
@@ -8369,7 +8411,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.13.2';
+var OC_WEB_BUILD = '2026.10.13.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21602,7 +21644,7 @@ function rowsFor(view){
     raw('enquiries').forEach(function(e){
       if(!coordVisible(e, 'enquiries')) return;
       out.push({ id:T(e.id), when:TR(e.date), key:dmyKey(e.createdAt || e.date), name:TR(e.customer), sub:'',
-                 phone:'', city:'', what:TR(e.product), qty:TR(e.qty), src:TR(e.source),
+                 phone:(typeof window.ocEnqPhone === 'function' ? window.ocEnqPhone(e) : TR(e._cPhone)), city:'', what:TR(e.product), qty:TR(e.qty), src:TR(e.source),
                  cur:TR(e.salesperson) || nameOfEmail(e.owner), owner:LC(e.owner), st:LC(e.stage), rec:e });
     });
   } else if(view === 'indiamart'){
