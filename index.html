@@ -8411,7 +8411,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.15.5';
+var OC_WEB_BUILD = '2026.10.15.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21607,7 +21607,7 @@ function handoffCustomer(custId, email){
           x.owner = email; if(x.ownerEmail) x.ownerEmail = email;
           x.coordAt = iso; x.coordBy = myMail();
           handoffCustomer(x.custId, email);
-          setTimeout(function(){ tell('Nayi enquiry ' + x.id + ' → ' + nameOfEmail(email)); }, 400);
+          setTimeout(function(){ tell('New enquiry ' + x.id + ' → ' + nameOfEmail(email)); }, 400);
         } else {
           x.owner = ''; if(x.ownerEmail) x.ownerEmail = '';
         }
@@ -21638,7 +21638,7 @@ function blockFn(obj, name){
     var f = obj && obj[name];
     if(typeof f !== 'function' || f.__ocCoord) return;
     var w = function(){
-      if(isCoord()){ tell('Lead Coordinator sirf lead assign kar sakti hain.'); return; }
+      if(isCoord()){ tell('Lead Coordinator can only assign leads.'); return; }
       return f.apply(this, arguments);
     };
     w.__ocCoord = 1; obj[name] = w;
@@ -21650,7 +21650,7 @@ function blockEditOnly(obj, name){
     var f = obj && obj[name];
     if(typeof f !== 'function' || f.__ocCoord) return;
     var w = function(id){
-      if(isCoord() && id){ tell('Lead Coordinator purani enquiry edit nahi kar sakti — sirf nayi enquiry, status aur assign.'); return; }
+      if(isCoord() && id){ tell('Lead Coordinator cannot edit an existing enquiry — only add a new enquiry, change status and assign.'); return; }
       return f.apply(this, arguments);
     };
     w.__ocCoord = 1; obj[name] = w;
@@ -21814,22 +21814,22 @@ function rowsFor(view, noFilter){
 function head(view){
   var m = META[view];
   return '<div class="card" id="' + ROOT_ID + '" data-view="' + E(view) + '">'
-    + '<div class="card-head"><h3>' + E(m.title) + ' — ' + (UI.mode === 'all' ? 'Sabhi leads' : 'Assign baaki') + ' <span class="chip c-neutral" id="occ-count" style="margin-left:4px">0</span></h3>'
+    + '<div class="card-head"><h3>' + E(m.title) + ' — ' + (UI.mode === 'all' ? 'All leads' : 'To assign') + ' <span class="chip c-neutral" id="occ-count" style="margin-left:4px">0</span></h3>'
     +   '<div class="tools">'
     +     '<select class="field" id="occ-mode" style="width:auto" onchange="ocCoord.mode(this.value)">'
-    +       '<option value="todo"' + (UI.mode !== 'all' ? ' selected' : '') + '>Assign baaki (New)</option>'
-    +       '<option value="all"' + (UI.mode === 'all' ? ' selected' : '') + '>Sabhi leads</option>'
+    +       '<option value="todo"' + (UI.mode !== 'all' ? ' selected' : '') + '>To assign (New)</option>'
+    +       '<option value="all"' + (UI.mode === 'all' ? ' selected' : '') + '>All leads</option>'
     +     '</select>'
     +     '<select class="field" id="occ-sp" style="width:auto;max-width:180px" onchange="ocCoord.filt(\'sp\',this.value)"></select>'
     +     '<select class="field" id="occ-st" style="width:auto;max-width:160px" onchange="ocCoord.filt(\'st\',this.value)"></select>'
     +     '<input class="field" id="occ-q" placeholder="Search name, mobile, product…" value="' + E(UI.q) + '" style="min-width:220px" oninput="ocCoord.search(this.value)">'
-    +     '<button class="btn sm" onclick="ocCoord.refresh()" title="Server se dobara laao">Refresh</button>'
+    +     '<button class="btn sm" onclick="ocCoord.refresh()" title="Reload from the server">Refresh</button>'
     +     (view === 'enquiries' ? '<button class="btn primary sm" onclick="openEnqModal()">' + ((typeof I !== 'undefined' && I.plus) || '+') + 'Add Enquiry</button>' : '')
     +   '</div></div>'
     + '<div style="padding:10px 18px;font-size:12.5px;color:var(--muted,#6b7280);border-bottom:1px solid var(--border,#e7ecf4)">'
     +   (UI.mode === 'all'
-          ? 'Yahan <b>saare salespersons ki saari leads</b> hain (har status). Jo lead <b>' + E(m.label) + '</b> hai aur abhi assign nahi hui, uska Status badal kar <b>Assign</b> kar sakti hain; baaki leads sirf dekhne ke liye hain.'
-          : 'Yahan sirf <b>' + E(m.label) + '</b> wali leads hain (aur jinhe aapne Qualified / Not Qualified kiya hai). <b>Status</b> badal sakti hain; salesperson chun kar <b>Assign</b> dabaiye. Jo lead pehle se kisi salesperson ke naam hai, wo yahan nahi aati — wo <b>Sabhi leads</b> me "✓ Assigned" dikhti hai.')
+          ? 'Showing <b>all leads of all salespersons</b> (every status). Leads with <b>' + E(m.label) + '</b> that are not yet assigned can have their Status changed and be <b>Assigned</b>; all other leads are view-only. Click <b>⏱</b> to see a lead\'s history.'
+          : 'Showing only unassigned leads with <b>' + E(m.label) + '</b> (and those you marked Qualified / Not Qualified). Change the <b>Status</b>, pick a salesperson and click <b>Assign</b>. Leads already with a salesperson are not listed here — they appear as "✓ Assigned" under <b>All leads</b>.')
     + '</div>'
     + '<div style="overflow-x:auto"><table><thead><tr>'
     +   '<th>Lead ID / Date</th><th>Customer</th><th>Mobile</th><th>Product</th><th>Source</th><th>Status</th><th>Currently with</th><th>Assign to</th>'
@@ -21872,9 +21872,9 @@ function setStatus(key, val){
   if(!isCoord()) return;
   var id = decodeURIComponent(key), v = curView(), m = META[v]; if(!m || !val) return;
   var fn = (v === 'gem') ? (window.GEM && window.GEM.setStatus) : (v === 'metaLeads') ? (window.ML && window.ML.setStatus) : (window.IM && window.IM.setStatus);
-  if(typeof fn !== 'function'){ tell('Status nahi badla — CRM reload kijiye.'); return; }
+  if(typeof fn !== 'function'){ tell('Status not changed — please reload the CRM.'); return; }
   var rec = raw(m.coll).filter(function(x){ return x && T(x.id) === id; })[0];
-  if(rec && !coordVisible(rec, m.coll)){ tell('Ye lead sirf dekhne ke liye hai — assign ho chuki / New nahi hai.'); paint(true); return; }
+  if(rec && !coordVisible(rec, m.coll)){ tell('This lead is view-only — it is already assigned or no longer New.'); paint(true); return; }
   var unowned = rec && !TR(rec.owner) && !TR(rec.assigned_to);
   var self = (v === 'gem') ? window.GEM : (v === 'metaLeads') ? window.ML : window.IM;
   /* bina naam wali lead par purana rule "pehle apne naam karo" lagta hai --
@@ -21900,13 +21900,13 @@ function fillFilters(view){
   });
   var sp = $$('occ-sp');
   if(sp){
-    var h = '<option value="">Sabhi salesperson</option>' + (none ? '<option value="__none"' + (UI.sp === '__none' ? ' selected' : '') + '>— Unassigned —</option>' : '');
+    var h = '<option value="">All salespersons</option>' + (none ? '<option value="__none"' + (UI.sp === '__none' ? ' selected' : '') + '>— Unassigned —</option>' : '');
     Object.keys(sps).sort().forEach(function(k){ h += '<option value="' + E(k) + '"' + (UI.sp === k ? ' selected' : '') + '>' + E(sps[k]) + '</option>'; });
     if(sp.innerHTML !== h) sp.innerHTML = h;
   }
   var st = $$('occ-st');
   if(st){
-    var h2 = '<option value="">Sabhi status</option>';
+    var h2 = '<option value="">All statuses</option>';
     Object.keys(sts).sort(function(a, b){ return sts[a].localeCompare(sts[b]); }).forEach(function(k){ h2 += '<option value="' + E(k) + '"' + (UI.st === k ? ' selected' : '') + '>' + E(sts[k]) + '</option>'; });
     if(st.innerHTML !== h2) st.innerHTML = h2;
   }
@@ -21921,7 +21921,7 @@ function body(view){
     var subs = [r.sub, r.city].filter(Boolean).join(' · ');
     return '<tr>'
       + '<td style="white-space:nowrap"><span class="strong tabular">' + E(r.id) + '</span>'
-      +   ' <button class="btn sm" style="padding:1px 7px;font-size:12px;margin-left:4px" title="History — kisne kab kya kiya" onclick="ocCoord.hist(\'' + E(k) + '\')">⏱</button>'
+      +   ' <button class="btn sm" style="padding:1px 7px;font-size:12px;margin-left:4px" title="History — who did what and when" onclick="ocCoord.hist(\'' + E(k) + '\')">⏱</button>'
       +   '<div class="sub tabular">' + E(r.when || '—') + '</div></td>'
       + '<td><span class="strong">' + E(r.name || '—') + '</span>' + (subs ? '<div class="sub">' + E(subs) + '</div>' : '') + '</td>'
       + '<td class="tabular" style="white-space:nowrap">' + (r.phone ? '<a href="tel:' + E(r.phone.replace(/[^\d+]/g, '')) + '">' + E(r.phone) + '</a>' : '—') + '</td>'
@@ -21933,12 +21933,12 @@ function body(view){
       +   (r.act
             ? '<select class="field" style="padding:4px 8px;font-size:12px;max-width:170px" data-occ="' + E(k) + '" onchange="ocCoord.pick(\'' + E(k) + '\',this.value)">' + options(pick) + '</select> '
               + '<button class="btn primary sm" data-occ-btn="' + E(k) + '" onclick="ocCoord.assign(\'' + E(k) + '\')">Assign</button>'
-            : '<span class="sub" title="Sirf dekhne ke liye">' + ((TR(r.rec && r.rec.coordAt) || hasAssignee(r.rec, m2coll(view))) ? '✓ Assigned' : 'View only') + '</span>')
+            : '<span class="sub" title="View only">' + ((TR(r.rec && r.rec.coordAt) || hasAssignee(r.rec, m2coll(view))) ? '✓ Assigned' : 'View only') + '</span>')
       + '</td></tr>';
-  }).join('') : '<tr><td colspan="8" class="empty">' + (UI.q ? 'Search se koi lead nahi mili.' : (UI.mode === 'all' || UI.sp || UI.st ? 'Is filter me koi lead nahi hai.' : 'Koi New / Created lead assign hone ke liye baaki nahi hai.')) + '</td></tr>';
+  }).join('') : '<tr><td colspan="8" class="empty">' + (UI.q ? 'No lead matches your search.' : (UI.mode === 'all' || UI.sp || UI.st ? 'No leads match this filter.' : 'No New / Created lead is waiting to be assigned.')) + '</td></tr>';
   var mo = $$('occ-more');
   if(mo) mo.innerHTML = rows.length > shown.length
-    ? '<button class="btn sm" onclick="ocCoord.more()">Show more (' + (rows.length - shown.length) + ' baaki)</button>' : '';
+    ? '<button class="btn sm" onclick="ocCoord.more()">Show more (' + (rows.length - shown.length) + ' more)</button>' : '';
   UI.sig = sigOf(view);
 }
 function sigOf(view){
@@ -21977,12 +21977,12 @@ function assign(key){
   var id = decodeURIComponent(key), v = curView(), m = META[v]; if(!m) return;
   if(busy[id]) return;
   var email = LC(UI.pick[id]);
-  if(!email){ tell('Pehle salesperson chuniye.'); return; }
-  if(!roster().some(function(u){ return LC(u.email) === email; })){ tell('Ye salesperson list me nahi hai.'); return; }
+  if(!email){ tell('Please select a salesperson first.'); return; }
+  if(!roster().some(function(u){ return LC(u.email) === email; })){ tell('This salesperson is not in the list.'); return; }
   var coll = m.coll, arr = raw(coll), at = findIn(arr, id);
-  if(at < 0){ tell('Lead nahi mili — Refresh kijiye.'); return; }
+  if(at < 0){ tell('Lead not found — please click Refresh.'); return; }
   var rec = arr[at];
-  if(!coordVisible(rec, coll)){ tell('Ye lead ab New / Created nahi hai.'); paint(true); return; }
+  if(!coordVisible(rec, coll)){ tell('This lead can no longer be assigned — it is already assigned or not New.'); paint(true); return; }
 
   var name = nameOfEmail(email), fromName = (coll === 'enquiries' ? TR(rec.salesperson) : TR(rec.assigned_to)) || nameOfEmail(rec.owner) || 'Unassigned';
   var now = new Date(), iso = now.toISOString();
@@ -22011,9 +22011,9 @@ function assign(key){
   post({ action:'saveMany', collection:coll, records:[{ id:upd.id, data:upd }] }).then(function(res){
     if(!res || res.error || res.ok === false || !(+res.done > 0)){
       var why = (res && (res.message || res.error)) || '';
-      if(res && +res.skipped > 0) why = 'server ne lead skip kar di (backend patch CodeGs_LeadCoordinator.gs deploy hai?)';
-      if(res && res.rejected && res.rejected.length) why = 'zaroori fields adhoore: ' + (res.rejected[0].missing || []).join(', ');
-      undo('Assign nahi hua — ' + (why || 'server se jawab nahi aaya') + '.');
+      if(res && +res.skipped > 0) why = 'the server skipped this lead (is the CodeGs_LeadCoordinator.gs backend patch deployed?)';
+      if(res && res.rejected && res.rejected.length) why = 'required fields missing: ' + (res.rejected[0].missing || []).join(', ');
+      undo('Assign failed — ' + (why || 'no response from the server') + '.');
       if(res && res.error === 'coord_not_fresh') refresh();
       return;
     }
@@ -22039,7 +22039,7 @@ function assign(key){
     paint(true);
     try{ if(typeof refreshBadges === 'function') refreshBadges(); }catch(e){}
   }).catch(function(e){
-    undo('Assign nahi hua — internet / server error. Dobara try kijiye.');
+    undo('Assign failed — internet / server error. Please try again.');
   });
 }
 
@@ -22061,7 +22061,7 @@ window.ocCoord = {
   hist:   function(key){
     var id = decodeURIComponent(key), m = META[curView()]; if(!m) return;
     if(typeof window.ocTrackHistory === 'function') window.ocTrackHistory(m.coll, id);
-    else tell('History abhi load nahi hui — CRM reload kijiye.');
+    else tell('History is not loaded yet — please reload the CRM.');
   },
   /* v73 */
   mode:   function(v){ UI.mode = (v === 'all') ? 'all' : 'todo'; UI.lim = 100; UI.sp = ''; UI.st = '';
