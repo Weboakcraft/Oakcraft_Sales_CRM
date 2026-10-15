@@ -1,6 +1,14 @@
 /**
- * LEAD COORDINATOR — backend patch (CRM v69 + v70 status + v71 mobile + v72 add enquiry)
+ * LEAD COORDINATOR — backend patch (CRM v69 + v70 status + v71 mobile + v72 add enquiry + v73 see all)
  * ----------------------------------------------------------------------------
+ * v73 (LC_SEE_ALL = true)
+ *   Coordinator ko enquiries / metaLeads (Meta + Gem) / indiamartLeads ki
+ *   SAARI leads milti hain -- har salesperson ki, har status ki, assign ke
+ *   baad bhi. Badalna (status / assign) ab bhi sirf un leads par jo
+ *   New / Created hain aur coordinator ne abhi assign nahi ki (coordAt
+ *   khaali). Assign ho chuki lead sirf dekhne ke liye -- server par bhi.
+ *   Purana (sirf New) wapas chahiye to LC_SEE_ALL = false + New version.
+ *
  * KAUN
  *   oakcraftcoordinator@gmail.com (LC_EMAILS) -- ya koi bhi user jiska role
  *   "Lead Coordinator" ho. Admin par is file ka koi asar nahi.
@@ -50,6 +58,7 @@
  */
 
 var LC_ON     = true;
+var LC_SEE_ALL = true;   /* v73: saari leads dikhao (sirf padhne ke liye) */
 var LC_EMAILS = ['oakcraftcoordinator@gmail.com'];
 var LC_ROLE   = 'lead coordinator';
 var LC_COLLS  = ['enquiries', 'metaLeads', 'indiamartLeads'];
@@ -129,7 +138,7 @@ function ocLeadCoordInstall_(){
         if(lc_isCoord_(u) && coll === 'customers') return rows || [];
         if(lc_isCoord_(u) && LC_COLLS.indexOf(coll) >= 0){
           var out = [];
-          (rows || []).forEach(function(r){ if(r && lc_visible_(lc_body_(r), coll)) out.push(r); });
+          (rows || []).forEach(function(r){ if(r && (LC_SEE_ALL || lc_visible_(lc_body_(r), coll))) out.push(r); });
           if(coll === 'enquiries'){ try{ out = lc_withPhone_(out); }catch(e2){} }
           return out;
         }
@@ -189,6 +198,8 @@ function ocLeadCoordInstall_(){
               }
               var cb = lc_body_(cur), nb = lc_body_(r);
               delete nb._cPhone; delete nb._cContact;                    /* sirf dikhane ke liye -- sheet me nahi */
+              /* v73: coordinator ne assign kar di (coordAt) -> ab sirf dekhne ke liye */
+              if(lc_has_(cb.coordAt)){ bad++; return; }
               /* sheet par lead abhi New / Created ho, ya coordinator ne hi Q / NQ ki ho */
               if(!(lc_fresh_(cb, coll) || (lc_has_(cb.coordStatusAt) && lc_qnq_(cb, coll)))){ bad++; return; }
               /* status sirf New / Created / Qualified / Not Qualified (v70) */
@@ -222,6 +233,7 @@ function checkLeadCoordinator(){
   var out = [];
   out.push('===== LEAD COORDINATOR PATCH =====');
   out.push('on           : ' + (LC_ON ? 'HAAN' : 'NAHI (LC_ON = false)'));
+  out.push('see all (v73): ' + (LC_SEE_ALL ? 'HAAN -- saari leads, sirf padhne ke liye' : 'NAHI -- sirf New / Created'));
   out.push('_scope laga  : ' + ((typeof _scope === 'function' && _scope.__ocCoord) ? 'HAAN' : 'NAHI'));
   out.push('_seesAll laga: ' + ((typeof _seesAll === 'function' && _seesAll.__ocCoord) ? 'HAAN' : 'NAHI'));
   out.push('_route laga  : ' + ((typeof _route === 'function' && _route.__ocCoord) ? 'HAAN' : 'NAHI'));
