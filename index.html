@@ -8411,7 +8411,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.15.3';
+var OC_WEB_BUILD = '2026.10.15.4';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21720,15 +21720,16 @@ function navFix(){
 }
 window.ocCoordNavFix = navFix;
 
-/* badges = coordinator ki list ki ginti */
+/* badges = section ki POORI ginti (v73.3 -- admin jaisi; pehle sirf assign baaki) */
 function counts(){
   var enq = raw('enquiries'), im = raw('indiamartLeads'), ml = raw('metaLeads');
   try{ if(typeof window.ocImTooOld === 'function') im = im.filter(function(l){ return !window.ocImTooOld(l); }); }catch(e){}
+  var ok = function(r){ return !!r; };
   return {
-    enquiries: enq.filter(function(r){ return coordVisible(r, 'enquiries'); }).length,
-    indiamart: im.filter(function(r){ return coordVisible(r, 'indiamartLeads'); }).length,
-    metaLeads: ml.filter(function(r){ return !isGem(r) && coordVisible(r, 'metaLeads'); }).length,
-    gem:       ml.filter(function(r){ return isGem(r) && coordVisible(r, 'metaLeads'); }).length
+    enquiries: enq.filter(ok).length,
+    indiamart: im.filter(ok).length,
+    metaLeads: ml.filter(function(r){ return r && !isGem(r); }).length,
+    gem:       ml.filter(function(r){ return r && isGem(r); }).length
   };
 }
 function badges(){
