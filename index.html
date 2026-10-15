@@ -8411,7 +8411,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.15.1';
+var OC_WEB_BUILD = '2026.10.15.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21727,8 +21727,8 @@ function badges(){
 })();
 
 /* ---------------------------------------------------------------- 3. list */
-var UI = { q:'', lim:100, pick:{}, sig:'', view:'', mode:'todo', sp:'', st:'' };
-try{ var _m = localStorage.getItem('oc_coordMode'); if(_m === 'all' || _m === 'todo') UI.mode = _m; }catch(e){}
+var UI = { q:'', lim:100, pick:{}, sig:'', view:'', mode:'all', sp:'', st:'' };   /* v73.1: default = Sabhi leads */
+try{ var _m = localStorage.getItem('oc_coordMode2'); if(_m === 'all' || _m === 'todo') UI.mode = _m; }catch(e){}
 
 function dmyKey(s){   /* 'DD-MM-YYYY HH:MM:SS' / 'YYYY-MM-DD...' -> 'YYYYMMDDHHMMSS' */
   var t = TR(s), m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
@@ -22032,7 +22032,7 @@ window.ocCoord = {
   refresh: refresh,
   /* v73 */
   mode:   function(v){ UI.mode = (v === 'all') ? 'all' : 'todo'; UI.lim = 100; UI.sp = ''; UI.st = '';
-                       try{ localStorage.setItem('oc_coordMode', UI.mode); }catch(e){}
+                       try{ localStorage.setItem('oc_coordMode2', UI.mode); }catch(e){}
                        var root = $$(ROOT_ID); if(root) root.setAttribute('data-view', ''); paint(true); },
   filt:   function(which, v){ if(which === 'sp') UI.sp = T(v); else if(which === 'st') UI.st = T(v); UI.lim = 100; body(curView()); }
 };

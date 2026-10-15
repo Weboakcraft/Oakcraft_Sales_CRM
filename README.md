@@ -32,7 +32,7 @@ add from an enquiry/order form still works).
 
 ## Lead Coordinator — saari leads dikhti hain (v73, build 2026.10.15.1)
 
-Coordinator (oakcraftcoordinator@gmail.com) ko ab Enquiries · IndiaMART · Meta · Gem me **saare salespersons ki saari leads** dikhti hain — har status ki, aur assign karne ke baad bhi. List ke upar teen filter: **Assign baaki (New) / Sabhi leads** (chunaav `oc_coordMode` me yaad rehta hai), **salesperson** (— Unassigned — bhi) aur **status**. Sidebar badge ab bhi sirf "assign baaki" ginta hai.
+Coordinator (oakcraftcoordinator@gmail.com) ko ab Enquiries · IndiaMART · Meta · Gem me **saare salespersons ki saari leads** dikhti hain — har status ki, aur assign karne ke baad bhi. List ke upar teen filter: **Sabhi leads / Assign baaki (New)** (default Sabhi leads — v73.1, build 2026.10.15.2; chunaav `oc_coordMode2` me yaad rehta hai), **salesperson** (— Unassigned — bhi) aur **status**. Sidebar badge ab bhi sirf "assign baaki" ginta hai.
 
 Badalna pehle jaisa sirf un leads par jo New / Created hain aur coordinator ne abhi assign nahi ki (`coordAt` khaali) — inpar Status dropdown + Assign. Baaki har lead **sirf dekhne ke liye**: status chip, aur Assign ki jagah "✓ Assigned" / "View only". `canTouch()` coordinator ke liye ab `ocCoordCanAct()` (pehle ki stored copy par `ocCoordVisible`) lautaata hai; nayi enquiry (Add Enquiry) pehle jaisi chalti hai.
 
