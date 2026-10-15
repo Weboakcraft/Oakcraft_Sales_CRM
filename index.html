@@ -8411,7 +8411,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.15.2';
+var OC_WEB_BUILD = '2026.10.15.3';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21411,8 +21411,31 @@ function isQnq(r, coll){
   var c = leadCode(r); return c === 'QUALIFIED' || c === 'NOT_QUALIFIED';
 }
 function statusKey(r, coll){ return coll === 'enquiries' ? LC(r && r.stage) : leadCode(r); }
+/* v73.2: lead pehle se kisi salesperson ke paas hai? (naam likha hai, ya owner
+   koi sales user hai) -- tab coordinator ke liye sirf dekhne ke liye, Assign nahi.
+   Server (CodeGs_LeadCoordinator.gs lc_assigned_) par bhi bilkul yahi rule. */
+var _ssC = null, _ssT = 0;
+function salesSet(){
+  var now = Date.now(); if(_ssC && now - _ssT < 2000) return _ssC;
+  var m = {};
+  users().forEach(function(u){
+    var ok = false;
+    try{ ok = typeof window.ocIsSalesRole === 'function' ? !!window.ocIsSalesRole(u.role) : false; }catch(e){}
+    if(ok && !isCoordUser(u)) m[LC(u.email)] = 1;
+  });
+  _ssC = m; _ssT = now;
+  return m;
+}
+function hasAssignee(r, coll){
+  if(!r) return false;
+  if(TR(coll === 'enquiries' ? r.salesperson : r.assigned_to)) return true;
+  var o = LC(r.owner);
+  return !!o && !!salesSet()[o];
+}
+window.ocCoordHasAssignee = hasAssignee;
 function coordVisible(r, coll){
   if(!r || TR(r.coordAt)) return false;
+  if(hasAssignee(r, coll)) return false;                 /* v73.2 */
   return isFresh(r, coll) || (!!TR(r.coordStatusAt) && isQnq(r, coll));
 }
 window.ocCoordVisible = coordVisible;
@@ -21805,7 +21828,7 @@ function head(view){
     + '<div style="padding:10px 18px;font-size:12.5px;color:var(--muted,#6b7280);border-bottom:1px solid var(--border,#e7ecf4)">'
     +   (UI.mode === 'all'
           ? 'Yahan <b>saare salespersons ki saari leads</b> hain (har status). Jo lead <b>' + E(m.label) + '</b> hai aur abhi assign nahi hui, uska Status badal kar <b>Assign</b> kar sakti hain; baaki leads sirf dekhne ke liye hain.'
-          : 'Yahan sirf <b>' + E(m.label) + '</b> wali leads hain (aur jinhe aapne Qualified / Not Qualified kiya hai). <b>Status</b> badal sakti hain; salesperson chun kar <b>Assign</b> dabaiye. Saari leads dekhne ke liye upar <b>Sabhi leads</b> chuniye.')
+          : 'Yahan sirf <b>' + E(m.label) + '</b> wali leads hain (aur jinhe aapne Qualified / Not Qualified kiya hai). <b>Status</b> badal sakti hain; salesperson chun kar <b>Assign</b> dabaiye. Jo lead pehle se kisi salesperson ke naam hai, wo yahan nahi aati — wo <b>Sabhi leads</b> me "✓ Assigned" dikhti hai.')
     + '</div>'
     + '<div style="overflow-x:auto"><table><thead><tr>'
     +   '<th>Lead ID / Date</th><th>Customer</th><th>Mobile</th><th>Product</th><th>Source</th><th>Status</th><th>Currently with</th><th>Assign to</th>'
@@ -21866,6 +21889,7 @@ function setStatus(key, val){
   try{ window.ocQnqAfterModal(function(){ paint(true); }); }catch(e){ setTimeout(function(){ paint(true); }, 300); }
 }
 
+function m2coll(view){ return (META[view] && META[view].coll) || view; }
 function fillFilters(view){
   var all = rowsFor(view, true), base = UI.mode === 'all' ? all : all.filter(function(r){ return r.act; });
   var sps = {}, sts = {}, none = 0;
@@ -21906,7 +21930,7 @@ function body(view){
       +   (r.act
             ? '<select class="field" style="padding:4px 8px;font-size:12px;max-width:170px" data-occ="' + E(k) + '" onchange="ocCoord.pick(\'' + E(k) + '\',this.value)">' + options(pick) + '</select> '
               + '<button class="btn primary sm" data-occ-btn="' + E(k) + '" onclick="ocCoord.assign(\'' + E(k) + '\')">Assign</button>'
-            : '<span class="sub" title="Sirf dekhne ke liye">' + (TR(r.rec && r.rec.coordAt) ? '✓ Assigned' : 'View only') + '</span>')
+            : '<span class="sub" title="Sirf dekhne ke liye">' + ((TR(r.rec && r.rec.coordAt) || hasAssignee(r.rec, m2coll(view))) ? '✓ Assigned' : 'View only') + '</span>')
       + '</td></tr>';
   }).join('') : '<tr><td colspan="8" class="empty">' + (UI.q ? 'Search se koi lead nahi mili.' : (UI.mode === 'all' || UI.sp || UI.st ? 'Is filter me koi lead nahi hai.' : 'Koi New / Created lead assign hone ke liye baaki nahi hai.')) + '</td></tr>';
   var mo = $$('occ-more');
