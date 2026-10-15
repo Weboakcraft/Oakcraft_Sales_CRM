@@ -30,6 +30,14 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Lead Coordinator — saari leads dikhti hain (v73, build 2026.10.15.1)
+
+Coordinator (oakcraftcoordinator@gmail.com) ko ab Enquiries · IndiaMART · Meta · Gem me **saare salespersons ki saari leads** dikhti hain — har status ki, aur assign karne ke baad bhi. List ke upar teen filter: **Assign baaki (New) / Sabhi leads** (chunaav `oc_coordMode` me yaad rehta hai), **salesperson** (— Unassigned — bhi) aur **status**. Sidebar badge ab bhi sirf "assign baaki" ginta hai.
+
+Badalna pehle jaisa sirf un leads par jo New / Created hain aur coordinator ne abhi assign nahi ki (`coordAt` khaali) — inpar Status dropdown + Assign. Baaki har lead **sirf dekhne ke liye**: status chip, aur Assign ki jagah "✓ Assigned" / "View only". `canTouch()` coordinator ke liye ab `ocCoordCanAct()` (pehle ki stored copy par `ocCoordVisible`) lautaata hai; nayi enquiry (Add Enquiry) pehle jaisi chalti hai.
+
+Backend (`apps-script/CodeGs_LeadCoordinator.gs` v73): `LC_SEE_ALL = true` — `_scope` teeno collections ki saari rows bhejta hai; `_route` ab `coordAt` wali (coordinator ki assign ki hui) lead par likhna bhi rokta hai. Purana (sirf New) wapas: `LC_SEE_ALL = false` + New version deploy.
+
 ## Lead Coordinator — Add Enquiry (v72, build 2026.10.13.4)
 
 Coordinator ki Enquiries list me **Add Enquiry** button — wahi purana New Enquiry form. Salesperson
