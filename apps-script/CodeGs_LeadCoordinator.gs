@@ -8,6 +8,10 @@
  *   New / Created hain aur coordinator ne abhi assign nahi ki (coordAt
  *   khaali). Assign ho chuki lead sirf dekhne ke liye -- server par bhi.
  *   Purana (sirf New) wapas chahiye to LC_SEE_ALL = false + New version.
+ * v73.2: jo lead pehle se kisi salesperson ke paas hai (enquiry ka
+ *   salesperson / lead ka assigned_to likha hai, ya owner koi sales user
+ *   hai) wo bhi sirf dekhne ke liye -- coordinator use dobara assign ya
+ *   status nahi badal sakti. App (index.html hasAssignee) me bhi yahi rule.
  *
  * KAUN
  *   oakcraftcoordinator@gmail.com (LC_EMAILS) -- ya koi bhi user jiska role
@@ -90,6 +94,32 @@ function lc_qnq_(d, coll){
   return c === 'QUALIFIED' || c === 'NOT_QUALIFIED';
 }
 function lc_has_(v){ return (v instanceof Date) || !!lc_s_(v).trim(); }
+/** v73.2: sales role? -- index.html ocIsSalesRole jaisa */
+function lc_isSalesRole_(role){
+  var r = lc_lc_(role).replace(/[\s_\-]+/g, ' ');
+  return r === 'user' || r === 'sales executive' || r === 'sales exec' || r === 'salesexecutive' || r === 'sales';
+}
+var LC_SALES_ = null;
+function lc_salesSet_(){
+  if(LC_SALES_) return LC_SALES_;
+  var m = {};
+  try{
+    (_readAll('users') || []).forEach(function(r){
+      var u = lc_body_(r); if(!u || !u.email) return;
+      var em = lc_lc_(u.email);
+      if(LC_EMAILS.indexOf(em) >= 0 || lc_lc_(u.role).replace(/[\s_\-]+/g, ' ') === LC_ROLE) return;
+      if(lc_isSalesRole_(u.role)) m[em] = 1;
+    });
+  }catch(e){ Logger.log('LeadCoordinator users: ' + e); }
+  LC_SALES_ = m; return m;
+}
+/** v73.2: lead pehle se kisi salesperson ke paas hai? */
+function lc_assigned_(d, coll){
+  if(!d) return false;
+  if(lc_s_(coll === 'enquiries' ? d.salesperson : d.assigned_to).trim()) return true;
+  var o = lc_lc_(d.owner);
+  return !!o && !!lc_salesSet_()[o];
+}
 function lc_statusKey_(d, coll){
   return coll === 'enquiries' ? lc_lc_(d && d.stage) : lc_s_(d && d.lead_status).trim().toUpperCase().replace(/[\s\-]+/g, '_');
 }
@@ -97,6 +127,7 @@ function lc_statusKey_(d, coll){
     (coordStatusAt) -- aur abhi tak usne assign nahi ki (coordAt khaali). */
 function lc_visible_(d, coll){
   if(!d || lc_has_(d.coordAt)) return false;
+  if(lc_assigned_(d, coll)) return false;                         /* v73.2 */
   return lc_fresh_(d, coll) || (lc_has_(d.coordStatusAt) && lc_qnq_(d, coll));
 }
 
@@ -200,6 +231,8 @@ function ocLeadCoordInstall_(){
               delete nb._cPhone; delete nb._cContact;                    /* sirf dikhane ke liye -- sheet me nahi */
               /* v73: coordinator ne assign kar di (coordAt) -> ab sirf dekhne ke liye */
               if(lc_has_(cb.coordAt)){ bad++; return; }
+              /* v73.2: pehle se kisi salesperson ke paas -> sirf dekhne ke liye */
+              if(lc_assigned_(cb, coll)){ bad++; return; }
               /* sheet par lead abhi New / Created ho, ya coordinator ne hi Q / NQ ki ho */
               if(!(lc_fresh_(cb, coll) || (lc_has_(cb.coordStatusAt) && lc_qnq_(cb, coll)))){ bad++; return; }
               /* status sirf New / Created / Qualified / Not Qualified (v70) */
@@ -247,7 +280,8 @@ function checkLeadCoordinator(){
       var gem = 0;
       if(c === 'metaLeads') got.forEach(function(r){ var d = lc_body_(r); if(lc_lc_(d.platform) === 'gem' || /^GEM-/i.test(lc_s_(d.id))) gem++; });
       out.push('  ' + c + ': sheet me ' + all.length + ' -> coordinator ko ' + got.length
-               + (c === 'metaLeads' ? '  (Meta ' + (got.length - gem) + ' + Gem ' + gem + ')' : ''));
+               + (c === 'metaLeads' ? '  (Meta ' + (got.length - gem) + ' + Gem ' + gem + ')' : '')
+               + '  | assign ke liye baaki: ' + got.filter(function(r){ return lc_visible_(lc_body_(r), c); }).length);
     }catch(e){ out.push('  ' + c + ' -- error: ' + e); }
   });
   try{
