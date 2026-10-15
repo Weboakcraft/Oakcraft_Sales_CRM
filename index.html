@@ -8411,7 +8411,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.15.4';
+var OC_WEB_BUILD = '2026.10.15.5';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21920,7 +21920,9 @@ function body(view){
     var k = encodeURIComponent(r.id), pick = UI.pick[r.id] || '';
     var subs = [r.sub, r.city].filter(Boolean).join(' · ');
     return '<tr>'
-      + '<td style="white-space:nowrap"><span class="strong tabular">' + E(r.id) + '</span><div class="sub tabular">' + E(r.when || '—') + '</div></td>'
+      + '<td style="white-space:nowrap"><span class="strong tabular">' + E(r.id) + '</span>'
+      +   ' <button class="btn sm" style="padding:1px 7px;font-size:12px;margin-left:4px" title="History — kisne kab kya kiya" onclick="ocCoord.hist(\'' + E(k) + '\')">⏱</button>'
+      +   '<div class="sub tabular">' + E(r.when || '—') + '</div></td>'
       + '<td><span class="strong">' + E(r.name || '—') + '</span>' + (subs ? '<div class="sub">' + E(subs) + '</div>' : '') + '</td>'
       + '<td class="tabular" style="white-space:nowrap">' + (r.phone ? '<a href="tel:' + E(r.phone.replace(/[^\d+]/g, '')) + '">' + E(r.phone) + '</a>' : '—') + '</td>'
       + '<td class="wrap">' + E(r.what || '—') + (r.qty ? '<div class="sub">Qty ' + E(r.qty) + '</div>' : '') + '</td>'
@@ -22055,6 +22057,12 @@ window.ocCoord = {
   assign: assign,
   more:   function(){ UI.lim += 100; body(curView()); },
   refresh: refresh,
+  /* v73.4: lead ki history (Activity Log se -- server sirf lead wali rows bhejta hai) */
+  hist:   function(key){
+    var id = decodeURIComponent(key), m = META[curView()]; if(!m) return;
+    if(typeof window.ocTrackHistory === 'function') window.ocTrackHistory(m.coll, id);
+    else tell('History abhi load nahi hui — CRM reload kijiye.');
+  },
   /* v73 */
   mode:   function(v){ UI.mode = (v === 'all') ? 'all' : 'todo'; UI.lim = 100; UI.sp = ''; UI.st = '';
                        try{ localStorage.setItem('oc_coordMode2', UI.mode); }catch(e){}
