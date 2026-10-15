@@ -208,7 +208,7 @@ function ocLeadCoordInstall_(){
           var u = null;
           try{ u = _verify(p.sid); }catch(e){ u = null; }
           if(lc_isCoord_(u)){
-            if(act === 'delete') return { ok:false, error:'forbidden', message:'Lead Coordinator delete nahi kar sakti' };
+            if(act === 'delete') return { ok:false, error:'forbidden', message:'Lead Coordinator cannot delete records' };
             var coll = p.collection;
             var recs = (act === 'saveMany') ? (p.records || []) : [p.record || (p.records && p.records[0])];
             var ex = _readAll(coll) || [], byId = {}, i;
@@ -251,7 +251,7 @@ function ocLeadCoordInstall_(){
             });
             if(!keep.length){
               return { ok:false, error:'coord_not_fresh', done:0, skipped:bad,
-                       message:'Lead ab New / Created nahi hai' };
+                       message:'This lead is view-only for the Lead Coordinator (already assigned or not New)' };
             }
             if(bad) Logger.log('LeadCoordinator: ' + bad + ' record roke (' + u.email + ', ' + coll + ')');
             p.action = 'saveMany'; p.records = keep; delete p.record;
