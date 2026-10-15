@@ -12,6 +12,9 @@
  *   salesperson / lead ka assigned_to likha hai, ya owner koi sales user
  *   hai) wo bhi sirf dekhne ke liye -- coordinator use dobara assign ya
  *   status nahi badal sakti. App (index.html hasAssignee) me bhi yahi rule.
+ * v73.4: Activity Log -- coordinator ko sirf in teen collections (leads)
+ *   ki history rows milti hain (lead par ⏱ History). Orders / Quotations /
+ *   Dispatch ki history nahi.
  *
  * KAUN
  *   oakcraftcoordinator@gmail.com (LC_EMAILS) -- ya koi bhi user jiska role
@@ -167,6 +170,10 @@ function ocLeadCoordInstall_(){
       try{
         /* v72: Add Enquiry ke form me customer chunne ke liye poori customer list */
         if(lc_isCoord_(u) && coll === 'customers') return rows || [];
+        /* v73.4: lead ki history -- activity me sirf leads wali rows */
+        if(lc_isCoord_(u) && coll === 'activity'){
+          return (rows || []).filter(function(r){ var a = lc_body_(r); return a && LC_COLLS.indexOf(lc_s_(a.coll)) >= 0; });
+        }
         if(lc_isCoord_(u) && LC_COLLS.indexOf(coll) >= 0){
           var out = [];
           (rows || []).forEach(function(r){ if(r && (LC_SEE_ALL || lc_visible_(lc_body_(r), coll))) out.push(r); });
@@ -284,6 +291,10 @@ function checkLeadCoordinator(){
                + '  | assign ke liye baaki: ' + got.filter(function(r){ return lc_visible_(lc_body_(r), c); }).length);
     }catch(e){ out.push('  ' + c + ' -- error: ' + e); }
   });
+  try{
+    var act = _readAll('activity') || [], actGot = _scope('activity', act, u) || [];
+    out.push('  activity (history): sheet me ' + act.length + ' -> coordinator ko ' + actGot.length + ' (sirf leads wali)');
+  }catch(e){ out.push('  activity -- error: ' + e); }
   try{
     var ord = _scope('orders', _readAll('orders') || [], u) || [];
     out.push('  orders (bahar rehna chahiye): ' + ord.length + '   (0 aana chahiye)');
