@@ -30,6 +30,12 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Status me "Call Not Pick" (v74, build 2026.10.20.1)
+
+Enquiries · IndiaMART · Meta · Gem ke Status dropdown me ab teen option: **Qualified / Not Qualified / Call Not Pick** (helper `ocQnqOptions` -- teesra option apne aap). Leads par code `CALL_NOT_PICK`, Enquiry stage `'Call Not Pick'`. Baaki statuses jaisa hi: remark popup zaroori, Activity Log, response timer rukta hai, rang peela (`ocToneOf` -> warn). IndiaMART / Meta / Gem me apna KPI card + filter, Pipeline board me naya column (`PIPE_STAGES`), Meta stages (`META_STAGES`), dashboard mapping (`IM_STAGE`), Meta bulk "Set lead_status", Gem form. Qualified section me nahi jaati.
+
+Lead Coordinator bhi Call Not Pick kar sakti hai (frontend `isQnq` + backend `lc_qnq_`). **Backend zaroori:** `apps-script/CodeGs_LeadCoordinator.gs` (v74) Apps Script me purani file ki jagah paste → Deploy → New version. Iske bina coordinator ka Call Not Pick server par ruk jaata hai.
+
 ## Lead Coordinator — saari leads dikhti hain (v73, build 2026.10.15.1)
 
 Coordinator (oakcraftcoordinator@gmail.com) ko ab Enquiries · IndiaMART · Meta · Gem me **saare salespersons ki saari leads** dikhti hain — har status ki, aur assign karne ke baad bhi. List ke upar teen filter: **Sabhi leads / Assign baaki (New)** (default Sabhi leads — v73.1, build 2026.10.15.2; chunaav `oc_coordMode2` me yaad rehta hai), **salesperson** (— Unassigned — bhi) aur **status**. Sidebar badge ab bhi sirf "assign baaki" ginta hai.

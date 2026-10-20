@@ -908,6 +908,7 @@ function ocToneOf(v){
     case 'QUOTATION_SENT': case 'QUOTATIONSENT': case 'QUOTED': case 'QUOTATION':
     case 'PROPOSAL': case 'QUOTE_SENT': case 'UNASSIGNED':
     case 'CONTACTED': case 'FOLLOW_UP': case 'FOLLOWUP': case 'CALLED': case 'IN_PRODUCTION':
+    case 'CALL_NOT_PICK': case 'CALL_NOT_PICKED': case 'CALLNOTPICK': case 'NOT_PICKED': case 'CNP':   /* v74 */
       return 'warn';
     case 'SYSTEM_MASTER': case 'SYSTEMMASTER': case 'SYSTEM':
       return 'purple';
@@ -932,14 +933,16 @@ window.ocToneInk   = function(v){ return OC_TONE_INK[ocToneOf(v)]   || 'var(--br
  *  q / nq = [value, label] -- har section apni likhawat bhejta hai       *
  *  (IndiaMART/Meta: QUALIFIED, Enquiries: 'Qualified').                  *
  * ====================================================================== */
-function ocQnqOptions(cur, curLabel, q, nq){
+/* v74: teesra option "Call Not Pick" -- leads (IndiaMART / Meta / Gem) me
+   code CALL_NOT_PICK, Enquiries me stage 'Call Not Pick'. Format q se tay hota hai. */
+function ocQnqOptions(cur, curLabel, q, nq, cnp){
   function e(v){ return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  var c = String(cur == null ? '' : cur).trim(), h = '';
-  if(c !== q[0] && c !== nq[0]){
+  if(!cnp) cnp = (q[0] === 'QUALIFIED') ? ['CALL_NOT_PICK', 'Call Not Pick'] : ['Call Not Pick', 'Call Not Pick'];
+  var c = String(cur == null ? '' : cur).trim(), h = '', opts = [q, nq, cnp];
+  if(c !== q[0] && c !== nq[0] && c !== cnp[0]){
     h += '<option value="' + e(c) + '" selected disabled hidden>' + e(curLabel || c || 'Select status') + '</option>';
   }
-  h += '<option value="' + e(q[0]) + '"' + (c === q[0] ? ' selected' : '') + '>' + e(q[1]) + '</option>';
-  h += '<option value="' + e(nq[0]) + '"' + (c === nq[0] ? ' selected' : '') + '>' + e(nq[1]) + '</option>';
+  opts.forEach(function(o){ h += '<option value="' + e(o[0]) + '"' + (c === o[0] ? ' selected' : '') + '>' + e(o[1]) + '</option>'; });
   return h;
 }
 window.ocQnqOptions = ocQnqOptions;
@@ -948,7 +951,7 @@ window.ocLeadQnqOptions = function(code){
   var c = String(code == null ? '' : code).trim().toUpperCase().replace(/[\s\-]+/g, '_') || 'CREATED';
   var lab = '';
   try{ lab = (window.OC_LEAD_STATUS_LABEL || {})[c] || ''; }catch(e){}
-  if(!lab) lab = ({ CREATED:'New', CONTACTED:'Contacted', FOLLOW_UP:'Follow-up', PROPOSAL:'Proposal' })[c] || c.replace(/_/g, ' ');
+  if(!lab) lab = ({ CREATED:'New', CONTACTED:'Contacted', FOLLOW_UP:'Follow-up', PROPOSAL:'Proposal', CALL_NOT_PICK:'Call Not Pick' })[c] || c.replace(/_/g, ' ');
   return ocQnqOptions(c, lab, ['QUALIFIED', 'Qualified'], ['NOT_QUALIFIED', 'Not Qualified']);
 };
 /* Remark modal Cancel hua to dropdown galat value par na atka rahe:
@@ -6510,6 +6513,7 @@ console.log('[oc v7] row-safe save active');
   var STATUS_STAGE = {
     CREATED:'New', NEW:'New', OPEN:'New', FRESH:'New',
     CONTACTED:'Contacted', CALLED:'Contacted',
+    CALL_NOT_PICK:'Call Not Pick', CALL_NOT_PICKED:'Call Not Pick',   /* v74 */
     FOLLOW_UP:'Follow-up', FOLLOWUP:'Follow-up',
     QUALIFIED:'Qualified', INTERESTED:'Qualified',
     PROPOSAL:'Proposal', QUOTED:'Proposal', QUOTATION:'Proposal',
@@ -6535,7 +6539,7 @@ console.log('[oc v7] row-safe save active');
     var seen = {}, out = [];
     function add(s){ s = statusCode(s); if(s && !seen[s]){ seen[s] = 1; out.push(s); } }
     metaCfg().stages.forEach(function(s){ add(stageToStatus(s)); });
-    ['CREATED','CONTACTED','FOLLOW_UP','QUALIFIED','NOT_QUALIFIED','PROPOSAL','WON','LOST'].forEach(add);
+    ['CREATED','CONTACTED','CALL_NOT_PICK','FOLLOW_UP','QUALIFIED','NOT_QUALIFIED','PROPOSAL','WON','LOST'].forEach(add);
     mlAll().forEach(function(l){ add(l && l.lead_status); });
     _memo.so = out;
     return out;
@@ -6826,7 +6830,7 @@ console.log('[oc v7] row-safe save active');
     if(selIds.length){
       bulkbar = '<div class="mls-bulkbar"><b>' + selIds.length + ' selected</b>'
         + '<select class="mls-f" id="mlSelStat"><option value="">Set lead_status…</option>'
-          + '<option value="QUALIFIED">Qualified</option><option value="NOT_QUALIFIED">Not Qualified</option>'   /* v52 */
+          + '<option value="QUALIFIED">Qualified</option><option value="NOT_QUALIFIED">Not Qualified</option><option value="CALL_NOT_PICK">Call Not Pick</option>'   /* v52 + v74 */
         + '</select>'
         + (admin ? '<select class="mls-f" id="mlSelOwn"><option value="">Assign to…</option><option value="__none__">— Unassign —</option>'
             + roster().map(function(u){ return '<option value="' + esc(u.email) + '">' + esc(u.name || u.email) + '</option>'; }).join('')
@@ -8139,7 +8143,7 @@ window.paintEnq = function(){
 /* ====================================================================== *
  * 5. PIPELINE BOARD — drag & drop + move buttons + click to edit          *
  * ====================================================================== */
-var PIPE_STAGES = ['New','Contacted','Follow-up','Qualified','Not Qualified','System Master','Quoted','Won','Lost'];
+var PIPE_STAGES = ['New','Contacted','Call Not Pick','Follow-up','Qualified','Not Qualified','System Master','Quoted','Won','Lost'];   /* v74: Call Not Pick */
 /* v31: 'System Master' Qualified section ka ek sub-status hai ('Quoted' = Quotation Sent).
    PIPE_STAGES is block ke andar band tha, isliye use bahar bhi de dete hain — Qualified
    section aur baaki naye module isi ek hi list ko maanein. */
@@ -8411,7 +8415,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.15.6';
+var OC_WEB_BUILD = '2026.10.20.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -10780,7 +10784,7 @@ function imRaw(){
    conversion rate isi stage par chalte hain, isliye naam wahi rakhe hain jo
    PIPE_STAGES me hain. */
 var IM_STAGE = {
-  CREATED: 'New', CONTACTED: 'Contacted', FOLLOW_UP: 'Follow-up', QUALIFIED: 'Qualified',
+  CREATED: 'New', CONTACTED: 'Contacted', CALL_NOT_PICK: 'Call Not Pick', FOLLOW_UP: 'Follow-up', QUALIFIED: 'Qualified',
   /* Not Qualified ek band ho chuki lead hai. Ise 'New' ginte to dashboard ke
      funnel me 100+ mari hui leads "abhi kaam baaki hai" dikhtin. */
   NOT_QUALIFIED: 'Lost',
@@ -14402,9 +14406,9 @@ function noPerm(action){ try{ if(typeof permToast === 'function') return permToa
    list me nahi tha, isliye uska KPI card banta hi nahi tha aur row ke
    dropdown me wo option hi nahi hoti thi -- 287 me se 102 leads kisi bhi
    card me gini hi nahi ja rahi thin. Ab wo poora status hai. */
-var STATUSES = ['CREATED','CONTACTED','FOLLOW_UP','QUALIFIED','NOT_QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
+var STATUSES = ['CREATED','CONTACTED','CALL_NOT_PICK','FOLLOW_UP','QUALIFIED','NOT_QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
 var STATUS_LABEL = {
-  CREATED:'New', CONTACTED:'Contacted', FOLLOW_UP:'Follow-up', QUALIFIED:'Qualified',
+  CREATED:'New', CONTACTED:'Contacted', CALL_NOT_PICK:'Call Not Pick', FOLLOW_UP:'Follow-up', QUALIFIED:'Qualified',
   NOT_QUALIFIED:'Not Qualified',
   SYSTEM_MASTER:'System Master', QUOTATION_SENT:'Quotation Sent',
   WON:'Won', LOST:'Lost'
@@ -14412,6 +14416,8 @@ var STATUS_LABEL = {
 var STATUS_ALIAS = {
   NEW:'CREATED', OPEN:'CREATED', FRESH:'CREATED', CREATED:'CREATED',
   CALLED:'CONTACTED', CONTACTED:'CONTACTED',
+  /* v74: Call Not Pick -- apna status */
+  CALL_NOT_PICK:'CALL_NOT_PICK', CALL_NOT_PICKED:'CALL_NOT_PICK', CALLNOTPICK:'CALL_NOT_PICK', NOT_PICKED:'CALL_NOT_PICK', CNP:'CALL_NOT_PICK',
   /* v42: Follow-up ab apna status hai (pehle Contacted me mil jaata tha) */
   FOLLOW_UP:'FOLLOW_UP', FOLLOWUP:'FOLLOW_UP',
   INTERESTED:'QUALIFIED', QUALIFIED:'QUALIFIED',
@@ -15934,7 +15940,7 @@ window.QL = QL;
     ps.splice(at, 0, 'System Master');     /* purane build par bhi chale */
   }catch(e){}
 })();
-var ENQ_STAGE_LIST = ['New','Contacted','Follow-up','Qualified','Not Qualified','System Master','Quoted','Won','Lost'];
+var ENQ_STAGE_LIST = ['New','Contacted','Call Not Pick','Follow-up','Qualified','Not Qualified','System Master','Quoted','Won','Lost'];
 
 /* stage ke naye chip colours */
 (function(){
@@ -15989,7 +15995,7 @@ function fillStageSelect(sel){
 
 /* b) Meta pipeline stages — 'System Master' aur 'Quotation Sent' zaroori hain,
       warna ML.setStatus in statuses ka stage 'New' bana deta (purana bug). */
-var META_STAGES = ['New','Contacted','Follow-up','Qualified','Not Qualified','System Master','Quotation Sent','Proposal','Won','Lost'];
+var META_STAGES = ['New','Contacted','Call Not Pick','Follow-up','Qualified','Not Qualified','System Master','Quotation Sent','Proposal','Won','Lost'];
 function ensureMetaStages(push){
   try{
     var ff = {};
@@ -17747,7 +17753,7 @@ function nameOfEmail(em){
 function isoOfStamp(s){ var m = T(s).match(/^(\d{2})-(\d{2})-(\d{4})/); return m ? (m[3] + '-' + m[2] + '-' + m[1]) : ''; }
 
 /* ---------------------------------------------------------------- 1. sources */
-var LEAD_OPTS_META = ['CREATED','CONTACTED','FOLLOW_UP','QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
+var LEAD_OPTS_META = ['CREATED','CONTACTED','CALL_NOT_PICK','FOLLOW_UP','QUALIFIED','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
 function leadLabel(c){ var m = window.OC_LEAD_STATUS_LABEL || {}; return m[c] || T(c).replace(/_/g, ' '); }
 var SRC = {
   enquiries: {
@@ -20163,7 +20169,7 @@ function renderGem(){
   var base = visible(true), list = visible(false);
   var by = {}, unassigned = 0;
   base.forEach(function(l){ var c = code(l.lead_status); by[c] = (by[c] || 0) + 1; if(!l.owner && !l.assigned_to) unassigned++; });
-  var order = ['CREATED','QUALIFIED','NOT_QUALIFIED','FOLLOW_UP','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
+  var order = ['CREATED','QUALIFIED','NOT_QUALIFIED','CALL_NOT_PICK','FOLLOW_UP','SYSTEM_MASTER','QUOTATION_SENT','WON','LOST'];
   Object.keys(by).forEach(function(c){ if(order.indexOf(c) < 0) order.push(c); });
   function card(on, n, lbl, call, tone){
     var k = tone ? ink(tone) : '';
@@ -20197,7 +20203,7 @@ function renderGem(){
     var c = code(l.lead_status), mineOk = touch(l);
     var stCell;
     if(mineOk && canDo('edit')){
-      var opts = ['QUALIFIED', 'NOT_QUALIFIED'];
+      var opts = ['QUALIFIED', 'NOT_QUALIFIED', 'CALL_NOT_PICK'];   /* v74 */
       if(opts.indexOf(c) < 0) opts.unshift(c);
       stCell = '<select class="field" style="color:' + ink(c) + ';font-weight:600;min-width:140px" onchange="GEM.setStatus(\'' + E(l.id) + '\',this.value)">'
         + opts.map(function(o){ return '<option value="' + o + '"' + (o === c ? ' selected' : '') + '>' + E(LABEL(o)) + '</option>'; }).join('') + '</select>';
@@ -20317,8 +20323,8 @@ GEM.form = function(id){
   }
   var c = l ? code(l.lead_status) : '';
   var stSel = '<select id="gemSt"><option value=""' + (!l || c === 'CREATED' ? ' selected' : '') + '>— New (not called yet) —</option>'
-    + ['QUALIFIED', 'NOT_QUALIFIED'].map(function(o){ return '<option value="' + o + '"' + (o === c ? ' selected' : '') + '>' + E(LABEL(o)) + '</option>'; }).join('')
-    + (l && ['CREATED', 'QUALIFIED', 'NOT_QUALIFIED'].indexOf(c) < 0 ? '<option value="' + c + '" selected>' + E(LABEL(c)) + '</option>' : '')
+    + ['QUALIFIED', 'NOT_QUALIFIED', 'CALL_NOT_PICK'].map(function(o){ return '<option value="' + o + '"' + (o === c ? ' selected' : '') + '>' + E(LABEL(o)) + '</option>'; }).join('')
+    + (l && ['CREATED', 'QUALIFIED', 'NOT_QUALIFIED', 'CALL_NOT_PICK'].indexOf(c) < 0 ? '<option value="' + c + '" selected>' + E(LABEL(c)) + '</option>' : '')
     + '</select>';
   openModal('<div class="modal-head"><h3>' + (l ? 'Edit' : 'New') + ' Gem Lead</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'
     + '<div class="modal-body">'
@@ -21407,8 +21413,8 @@ function isFresh(r, coll){
    to lead assign hone tak list me rehti hai -- taaki pehle status, phir assign. */
 function isQnq(r, coll){
   if(!r) return false;
-  if(coll === 'enquiries'){ var s = LC(r.stage); return s === 'qualified' || s === 'not qualified'; }
-  var c = leadCode(r); return c === 'QUALIFIED' || c === 'NOT_QUALIFIED';
+  if(coll === 'enquiries'){ var s = LC(r.stage); return s === 'qualified' || s === 'not qualified' || s === 'call not pick'; }
+  var c = leadCode(r); return c === 'QUALIFIED' || c === 'NOT_QUALIFIED' || c === 'CALL_NOT_PICK';   /* v74 */
 }
 function statusKey(r, coll){ return coll === 'enquiries' ? LC(r && r.stage) : leadCode(r); }
 /* v73.2: lead pehle se kisi salesperson ke paas hai? (naam likha hai, ya owner
@@ -21852,7 +21858,7 @@ function stLabel(view, st){
   if(view === 'enquiries') return TR(st) ? TR(st).replace(/\b\w/g, function(c){ return c.toUpperCase(); }) : 'New';
   var c = stKey(st) || 'CREATED', lab = '';
   try{ lab = (window.OC_LEAD_STATUS_LABEL || {})[c] || ''; }catch(e){}
-  return lab || ({ CREATED:'New', NEW:'New', CONTACTED:'Contacted', FOLLOW_UP:'Follow-up', PROPOSAL:'Proposal' })[c] || c.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, function(x){ return x.toUpperCase(); });
+  return lab || ({ CREATED:'New', NEW:'New', CONTACTED:'Contacted', FOLLOW_UP:'Follow-up', PROPOSAL:'Proposal', CALL_NOT_PICK:'Call Not Pick' })[c] || c.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, function(x){ return x.toUpperCase(); });
 }
 function statusCell(view, r, k){
   try{
