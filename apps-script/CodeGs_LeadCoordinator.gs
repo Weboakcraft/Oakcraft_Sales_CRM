@@ -1,6 +1,9 @@
 /**
- * LEAD COORDINATOR — backend patch (CRM v69 + v70 status + v71 mobile + v72 add enquiry + v73 see all)
+ * LEAD COORDINATOR — backend patch (CRM v69 + v70 status + v71 mobile + v72 add enquiry + v73 see all + v74 Call Not Pick)
  * ----------------------------------------------------------------------------
+ * v74: status me teesra option "Call Not Pick" (leads: CALL_NOT_PICK,
+ *   enquiry stage: 'Call Not Pick') -- Qualified / Not Qualified jaisa hi:
+ *   coordinator badal sakti hai, coordStatusAt lagta hai, assign tak list me.
  * v73 (LC_SEE_ALL = true)
  *   Coordinator ko enquiries / metaLeads (Meta + Gem) / indiamartLeads ki
  *   SAARI leads milti hain -- har salesperson ki, har status ki, assign ke
@@ -89,12 +92,12 @@ function lc_fresh_(d, coll){
   var c = lc_s_(d.lead_status).trim().toUpperCase().replace(/[\s\-]+/g, '_');
   return c === '' || c === 'CREATED' || c === 'NEW';
 }
-/** v70: Qualified / Not Qualified? */
+/** v70: Qualified / Not Qualified? -- v74: Call Not Pick bhi */
 function lc_qnq_(d, coll){
   if(!d) return false;
-  if(coll === 'enquiries'){ var s = lc_lc_(d.stage); return s === 'qualified' || s === 'not qualified'; }
+  if(coll === 'enquiries'){ var s = lc_lc_(d.stage); return s === 'qualified' || s === 'not qualified' || s === 'call not pick'; }
   var c = lc_s_(d.lead_status).trim().toUpperCase().replace(/[\s\-]+/g, '_');
-  return c === 'QUALIFIED' || c === 'NOT_QUALIFIED';
+  return c === 'QUALIFIED' || c === 'NOT_QUALIFIED' || c === 'CALL_NOT_PICK';
 }
 function lc_has_(v){ return (v instanceof Date) || !!lc_s_(v).trim(); }
 /** v73.2: sales role? -- index.html ocIsSalesRole jaisa */
@@ -242,7 +245,7 @@ function ocLeadCoordInstall_(){
               if(lc_assigned_(cb, coll)){ bad++; return; }
               /* sheet par lead abhi New / Created ho, ya coordinator ne hi Q / NQ ki ho */
               if(!(lc_fresh_(cb, coll) || (lc_has_(cb.coordStatusAt) && lc_qnq_(cb, coll)))){ bad++; return; }
-              /* status sirf New / Created / Qualified / Not Qualified (v70) */
+              /* status sirf New / Created / Qualified / Not Qualified (v70) / Call Not Pick (v74) */
               if(!(lc_fresh_(nb, coll) || lc_qnq_(nb, coll))){ bad++; return; }
               if(lc_statusKey_(cb, coll) !== lc_statusKey_(nb, coll) && !lc_has_(nb.coordStatusAt)){
                 nb.coordStatusAt = new Date().toISOString(); nb.coordStatusBy = lc_lc_(u.email);
