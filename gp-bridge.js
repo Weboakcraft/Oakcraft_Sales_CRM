@@ -26,7 +26,7 @@
      Sheet ke M_Components me Type ka naam hamesha "Armrest" / "Seat mechanism"
      nahi hota -- asli sheet me armrest "Handle" aur seat mechanism "Plate"
      likha hai. Isliye har part kuch milte-julte naamon se pehchaana jaata hai
-     (PART_MATCH). Chair Fix Cost = Type "Chair Fix" (ya "Fixing" / "Fitting").
+     (PART_MATCH). Product Fix Cost = Type "Chair Fix" (ya "Fixing" / "Fitting").
 
    Kaun dekh sakta hai
      GP_FULL_ROLES / GP_FULL_USERS -- inko poora breakdown (cost, GP Rs, GP%)
@@ -485,7 +485,7 @@
       var manualBoxes = (opts.editable && x.how === 'manual')
         ? '<div class="ocgp-cfg" style="grid-template-columns:repeat(2,1fr)">'
           + PART_KEYS.map(function (k) {
-            var lbl = { arm: 'Armrest', seat: 'Seat mech', base: 'Base', wheels: 'Wheels', fix: 'Chair fix' }[k];
+            var lbl = { arm: 'Armrest', seat: 'Seat mech', base: 'Base', wheels: 'Wheels', fix: 'Product fix' }[k];
             return '<input type="number" step="0.01" data-gp="cost" data-k="' + k + '" data-i="' + i + '" placeholder="' + lbl + '" value="' + (num(x.cost[k]) || '') + '">';
           }).join('') + '</div>'
         : '';

@@ -30,13 +30,13 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
-## Quotation GP — part dropdowns fix + Chair Fix Cost (v75)
+## Quotation GP — part dropdowns fix + Product Fix Cost (v75)
 
 **Bug:** Quotation Builder ke product card me "Parts & cost (for GP)" ke Armrest aur Seat mechanism dropdown khaali the. Wajah: GP sheet (M_Components) me Type ka naam "Armrest" / "Seat mechanism" hai hi nahi — armrest **Handle** aur seat mechanism **Plate** (aur "SYNKRO 3 LOCK SEAT SLIDER PLATE") naam se hain, aur `gp-bridge.js` exact Type milaata tha.
 
 **Ilaaj (`gp-bridge.js`):** har part milte-julte Type naamon se pehchaana jaata hai (`PART_MATCH` / `partKeyOf()`): Armrest = armrest · arm · handle; Seat mechanism = seat · mech · plate · synchro / synkro; Base = base; Wheels = wheel · castor; Chair Fix = chair fix · fixing · fitting. Ek hi naam do Type me ho to dropdown me ek baar. Sheet me kuch badalna zaroori nahi.
 
-**Chair Fix Cost:** parts ke neeche paanchva dropdown, baaki jaisa hi — options sheet ke M_Components me **Type = `Chair Fix`** wali rows se, neeche rate. Cost/pc aur GP me judta hai (`lib/gp-engine.js` me `cChairFix`; na ho to 0, purana maths same) aur quotation ke GP snapshot me `parts.fix`. Sheet me abhi aisi row nahi hai to dropdown "— none in GP sheet —" dikhata hai. Script tags `?v=3`.
+**Product Fix Cost** (v75.1 me naam "Chair Fix Cost" se badla — sirf label): parts ke neeche paanchva dropdown, baaki jaisa hi — options sheet ke M_Components me **Type = `Chair Fix`** wali rows se, neeche rate. Cost/pc aur GP me judta hai (`lib/gp-engine.js` me `cChairFix`; na ho to 0, purana maths same) aur quotation ke GP snapshot me `parts.fix`. Sheet me abhi aisi row nahi hai to dropdown "— none in GP sheet —" dikhata hai. Script tags `?v=3`.
 
 ## Status me "Call Not Pick" (v74, build 2026.10.20.1)
 

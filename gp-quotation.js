@@ -177,7 +177,7 @@
      renderItemsEditor() se call hota hai. */
 
   var ORDER_TYPES = ['EXISTING PRODUCT', 'TO BE ORDERED', 'CUSTOMIZED PRODUCT'];
-  var PART_LABEL = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels', fix: 'Chair Fix Cost' };
+  var PART_LABEL = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels', fix: 'Product Fix Cost' };
   var PART_KEYS = ['arm', 'seat', 'base', 'wheels', 'fix'];
 
   function esc(s) {
@@ -240,7 +240,7 @@
       + '</select></div>';
   };
 
-  /* ---- part ke dropdown + rate (Chair Fix Cost bhi, v3) ---- */
+  /* ---- part ke dropdown + rate (Product Fix Cost bhi, v3) ---- */
   window.ocGPPartsHTML = function (i) {
     injectCardCSS();
     var it = S.items[i] || {};
