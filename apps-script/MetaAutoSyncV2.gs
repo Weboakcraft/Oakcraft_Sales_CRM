@@ -22,10 +22,14 @@
  *      the Meta Lead ID in column `id`). Columns are found by header name.
  *   2. Every lead is identified by its Meta Lead ID (e.g. l:2303706027082689).
  *      If a row has no ID, the key is phone + lead time.
- *   3. Sync tracking = the `MetaSync_Ledger` tab in the CRM spreadsheet: one
- *      row per Lead ID (status, CRM id, salesperson, phone, time ...). A lead
- *      whose ID is in the ledger is never imported again, wherever its row
- *      moves. Row numbers and column H are not used.
+ *   3. Sync tracking = a ledger: tab `MetaSync_Ledger` in its own small
+ *      spreadsheet "Meta Lead Sync Ledger (CRM import)" (created by
+ *      mas2_install, ID kept in Script Property MAS2_LEDGER_SS_ID). One row per
+ *      Lead ID (status, CRM id, salesperson, phone, time ...). A lead whose ID
+ *      is in the ledger is never imported again, wherever its row moves. Row
+ *      numbers and column H are not used. The ledger is a separate file so the
+ *      large CRM spreadsheet gets no new tabs and is not opened at all on runs
+ *      without new leads.
  *   4. Salesperson = the assigned_to value on that lead's own source row, read
  *      the first time the Lead ID is seen, copied exactly (outer spaces
  *      trimmed). Owner email = exact name match in CRM users (no partial /
@@ -37,7 +41,9 @@
  *   6. A different Lead ID with a phone that is already in the CRM is not
  *      imported (same rule as before: repeat lead). Ledger: SKIPPED_REPEAT_PHONE.
  *      Rows without a 10-digit phone (Meta test leads) are not imported.
- *   7. After writing, the new CRM records are read back and compared field by
+ *   7. CRM records have exactly the same fields as the old import wrote (no
+ *      new column in metaLeads); the Lead ID <-> CRM ID link is in the ledger.
+ *      After writing, the new CRM records are read back and compared field by
  *      field with the source values (salesperson, owner, name, phone, time,
  *      platform, city). Any difference -> ledger status IMPORTED_CHECK_FAILED.
  *   8. The script lock is taken only when there is a Lead ID not yet in the
@@ -48,7 +54,9 @@
  *
  * One-time setup (Apps Script editor, project Web_Sales_CRM)
  *   1. mas2_selfTest      -> logic test in memory (writes nothing)
- *   2. mas2_e2eTest       -> full test on temporary zz_ tabs, deleted afterwards
+ *   2. mas2_e2eTest       -> full test in a separate scratch spreadsheet
+ *                            ("MetaAutoSyncV2 test - safe to delete"); the CRM
+ *                            and source spreadsheets are only read
  *   3. mas2_preview       -> what the next run would do on the live data
  *   4. mas2_install       -> creates the ledger, records every lead that exists
  *                            today as BASELINE (never imported by V2), removes
@@ -62,6 +70,10 @@ var MAS2 = {
   SRC_TAB: 'Combined',
   COLL: 'metaLeads',
   LEDGER_TAB: 'MetaSync_Ledger',
+  LEDGER_SS_PROP: 'MAS2_LEDGER_SS_ID',
+  LEDGER_SS_NAME: 'Meta Lead Sync Ledger (CRM import)',
+  TEST_SS_PROP: 'MAS2_TEST_SS_ID',
+  TEST_SS_NAME: 'MetaAutoSyncV2 test - safe to delete',
   SOURCE_LABEL: 'final_meta_leads',   /* record.source -- same value as before, so CRM filters and dashboards treat new leads the same */
   MAX_PER_RUN: 100,
   MINUTES: 1,
@@ -225,8 +237,7 @@ function mas2_plan_(rows, ledger, crm, roster, opts){
       assigned_to: r.assigned_to,
       owner: owner,
       createdAt: opts.now || new Date().toISOString(),
-      source: MAS2.SOURCE_LABEL,
-      meta_lead_id: r.leadId
+      source: MAS2.SOURCE_LABEL
     };
     seenPhone[r.phone10] = rec.id;
     plan.imports.push(mas2_merge_(base, { status: 'IMPORTED', crmId: rec.id, rec: rec, note: notes.join('; ') }));
@@ -243,7 +254,7 @@ function mas2_newId_(){
 function mas2_diff_(want, got){
   if(!got) return ['record not found after write'];
   var bad = [];
-  ['assigned_to', 'owner', 'full_name', 'phone_number', 'created_time_ist', 'platform', 'city_state', 'meta_lead_id'].forEach(function(f){
+  ['assigned_to', 'owner', 'full_name', 'phone_number', 'created_time_ist', 'platform', 'city_state'].forEach(function(f){
     var w = mas2_cell_(want[f]), g = mas2_cell_(got[f]);
     /* the sheet may store a time or a phone as a date / number; compare those by their digits */
     if(w !== g && (f === 'created_time_ist' || f === 'phone_number') && mas2_digits_(w) === mas2_digits_(g)) return;
@@ -288,9 +299,26 @@ function mas2_srcValues_(sheetOverride){
   return sh.getRange(1, 1, realLast, lastCol).getDisplayValues();
 }
 
-function mas2_ledgerSheet_(tabName, create){
-  var ss = mas2_ss_(), name = tabName || MAS2.LEDGER_TAB;
+/** The small spreadsheet that holds the ledger (separate from the CRM spreadsheet). */
+function mas2_ledgerBook_(create){
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty(MAS2.LEDGER_SS_PROP);
+  if(id){ try{ return SpreadsheetApp.openById(id); }catch(e){ if(!create) throw e; } }
+  if(!create) return null;
+  var book = SpreadsheetApp.create(MAS2.LEDGER_SS_NAME);
+  props.setProperty(MAS2.LEDGER_SS_PROP, book.getId());
+  return book;
+}
+function mas2_ledgerSheet_(tabName, create, book){
+  var ss = book || mas2_ledgerBook_(create), name = tabName || MAS2.LEDGER_TAB;
+  if(!ss) return null;
   var sh = ss.getSheetByName(name);
+  if(!sh && create && ss.getSheets().length === 1 && /^Sheet1$|^Sheet 1$/.test(ss.getSheets()[0].getName()) && ss.getSheets()[0].getLastRow() === 0){
+    sh = ss.getSheets()[0]; sh.setName(name);               /* reuse the empty first tab of a new file */
+    sh.getRange(1, 1, sh.getMaxRows(), MAS2_LEDGER_HEAD.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, MAS2_LEDGER_HEAD.length).setValues([MAS2_LEDGER_HEAD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
   if(!sh && create){
     sh = ss.insertSheet(name);
     sh.getRange(1, 1, sh.getMaxRows(), MAS2_LEDGER_HEAD.length).setNumberFormat('@');   /* keep IDs and phones as text */
@@ -335,6 +363,8 @@ function mas2_write_(coll, recs){
  *   o.srcSheet     source tab override (tests)
  *   o.coll         destination collection override (tests)
  *   o.ledgerTab    ledger tab override (tests)
+ *   o.ledgerBook   spreadsheet holding the ledger (tests; default = ledger file)
+ *   o.readColl / o.writeColl   CRM read / write functions (tests; default Code.gs)
  *   o.max          max imports in this run
  *   o.lockWaitMs   how long to wait for the script lock (default MAS2.LOCK_WAIT_MS)
  * Returns a summary object.
@@ -345,7 +375,8 @@ function mas2_run_(o){
   var res = { newIds: 0, imported: 0, ledgerOnly: 0, checkFailed: 0, pending: 0, dryRun: !!o.dryRun, log: [] };
 
   /* ---- 1. quick check WITHOUT the lock ---- */
-  var ledgerSh = mas2_ledgerSheet_(ledgerTab, false);
+  var readColl = o.readColl || mas2_readColl_, writeColl = o.writeColl || mas2_write_;
+  var ledgerSh = mas2_ledgerSheet_(ledgerTab, false, o.ledgerBook);
   if(!ledgerSh){ res.log.push('Ledger tab "' + ledgerTab + '" missing -- run mas2_install first.'); Logger.log(res.log.join('\n')); return res; }
   var src = mas2_parseSource_(mas2_srcValues_(o.srcSheet));
   if(src.missing.length) throw new Error('Source columns missing: ' + src.missing.join(', '));
@@ -359,7 +390,7 @@ function mas2_run_(o){
   if(!lock.tryLock(o.lockWaitMs || MAS2.LOCK_WAIT_MS)){ res.locked = true; res.log.push('Another run holds the lock; will retry next minute.'); Logger.log(res.log.join('\n')); return res; }
   try{
     ledger = mas2_ledgerIds_(ledgerSh);                    /* re-read inside the lock */
-    var crm = mas2_crmIndex_(mas2_readColl_(coll));
+    var crm = mas2_crmIndex_(readColl(coll));
     var roster = mas2_roster_(mas2_readColl_('users'));
     var plan = mas2_plan_(src.rows, ledger, crm, roster, { max: o.max || MAS2.MAX_PER_RUN });
     res.pending = plan.pending;
@@ -375,10 +406,10 @@ function mas2_run_(o){
 
     var ledgerRows = [];
     if(plan.imports.length){
-      mas2_write_(coll, plan.imports.map(function(p){ return p.rec; }));
+      writeColl(coll, plan.imports.map(function(p){ return p.rec; }));
       SpreadsheetApp.flush();
       /* ---- 3. read back and compare with the source values ---- */
-      var back = mas2_crmIndex_(mas2_readColl_(coll)).byId;
+      var back = mas2_crmIndex_(readColl(coll)).byId;
       plan.imports.forEach(function(p){
         var bad = mas2_diff_(p.rec, back[p.rec.id]);
         if(bad.length){ p.status = 'IMPORTED_CHECK_FAILED'; p.note = (p.note ? p.note + '; ' : '') + 'check: ' + bad.join(', '); res.checkFailed++; }
@@ -413,7 +444,7 @@ function mas2_runNow(){ return mas2_run_({}); }
  */
 function mas2_install(){
   var sh = mas2_ledgerSheet_(MAS2.LEDGER_TAB, true);
-  var log = [];
+  var log = ['Ledger file: ' + sh.getParent().getName() + ' (' + sh.getParent().getId() + ')'];
   if(sh.getLastRow() < 2){
     var src = mas2_parseSource_(mas2_srcValues_());
     if(src.missing.length) throw new Error('Source columns missing: ' + src.missing.join(', '));
@@ -501,7 +532,7 @@ function mas2_logicTests_(){
   ok(lo['l:4'] && lo['l:4'].status === 'SKIPPED_REPEAT_PHONE' && lo['l:4'].crmId === 'ML-OLD001', 'repeat phone not imported, linked to existing CRM record');
   ok(imp['l:5'] && imp['l:5'].rec.assigned_to === 'Pinky' && imp['l:5'].rec.owner === '' && /not found/.test(imp['l:5'].note), 'name not in CRM users: kept exactly, no owner guessed');
   ok(mas2_roster_([{ name: 'Ujala', email: 'x@x' }, { name: 'Ujala Rajput', email: 'u@x' }])['ujala'] === 'x@x', 'no prefix matching: "Ujala" only matches a user named exactly "Ujala"');
-  ok(imp['l:1'].rec.source === MAS2.SOURCE_LABEL && imp['l:1'].rec.meta_lead_id === 'l:1' && imp['l:1'].rec.stage === 'New', 'record shape: source label, meta_lead_id, stage');
+  ok(Object.keys(imp['l:1'].rec).sort().join(',') === 'assigned_to,city_state,createdAt,created_time_ist,full_name,id,lead_status,owner,phone_number,platform,source,stage' && imp['l:1'].rec.source === MAS2.SOURCE_LABEL && imp['l:1'].rec.stage === 'New', 'record has exactly the fields the old import wrote (no new CRM column)');
 
   /* write run 1 into fake CRM + ledger */
   p1.imports.forEach(function(p){ crmRecords.push(p.rec); ledger[p.leadId] = true; });
@@ -554,32 +585,60 @@ function mas2_logicTests_(){
 }
 
 /**
- * Full test on temporary tabs in this spreadsheet (deleted at the end):
- *   zz_mas2_test_source  source with the SAME row-position formula as Combined!S619
- *   zz_mas2_test_leads   destination collection, written through Code.gs _upsertMany
- *   zz_mas2_test_ledger  ledger
- * Live metaLeads, the live ledger and the source sheet are not touched.
+ * Full test in a separate scratch spreadsheet ("MetaAutoSyncV2 test - safe to
+ * delete", created on first use, ID in Script Property MAS2_TEST_SS_ID):
+ *   src     source rows + the SAME row-position formula as Combined!S619
+ *   ledger  ledger tab (real ledger code)
+ *   dest    stand-in for the CRM collection (one JSON record per row)
+ * Uses the real reading, planning, ledger and read-back code. The CRM
+ * spreadsheet is only read (users, for the salesperson -> email roster); live
+ * metaLeads, the live ledger and the source sheet are not touched.
  */
 function mas2_e2eTest(){
-  var ss = mas2_ss_(), out = [], fails = 0;
-  var T = { src: 'zz_mas2_test_source', coll: 'zz_mas2_test_leads', ledger: 'zz_mas2_test_ledger' };
+  var out = [], fails = 0;
   function ok(cond, msg){ out.push((cond ? 'PASS ' : 'FAIL ') + msg); if(!cond) fails++; }
-  /* the CRM spreadsheet is large; Google sometimes answers "Service Spreadsheets timed out" -- retry those */
   function retry(fn, label){
     for(var a = 1; a <= 3; a++){
       try{ return fn(); }
       catch(e){ if(a === 3 || !/timed out|Service|temporar/i.test(String(e))) throw e; out.push('RETRY ' + label + ' (' + a + '): ' + String(e).slice(0, 80)); Utilities.sleep(4000 * a); }
     }
   }
-  function drop(name){ retry(function(){ var s = ss.getSheetByName(name); if(s) ss.deleteSheet(s); }, 'delete ' + name); }
-  function run(){ return retry(function(){ var r = mas2_run_({ srcSheet: src, coll: T.coll, ledgerTab: T.ledger, lockWaitMs: 120000 }); if(r.locked) throw new Error('Service lock busy (temporary)'); return r; }, 'run'); }
-  function coll(){ return retry(function(){ return mas2_readColl_(T.coll); }, 'read ' + T.coll); }
-  [T.src, T.coll, T.ledger].forEach(drop);
+  var props = PropertiesService.getScriptProperties();
+  var book = null, id = props.getProperty(MAS2.TEST_SS_PROP);
+  if(id){ try{ book = SpreadsheetApp.openById(id); }catch(e){ book = null; } }
+  if(!book){ book = SpreadsheetApp.create(MAS2.TEST_SS_NAME); props.setProperty(MAS2.TEST_SS_PROP, book.getId()); }
+  /* fresh tabs every run */
+  var keep = book.insertSheet('tmp_' + Date.now());
+  book.getSheets().forEach(function(sh){ if(sh.getSheetId() !== keep.getSheetId()) book.deleteSheet(sh); });
+  var src = book.insertSheet('src'), dest = book.insertSheet('dest');
+  book.deleteSheet(keep);
+  var LEDGER = 'ledger';
+  mas2_ledgerSheet_(LEDGER, true, book);   /* creates the ledger tab in the test file */
+
+  /* CRM stand-in: id | json */
+  dest.getRange(1, 1, 1, 2).setValues([['id', 'json']]);
+  dest.getRange('A:B').setNumberFormat('@');
+  var readDest = function(){
+    var last = dest.getLastRow(); if(last < 2) return [];
+    return dest.getRange(2, 1, last - 1, 2).getValues().map(function(r){ return JSON.parse(r[1]); });
+  };
+  var writeDest = function(coll, recs){
+    var last = dest.getLastRow(), ids = last > 1 ? dest.getRange(2, 1, last - 1, 1).getValues().map(function(r){ return r[0]; }) : [];
+    recs.forEach(function(rec){
+      var i = ids.indexOf(rec.id);
+      if(i >= 0) dest.getRange(i + 2, 2).setValue(JSON.stringify(rec));
+      else { dest.appendRow([rec.id, JSON.stringify(rec)]); ids.push(rec.id); }
+    });
+    return recs.length;
+  };
+  var run = function(){ return retry(function(){ return mas2_run_({ srcSheet: src, ledgerBook: book, ledgerTab: LEDGER, readColl: readDest, writeColl: writeDest, lockWaitMs: 120000 }); }, 'run'); };
+  var FORMULA = '=LET(data,C2:C,names,{"Amira Saikh";"Mayank Mittal";"Ujala Rajput"},n,SCAN(0,data,LAMBDA(a,v,a+(v<>""))),MAP(data,n,LAMBDA(d,c,IF(d="","",INDEX(names,MOD(c-1,3)+1)))))';
+  var readSrc = function(){ var m = {}; src.getRange(2, 1, src.getLastRow() - 1, 9).getDisplayValues().forEach(function(r){ if(r[1] && m[r[1]] === undefined) m[r[1]] = r[8]; }); return m; };
+
   try{
-    var src = retry(function(){ return ss.insertSheet(T.src); }, 'create source tab');
     var H = ['source_sheet', 'id', 'created_time_ist', 'platform', 'full_name', 'phone_number', 'city_state', 'lead_status', 'assigned_to'];
-    src.getRange(1, 1, 1, H.length).setValues([H]);
     src.getRange('C:C').setNumberFormat('@'); src.getRange('F:F').setNumberFormat('@');
+    src.getRange(1, 1, 1, H.length).setValues([H]);
     var rows1 = [
       ['Sheet4', 'l:e2e-1', '20-10-2026 10:00:00', 'ig', 'E2E One', '9000000101', 'UP', 'CREATED'],
       ['Sheet4', 'l:e2e-2', '20-10-2026 10:05:00', 'fb', 'E2E Two', '9000000102', '', 'CREATED'],
@@ -587,53 +646,59 @@ function mas2_e2eTest(){
       ['Sheet4', 'l:e2e-3', '20-10-2026 10:06:00', '', '<test lead>', '<test lead: dummy data for phone>', '', 'CREATED'],
       ['Sheet4', 'l:e2e-4', '20-10-2026 10:07:00', 'ig', 'E2E Four', '9000000104', 'MP', 'CREATED']];
     src.getRange(2, 1, rows1.length, 8).setValues(rows1);
-    /* same rotation formula as Combined!S619 -> names depend on row position */
-    src.getRange('I2').setFormula('=LET(data,C2:C,names,{"Amira Saikh";"Mayank Mittal";"Ujala Rajput"},n,SCAN(0,data,LAMBDA(a,v,a+(v<>""))),MAP(data,n,LAMBDA(d,c,IF(d="","",INDEX(names,MOD(c-1,3)+1)))))');
+    src.getRange('I2').setFormula(FORMULA);
     SpreadsheetApp.flush();
-    retry(function(){ return mas2_ledgerSheet_(T.ledger, true); }, 'create ledger tab');
 
-    var readSrcNames = function(){ var m = {}; src.getRange(2, 1, src.getLastRow() - 1, 9).getDisplayValues().forEach(function(r){ if(r[1] && !m[r[1]]) m[r[1]] = r[8]; }); return m; };
-    var names1 = readSrcNames();
+    /* run 1 */
+    var names1 = readSrc();
     var r1 = run();
-    var recs = coll(), byLead = {};
-    recs.forEach(function(x){ byLead[x.meta_lead_id] = x; });
-    ok(r1.imported === 3 && r1.checkFailed === 0, 'run 1: 3 leads imported through Code.gs _upsertMany, read-back check passed (' + JSON.stringify({ imported: r1.imported, logOnly: r1.ledgerOnly, checkFailed: r1.checkFailed }) + ')');
-    ['l:e2e-1', 'l:e2e-2', 'l:e2e-4'].forEach(function(id){
-      ok(byLead[id] && byLead[id].assigned_to === names1[id], id + ': CRM salesperson "' + (byLead[id] || {}).assigned_to + '" = source "' + names1[id] + '"');
+    var recs = readDest(), byKey = {};
+    recs.forEach(function(x){ byKey[x.phone_number] = x; });
+    ok(r1.imported === 3 && r1.checkFailed === 0, 'run 1: 3 leads imported, read-back check passed (' + JSON.stringify({ imported: r1.imported, logOnly: r1.ledgerOnly, checkFailed: r1.checkFailed }) + ')');
+    [['l:e2e-1', '9000000101'], ['l:e2e-2', '9000000102'], ['l:e2e-4', '9000000104']].forEach(function(t){
+      var rec = byKey[t[1]];
+      ok(rec && rec.assigned_to === names1[t[0]], t[0] + ': destination salesperson "' + (rec || {}).assigned_to + '" = source "' + names1[t[0]] + '"; owner ' + ((rec || {}).owner || '(none)'));
     });
-    ok(!byLead['l:e2e-3'], 'test lead without phone not imported');
-    ok(recs.filter(function(x){ return x.meta_lead_id === 'l:e2e-2'; }).length === 1, 'duplicated Lead ID imported once');
+    ok(!recs.some(function(x){ return /test lead/.test(x.full_name); }), 'test lead without phone not imported');
+    ok(recs.filter(function(x){ return x.phone_number === '9000000102'; }).length === 1, 'Lead ID that is twice in the source imported once (first copy)');
+    ok(recs.every(function(x){ return Object.keys(x).sort().join(',') === 'assigned_to,city_state,createdAt,created_time_ist,full_name,id,lead_status,owner,phone_number,platform,source,stage'; }), 'records have exactly the old import fields');
 
-    /* run 2: insert a late lead at the top -> the formula re-rotates every name below */
-    var snapshot = {}; recs.forEach(function(x){ snapshot[x.id] = JSON.stringify(x); });
+    /* run 2: late lead inserted at the top -> the formula re-rotates every name below; one new lead at the bottom */
+    var snap = JSON.stringify(readDest());
     src.insertRowBefore(2);
     src.getRange(2, 1, 1, 8).setValues([['Sheet4', 'l:e2e-late', '19-10-2026 08:00:00', 'fb', 'E2E Late', '9000000109', '', 'CREATED']]);
     src.getRange('I2:I').clearContent();
-    src.getRange('I2').setFormula('=LET(data,C2:C,names,{"Amira Saikh";"Mayank Mittal";"Ujala Rajput"},n,SCAN(0,data,LAMBDA(a,v,a+(v<>""))),MAP(data,n,LAMBDA(d,c,IF(d="","",INDEX(names,MOD(c-1,3)+1)))))');
+    src.getRange('I2').setFormula(FORMULA);
     src.getRange(src.getLastRow() + 1, 1, 1, 8).setValues([['Sheet4', 'l:e2e-5', '20-10-2026 11:00:00', 'ig', 'E2E Five', '9000000105', 'DL', 'CREATED']]);
     SpreadsheetApp.flush();
-    var names2 = readSrcNames();
+    var names2 = readSrc();
     var r2 = run();
-    var recs2 = coll(), byLead2 = {};
-    recs2.forEach(function(x){ byLead2[x.meta_lead_id] = x; });
-    ok(r2.imported === 2 && r2.checkFailed === 0, 'run 2: only the 2 new Lead IDs imported (late lead + new bottom lead), none skipped');
-    ok(byLead2['l:e2e-late'] && byLead2['l:e2e-late'].assigned_to === names2['l:e2e-late'], 'late lead: CRM salesperson "' + (byLead2['l:e2e-late'] || {}).assigned_to + '" = its source row "' + names2['l:e2e-late'] + '"');
-    ok(byLead2['l:e2e-5'] && byLead2['l:e2e-5'].assigned_to === names2['l:e2e-5'], 'new lead: CRM salesperson "' + (byLead2['l:e2e-5'] || {}).assigned_to + '" = its source row "' + names2['l:e2e-5'] + '"');
-    var unchanged = Object.keys(snapshot).every(function(id){ var now = recs2.filter(function(x){ return x.id === id; })[0]; return now && JSON.stringify(now) === snapshot[id]; });
-    ok(unchanged, 'records imported in run 1 are unchanged after the source re-rotated its names');
-    var moved = ['l:e2e-1', 'l:e2e-2', 'l:e2e-4'].filter(function(id){ return names1[id] !== names2[id]; }).length;
-    out.push('INFO source names that changed for already-imported leads after the insert: ' + moved + ' of 3 (this is the source formula, not the import)');
+    var recs2 = readDest(), byKey2 = {};
+    recs2.forEach(function(x){ byKey2[x.phone_number] = x; });
+    ok(r2.imported === 2 && r2.checkFailed === 0 && r2.ledgerOnly === 0, 'run 2: only the 2 new Lead IDs imported (late lead + new bottom lead), nothing skipped');
+    ok(byKey2['9000000109'] && byKey2['9000000109'].assigned_to === names2['l:e2e-late'], 'late lead: destination "' + (byKey2['9000000109'] || {}).assigned_to + '" = its source row "' + names2['l:e2e-late'] + '"');
+    ok(byKey2['9000000105'] && byKey2['9000000105'].assigned_to === names2['l:e2e-5'], 'new lead: destination "' + (byKey2['9000000105'] || {}).assigned_to + '" = its source row "' + names2['l:e2e-5'] + '"');
+    var old = JSON.parse(snap), now2 = {};
+    recs2.forEach(function(x){ now2[x.id] = JSON.stringify(x); });
+    ok(old.every(function(x){ return now2[x.id] === JSON.stringify(x); }), 'records from run 1 unchanged after the source re-rotated its names');
+    var moved = ['l:e2e-1', 'l:e2e-2', 'l:e2e-4'].filter(function(k){ return names1[k] !== names2[k]; }).length;
+    out.push('INFO after the insert the source formula shows a different name for ' + moved + ' of the 3 already-imported leads (source behaviour, not the import)');
 
+    /* run 3: nothing new */
     var r3 = run();
-    ok(r3.newIds === 0 && r3.imported === 0, 'run 3: nothing new, nothing written');
-    var led = ss.getSheetByName(T.ledger);
-    ok(led.getLastRow() - 1 === 6, 'ledger has one row per Lead ID (6: 5 imported + 1 test lead)');
+    ok(r3.newIds === 0 && r3.imported === 0, 'run 3: no new Lead IDs, nothing written');
+    var led = book.getSheetByName(LEDGER);
+    var ledRows = led.getRange(2, 1, led.getLastRow() - 1, 4).getDisplayValues();
+    ok(ledRows.length === 6, 'ledger: one row per Lead ID (6 = 5 imported + 1 test lead)');
+    var ledOk = ledRows.filter(function(r){ return r[1] === 'IMPORTED'; }).every(function(r){
+      var rec = recs2.filter(function(x){ return x.id === r[2]; })[0];
+      return rec && rec.assigned_to === r[3];
+    });
+    ok(ledOk, 'ledger salesperson = destination salesperson for every imported Lead ID');
   } catch(e){
     ok(false, 'exception: ' + (e && e.stack ? e.stack : e));
-  } finally {
-    [T.src, T.coll, T.ledger].forEach(function(n){ try{ drop(n); }catch(e){ out.push('cleanup failed for ' + n + ': ' + e); } });
   }
-  out.unshift((fails ? 'E2E TEST FAILED: ' + fails : 'E2E TEST OK') + ' (' + out.length + ' lines)');
+  out.unshift((fails ? 'E2E TEST FAILED: ' + fails : 'E2E TEST OK') + ' (' + out.length + ' lines) -- scratch file: ' + book.getName());
   Logger.log(out.join('\n'));
   return out;
 }
