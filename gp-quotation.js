@@ -172,12 +172,13 @@
 
   /* ================= 3. PRODUCT CARD KA GP HISSA =================
      Model ka dropdown (GP sheet se), "Not in list" ka box, Order type, aur
-     chaar part ke dropdown (armrest / seat mechanism / base / wheels) jinke
+     part ke dropdown (armrest / seat mechanism / base / wheels / chair fix) jinke
      neeche unka rate likha aata hai. Ye sab quotation-builder.html ke
      renderItemsEditor() se call hota hai. */
 
   var ORDER_TYPES = ['EXISTING PRODUCT', 'TO BE ORDERED', 'CUSTOMIZED PRODUCT'];
-  var PART_LABEL = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels' };
+  var PART_LABEL = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels', fix: 'Chair Fix Cost' };
+  var PART_KEYS = ['arm', 'seat', 'base', 'wheels', 'fix'];
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -239,7 +240,7 @@
       + '</select></div>';
   };
 
-  /* ---- chaar part ke dropdown + rate ---- */
+  /* ---- part ke dropdown + rate (Chair Fix Cost bhi, v3) ---- */
   window.ocGPPartsHTML = function (i) {
     injectCardCSS();
     var it = S.items[i] || {};
@@ -250,13 +251,13 @@
     var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
     var std = model ? window.OCGP.costOf(model) : null;
     var h = '<div class="gp-sectitle">Parts &amp; cost (for GP — not printed on the quotation)</div><div class="gp-parts">';
-    ['arm', 'seat', 'base', 'wheels'].forEach(function (k) {
+    PART_KEYS.forEach(function (k) {
       var list = window.OCGP.partsFor(k);
       var cur = chosen[k] || (std ? std.names[k] : '') || '';
       var rate = cur ? window.OCGP.compRate(window.OCGP.PART_TYPE[k], cur) : 0;
       h += '<div class="gp-part"><label>' + PART_LABEL[k] + '</label>'
         + '<select onchange="ocGPPickPart(' + i + ', \'' + k + '\', this.value)">'
-        + '<option value="">— not selected —</option>'
+        + '<option value="">' + (list.length ? '— not selected —' : '— none in GP sheet —') + '</option>'
         + list.map(function (c) {
             return '<option value="' + esc(c.name) + '"' + (c.name === cur ? ' selected' : '') + '>'
               + esc(c.name) + ' — ' + inr(c.rate) + '</option>';
@@ -281,7 +282,7 @@
     var lr = out.res.lines[0] || {};
     var costed = out.meta[0] && out.meta[0].costed;
     if (!costed) {
-      return '<div class="gp-linesum">No cost found for this line — choose a model or select all four parts to get an accurate GP.</div>';
+      return '<div class="gp-linesum">No cost found for this line — choose a model or select the parts to get an accurate GP.</div>';
     }
     var loss = num(lr.gp) < 0;
     return '<div class="gp-linesum' + (loss ? ' loss' : '') + '">'

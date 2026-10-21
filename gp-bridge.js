@@ -20,7 +20,13 @@
      lib/gp-engine.js -- GP calculator ka wahi engine, bilkul waisa hi. Isliye
      builder ka GP aur calculator ka GP hamesha ek jaisa aata hai.
      GP = net sales value (discount ke baad + billed freight) - BOM cost
-     BOM cost = armrest + seat mechanism + base + wheels. GST GP me nahi aata.
+     BOM cost = armrest + seat mechanism + base + wheels + chair fix. GST GP me nahi aata.
+
+   Part types (v3)
+     Sheet ke M_Components me Type ka naam hamesha "Armrest" / "Seat mechanism"
+     nahi hota -- asli sheet me armrest "Handle" aur seat mechanism "Plate"
+     likha hai. Isliye har part kuch milte-julte naamon se pehchaana jaata hai
+     (PART_MATCH). Chair Fix Cost = Type "Chair Fix" (ya "Fixing" / "Fitting").
 
    Kaun dekh sakta hai
      GP_FULL_ROLES / GP_FULL_USERS -- inko poora breakdown (cost, GP Rs, GP%)
@@ -103,17 +109,42 @@
     return GP_FULL_ROLES.indexOf(r) >= 0 ? 'full' : 'verdict';
   }
 
+  /* ---------- part types -------------------------------------------------
+     key -> label (card par yahi dikhta hai) aur sheet ke Type column ke woh
+     naam jo is part ke maane jaate hain (norm() ke baad, "andar aata hai").  */
+  var PART_KEYS = ['arm', 'seat', 'base', 'wheels', 'fix'];
+  var PART_TYPE = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels', fix: 'Chair Fix' };
+  var PART_MATCH = {
+    arm: ['armrest', 'arm', 'handle'],
+    seat: ['seatmech', 'mechanism', 'mech', 'plate', 'synchro', 'synkro', 'seat'],
+    base: ['base'],
+    wheels: ['wheel', 'castor', 'caster'],
+    fix: ['chairfix', 'fixcost', 'fixing', 'fitting', 'fix']
+  };
+  function partKeyOf(type) {
+    var t = norm(type); if (!t) return '';
+    for (var i = 0; i < PART_KEYS.length; i++) {
+      var k = PART_KEYS[i];
+      if (norm(PART_TYPE[k]) === t) return k;
+    }
+    for (var j = 0; j < PART_KEYS.length; j++) {
+      var kk = PART_KEYS[j], words = PART_MATCH[kk];
+      for (var w = 0; w < words.length; w++) if (t.indexOf(words[w]) >= 0) return kk;
+    }
+    return '';
+  }
+
   /* ---------- masters --------------------------------------------------- */
   var _masters = jget(LS_MASTERS, null);
   var _loading = null, _lastErr = '';
-  var IDX = { prod: {}, sku: {}, comp: {}, compByName: {} };
+  var IDX = { prod: {}, sku: {}, comp: {}, compByName: {}, part: {} };
 
   function fresh() { return !!(_masters && _masters.at && (Date.now() - _masters.at) < TTL); }
   function masters() { return (_masters && _masters.data) ? _masters.data : null; }
   function lastError() { return _lastErr; }
 
   function buildIndex() {
-    IDX = { prod: {}, sku: {}, comp: {}, compByName: {} };
+    IDX = { prod: {}, sku: {}, comp: {}, compByName: {}, part: {} };
     var m = masters(); if (!m) return;
     (m.products || []).forEach(function (p) {
       var k = norm(p.name); if (k) IDX.prod[k] = p;
@@ -122,6 +153,8 @@
     (m.components || []).forEach(function (c) {
       IDX.comp[norm(c.type) + '|' + norm(c.name)] = num(c.rate);
       var n = norm(c.name); if (n && IDX.compByName[n] === undefined) IDX.compByName[n] = num(c.rate);
+      var pk = partKeyOf(c.type);
+      if (pk && n && IDX.part[pk + '|' + n] === undefined) IDX.part[pk + '|' + n] = num(c.rate);
     });
   }
   buildIndex();
@@ -192,20 +225,32 @@
     return best;
   }
   /* ek type ke saare variants, rate ke saath -- product card ke dropdown banate hain */
-  var PART_TYPE = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels' };
   function componentsByType(type) {
     var m = masters(); if (!m) return [];
     var k = norm(type);
     return (m.components || []).filter(function (c) { return norm(c.type) === k; })
       .map(function (c) { return { name: c.name, rate: num(c.rate) }; });
   }
-  function partsFor(key) { return componentsByType(PART_TYPE[key] || key); }
+  /* ek part (arm/seat/base/wheels/fix) ke saare variants -- Type ke milte-julte
+     naam bhi (Handle = Armrest, Plate = Seat mechanism). Naam do baar ho to ek. */
+  function partsFor(key) {
+    var m = masters(); if (!m) return [];
+    if (!PART_TYPE[key]) return componentsByType(key);
+    var seen = {}, out = [];
+    (m.components || []).forEach(function (c) {
+      if (partKeyOf(c.type) !== key) return;
+      var n = norm(c.name); if (!n || seen[n]) return;
+      seen[n] = 1; out.push({ name: c.name, rate: num(c.rate) });
+    });
+    return out.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+  }
 
   function compRate(type, name) {
     if (!name) return 0;
     var k = norm(type) + '|' + norm(name);
     if (IDX.comp[k] !== undefined) return IDX.comp[k];
-    var n = norm(name);
+    var n = norm(name), pk = partKeyOf(type);
+    if (pk && IDX.part[pk + '|' + n] !== undefined) return IDX.part[pk + '|' + n];
     return IDX.compByName[n] !== undefined ? IDX.compByName[n] : 0;
   }
   function costOf(p) {
@@ -215,18 +260,21 @@
       seat: compRate('Seat mechanism', p.seatMechName),
       base: compRate('Base', p.baseName),
       wheels: compRate('Wheels', p.wheelsName),
+      fix: compRate('Chair Fix', p.chairFixName),
       names: {
         arm: p.armrestName || '', seat: p.seatMechName || '',
-        base: p.baseName || '', wheels: p.wheelsName || ''
+        base: p.baseName || '', wheels: p.wheelsName || '', fix: p.chairFixName || ''
       }
     };
   }
-  var ZERO = { arm: 0, seat: 0, base: 0, wheels: 0, names: { arm: '', seat: '', base: '', wheels: '' } };
+  var ZERO = { arm: 0, seat: 0, base: 0, wheels: 0, fix: 0, names: { arm: '', seat: '', base: '', wheels: '', fix: '' } };
+  function costSum(c) { return c ? num(c.arm) + num(c.seat) + num(c.base) + num(c.wheels) + num(c.fix) : 0; }
 
   /* ---------- compute ---------------------------------------------------
      input = {
        lines: [{ name, qty, price, disc, gstPct, model (sku, optional),
-                 manual (bool), cost:{arm,seat,base,wheels} }],
+                 manual (bool), cost:{arm,seat,base,wheels,fix},
+                 parts:{arm,seat,base,wheels,fix} (card par chune naam) }],
        freightBilled, customer, date, targetGpPct
      }                                                                      */
   function compute(input) {
@@ -238,19 +286,20 @@
       if (l.model) { mo = bySku(l.model); if (mo) how = 'chosen'; }
       if (!mo && !l.manual) { mo = findModel(l.name); if (mo) how = 'auto'; }
       var c;
-      if (l.manual && l.cost && (num(l.cost.arm) || num(l.cost.seat) || num(l.cost.base) || num(l.cost.wheels))) {
+      if (l.manual && l.cost && costSum(l.cost) > 0) {
         var mc = l.cost;
-        c = { arm: num(mc.arm), seat: num(mc.seat), base: num(mc.base), wheels: num(mc.wheels), names: ZERO.names };
+        c = { arm: num(mc.arm), seat: num(mc.seat), base: num(mc.base), wheels: num(mc.wheels), fix: num(mc.fix),
+              names: { arm: '', seat: '', base: '', wheels: '', fix: '' } };
         how = 'manual';
       } else {
-        c = costOf(mo) || { arm: 0, seat: 0, base: 0, wheels: 0, names: { arm: '', seat: '', base: '', wheels: '' } };
-        c = { arm: c.arm, seat: c.seat, base: c.base, wheels: c.wheels,
-              names: { arm: c.names.arm, seat: c.names.seat, base: c.names.base, wheels: c.names.wheels } };
+        c = costOf(mo) || ZERO;
+        c = { arm: c.arm, seat: c.seat, base: c.base, wheels: c.wheels, fix: num(c.fix),
+              names: { arm: c.names.arm, seat: c.names.seat, base: c.names.base, wheels: c.names.wheels, fix: c.names.fix || '' } };
       }
       /* Product card par jo part chuna gaya hai wo model ke standard part se upar hai.
          Khali part chhod diya to model ka apna standard part hi chalta hai. */
       if (l.parts) {
-        ['arm', 'seat', 'base', 'wheels'].forEach(function (k) {
+        PART_KEYS.forEach(function (k) {
           var nm = l.parts[k];
           if (!nm) return;
           c.names[k] = nm;
@@ -260,12 +309,12 @@
       }
       lines.push({
         description: l.name || '', qty: num(l.qty), listPrice: num(l.price), discPct: num(l.disc),
-        cArmrest: c.arm, cSeatMech: c.seat, cBase: c.base, cWheels: c.wheels,
+        cArmrest: c.arm, cSeatMech: c.seat, cBase: c.base, cWheels: c.wheels, cChairFix: c.fix,
         gstPct: (l.gstPct == null ? 18 : num(l.gstPct))
       });
       meta.push({
         name: l.name || '', model: mo, how: how, cost: c,
-        costed: (num(c.arm) + num(c.seat) + num(c.base) + num(c.wheels)) > 0
+        costed: costSum(c) > 0
       });
     });
 
@@ -307,7 +356,8 @@
           how: x.how, costUnit: Math.round(num(lr.unitCogs)),
           parts: {
             arm: x.cost.names ? x.cost.names.arm : '', seat: x.cost.names ? x.cost.names.seat : '',
-            base: x.cost.names ? x.cost.names.base : '', wheels: x.cost.names ? x.cost.names.wheels : ''
+            base: x.cost.names ? x.cost.names.base : '', wheels: x.cost.names ? x.cost.names.wheels : '',
+            fix: x.cost.names ? (x.cost.names.fix || '') : ''
           },
           gp: Math.round(num(lr.gp)), gpPct: Math.round(num(lr.gpPct) * 10) / 10
         };
@@ -434,8 +484,8 @@
         : '<div class="ocgp-mini ocgp-warn">not found in cost master</div>';
       var manualBoxes = (opts.editable && x.how === 'manual')
         ? '<div class="ocgp-cfg" style="grid-template-columns:repeat(2,1fr)">'
-          + ['arm', 'seat', 'base', 'wheels'].map(function (k) {
-            var lbl = { arm: 'Armrest', seat: 'Seat mech', base: 'Base', wheels: 'Wheels' }[k];
+          + PART_KEYS.map(function (k) {
+            var lbl = { arm: 'Armrest', seat: 'Seat mech', base: 'Base', wheels: 'Wheels', fix: 'Chair fix' }[k];
             return '<input type="number" step="0.01" data-gp="cost" data-k="' + k + '" data-i="' + i + '" placeholder="' + lbl + '" value="' + (num(x.cost[k]) || '') + '">';
           }).join('') + '</div>'
         : '';
@@ -573,6 +623,7 @@
     cfg: cfg, setCfg: setCfg, load: load, ensure: ensure, masters: masters, lastError: lastError,
     modelList: modelList, bySku: bySku, findModel: findModel, costOf: costOf, compRate: compRate,
     componentsByType: componentsByType, partsFor: partsFor, PART_TYPE: PART_TYPE,
+    PART_KEYS: PART_KEYS, partKeyOf: partKeyOf,
     compute: compute, snapshot: snapshot, renderPanel: renderPanel, panelHTML: panelHTML,
     visibility: visibility, sessionEmail: sessionEmail, myRole: myRole,
     remember: remember, norm: norm, fmt: { inr: inr, pct: pct }
