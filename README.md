@@ -30,6 +30,12 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Total GP Cost + GP %, cost jaldi taaza (v77)
+
+**Bug:** M_Products me "01 Black" ka cost (col D = 2,830) bhara, par CRM ₹ 0 dikhata raha. Mapping sahi tha — sheet ka bootstrap 2830 hi bhejta tha. Wajah: cost master browser me **6 ghante** cache rehta tha (`oc_gpMasters`), isliye sheet ka naya cost 6 ghante tak nahi aata tha. Ab: Quotation Builder khulte hi cost master hamesha sheet se taaza load hota hai (cache sirf turant dikhane ke liye; data badla ho tabhi card dobara banta hai), aur cache 15 min ka. "Cost refresh" button pehle jaisa.
+
+**Total GP Cost:** Product Fix Cost ke right me naya box — card par dikh rahe saare amounts (Armrest + Seat mechanism + Base + Wheels + Product Fix Cost, per piece) ka jod. Neeche **GP %** = (List price ex-GST − Total GP Cost) ÷ List price × 100: profit hara, aur jab Total GP Cost List price se zyada ho to minus % laal me "— LOSS" ke saath. List price khaali ho to "enter List price for GP %". Price / qty type karte hi box, GP % aur neeche ki Cost/pc line turant badalti hai (card dobara nahi banta, isliye input ka focus nahi hilta). Code: `cardTotals()` / `refreshCards()` in `gp-quotation.js`; `?v=6`.
+
 ## Product Fix Cost = M_Products column D (v76)
 
 GP section ka **Product Fix Cost** ab GP sheet ke **M_Products** tab se aata hai: chuna hua model ka naam **column B (Model Name)** se milaaya jaata hai aur cost **column D** se (bootstrap JSON me `listPrice`). Model chunte hi apne aap lagta hai, neeche ₹ rate (0 ho to "rate is 0 in the sheet"); dropdown me saare M_Products naam unke col D ke saath, chaho to doosra chuno. Cost/pc aur GP me judta hai — Orders ka GP bhi isi model cost se. M_Components ki "Chair Fix" rows ab nahi padhi jaati. Column D ab List price me apne aap nahi bharta (pehle bharta tha). Code: `fixRate()` / `partsFor('fix')` in `gp-bridge.js`; `?v=5`.

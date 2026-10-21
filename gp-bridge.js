@@ -13,7 +13,7 @@
           (weboakcraft.github.io) par hain, isliye wahan connect kar liya to
           yahan kuch karne ki zarurat nahi.
        3. window.OC_GP_CONFIG = {url, token}  -- testing ke liye.
-     Masters 6 ghante localStorage me cache hote hain, isliye offline bhi
+     Masters 15 min localStorage me cache hote hain, isliye offline bhi
      GP dikhta rehta hai.
 
    Maths
@@ -40,7 +40,9 @@
 (function (root) {
   'use strict';
 
-  var TTL = 6 * 60 * 60 * 1000;                 /* masters cache: 6 ghante */
+  /* v77: 6 ghante se 15 min -- sheet me cost badla to CRM me jaldi dikhe
+     (builder khulte hi waise bhi taaza load hota hai, gp-quotation.js boot) */
+  var TTL = 15 * 60 * 1000;                     /* masters cache: 15 min */
   var LS_MASTERS = 'oc_gpMasters';
   var LS_URL = 'gp.endpoint', LS_TOKEN = 'gp.token';
   var LS_MAP = 'oc_gpModelMap';                 /* typed name -> GP model, seekha hua */

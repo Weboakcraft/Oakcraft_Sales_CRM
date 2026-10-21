@@ -135,6 +135,7 @@
   var _busy = false;
   function render() {
     if (_busy) return; /* onChange -> render ke andar dobara render se bacho */
+    try { refreshCards(); } catch (e) {}
     var box = el('gpBody');
     if (!box || !window.OCGP) return;
     _busy = true;
@@ -198,6 +199,9 @@
     + '.gp-rate.zero{color:var(--err,#A32020)}'
     + '.gp-linesum{font-size:11.5px;padding:6px 8px;border-radius:7px;background:rgba(128,128,128,.10);margin-bottom:8px;font-variant-numeric:tabular-nums}'
     + '.gp-linesum.loss{background:rgba(163,32,32,.14);color:#A32020;font-weight:600}'
+    + '.gp-totbox{border:1px solid var(--line-dark,#C9B68E);border-radius:3px;padding:1px 8px;font-weight:700;'
+    + 'font-size:13px;line-height:18px;font-variant-numeric:tabular-nums;background:rgba(201,182,142,.14);box-sizing:border-box}'
+    + '.gp-rate.ok{color:var(--ok,#2E7D32);font-weight:600}.gp-rate.bad{color:var(--err,#A32020);font-weight:600}'
     + '.gp-sectitle{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:4px 0 4px}';
   function injectCardCSS() {
     if (document.getElementById('gp-card-css')) return;
@@ -267,10 +271,54 @@
         + (cur ? inr(rate) + (rate ? '' : ' — rate is 0 in the sheet') : 'no part selected')
         + '</span></div>';
     });
+    /* v77: Total GP Cost -- Product Fix Cost ke right me */
+    var tt = cardTotals(i);
+    h += '<div class="gp-part"><label>Total GP Cost</label>'
+      + '<div class="gp-totbox" id="gp-tot-' + i + '">' + tt.box + '</div>'
+      + '<span class="gp-rate' + tt.cls + '" id="gp-totpct-' + i + '">' + tt.pct + '</span></div>';
     h += '</div>';
-    h += lineSummaryHTML(i);
+    h += '<div id="gp-ls-' + i + '">' + lineSummaryHTML(i) + '</div>';
     return h;
   };
+
+  /* Total GP Cost = card par dikh rahe saare part amounts ka jod (per piece);
+     GP % = (List price ex-GST - Total GP Cost) / List price x 100.
+     Price kam ho (ghata) to minus % laal me, warna hara. */
+  function cardTotals(i) {
+    var it = S.items[i] || {};
+    var chosen = it.gpParts || {};
+    var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
+    var std = model ? window.OCGP.costOf(model) : null;
+    var total = 0;
+    PART_KEYS.forEach(function (k) {
+      var cur = chosen[k] || (std ? std.names[k] : '') || '';
+      if (cur) total += num(window.OCGP.compRate(window.OCGP.PART_TYPE[k], cur));
+    });
+    var price = num(it.price);
+    var r = { total: total, box: inr(total), pct: '', cls: '' };
+    if (!total) { r.pct = 'select parts to see GP %'; return r; }
+    if (!price) { r.pct = 'enter List price for GP %'; return r; }
+    var gpp = (price - total) / price * 100;
+    var txt = 'GP ' + window.OCGP.fmt.pct(gpp) + ' on list price';
+    if (total > price) { r.pct = txt + ' — LOSS'; r.cls = ' bad'; }
+    else { r.pct = txt; r.cls = ' ok'; }
+    return r;
+  }
+  /* price / qty type karte hi card ke andar total + GP % + summary taaza --
+     poora card dobara nahi banta, isliye input ka focus nahi hilta */
+  function refreshCards() {
+    if (!ready() || typeof S === 'undefined' || !S.items) return;
+    S.items.forEach(function (it, i) {
+      var b = document.getElementById('gp-tot-' + i);
+      if (!b) return;
+      var tt = cardTotals(i);
+      b.innerHTML = tt.box;
+      var p = document.getElementById('gp-totpct-' + i);
+      if (p) { p.className = 'gp-rate' + tt.cls; p.innerHTML = tt.pct; }
+      var ls = document.getElementById('gp-ls-' + i);
+      if (ls) ls.innerHTML = lineSummaryHTML(i);
+    });
+  }
 
   /* ek line ka chhota GP summary -- card ke andar hi */
   function lineSummaryHTML(i) {
@@ -399,8 +447,13 @@
        ho chuki ho -- pehla render is se pehle ho jaata hai, isliye ek baar dobara
        khinch lete hain; aur cost master aane ke baad phir se, taaki dropdown bhar jaayein. */
     try { if (typeof renderItemsEditor === 'function') renderItemsEditor(); } catch (e) {}
+    /* v77: builder khulte hi cost master hamesha sheet se taaza (cache sirf turant
+       dikhane ke liye) -- sheet me cost badla to agli baar kholte hi dikhe.
+       Data sach me badla ho tabhi card dobara banta hai. */
     if (window.OCGP && window.OCGP.cfg().url) {
-      window.OCGP.ensure().then(function () {
+      var before = JSON.stringify(window.OCGP.masters() || null);
+      window.OCGP.load(true).then(function () {
+        if (JSON.stringify(window.OCGP.masters() || null) === before) return;
         try { if (typeof renderItemsEditor === 'function') renderItemsEditor(); } catch (e) {}
         render();
       }).catch(function () {});
