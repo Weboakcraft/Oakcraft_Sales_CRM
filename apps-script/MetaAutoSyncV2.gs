@@ -105,6 +105,13 @@ function mas2_code_(v){ return mas2_trim_(v).toUpperCase().replace(/\s+/g, '_');
 function mas2_phone10_(v){ var d = mas2_str_(v).replace(/\D/g, ''); return d.length > 10 ? d.slice(-10) : d; }
 function mas2_digits_(v){ return mas2_str_(v).replace(/\D/g, ''); }
 function mas2_stage_(status){ return MAS2_STAGE[mas2_code_(status)] || 'New'; }
+/** 'dd-MM-yyyy HH:mm:ss' (or with / .) -> 'yyyyMMddHHmmss' for comparing; '' if not parseable. */
+function mas2_tsSortKey_(v){
+  var m = mas2_str_(v).match(/(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})\D*(\d{1,2})?:?(\d{2})?:?(\d{2})?/);
+  if(!m) return '';
+  var p = function(x){ return ('0' + (x || '0')).slice(-2); };
+  return m[3] + p(m[2]) + p(m[1]) + p(m[4]) + p(m[5]) + p(m[6]);
+}
 
 /**
  * Source display values (2D, header in row 1) -> lead rows.
@@ -448,18 +455,26 @@ function mas2_install(){
   if(sh.getLastRow() < 2){
     var src = mas2_parseSource_(mas2_srcValues_());
     if(src.missing.length) throw new Error('Source columns missing: ' + src.missing.join(', '));
-    var crm = mas2_crmIndex_(mas2_readColl_(MAS2.COLL));
+    var crmRecs = mas2_readColl_(MAS2.COLL);
+    var crm = mas2_crmIndex_(crmRecs);
+    /* newest lead the old import brought in: a lead that is NOT in the CRM and is newer than this
+       arrived after the old import's last run -> leave it out of the baseline so V2 imports it */
+    var newestImported = '';
+    crmRecs.forEach(function(l){ if(l && l.source === MAS2.SOURCE_LABEL){ var k = mas2_tsSortKey_(l.created_time_ist); if(k > newestImported) newestImported = k; } });
     var groups = {}, order = [];
     src.rows.forEach(function(r){ if(!groups[r.leadId]){ groups[r.leadId] = []; order.push(r.leadId); } groups[r.leadId].push(r); });
-    var now = new Date().toISOString();
-    var rows = order.map(function(id){
+    var now = new Date().toISOString(), leftForV2 = [];
+    var rows = [];
+    order.forEach(function(id){
       var g = groups[id], r = g[0];
       var crmId = crm.byKey[r.key] || crm.byPhone[r.phone10] || '';
-      return mas2_ledgerRow_({ leadId: id, status: 'BASELINE', crmId: crmId, src: r, row: r.row, copies: g.length,
-        note: 'lead existed before V2 cutover; not imported or changed by V2' + (crmId ? '' : ' (no CRM record with this phone)') }, now);
+      if(!crmId && newestImported && mas2_tsSortKey_(r.ts) > newestImported){ leftForV2.push(id + ' ' + r.ts + ' ' + r.full_name); return; }
+      rows.push(mas2_ledgerRow_({ leadId: id, status: 'BASELINE', crmId: crmId, src: r, row: r.row, copies: g.length,
+        note: 'lead existed before V2 cutover; not imported or changed by V2' + (crmId ? '' : ' (no CRM record with this phone)') }, now));
     });
     mas2_appendLedger_(sh, rows);
-    log.push('Ledger created with ' + rows.length + ' BASELINE Lead IDs (from ' + src.rows.length + ' source rows).');
+    log.push('Ledger created with ' + rows.length + ' BASELINE Lead IDs (from ' + src.rows.length + ' source rows). Newest lead imported by the old script: ' + (newestImported || '-') + '.');
+    log.push('Newer leads not yet in the CRM, left for V2 to import: ' + leftForV2.length + (leftForV2.length ? ' -> ' + leftForV2.join('; ') : ''));
   } else {
     log.push('Ledger already has ' + (sh.getLastRow() - 1) + ' rows -- baseline not repeated.');
   }
@@ -573,6 +588,8 @@ function mas2_logicTests_(){
   var many = [H]; for(var i = 0; i < 7; i++) many.push(['Sheet4', 'l:m' + i, '22-10-2026 09:0' + i + ':00', 'ig', 'M' + i, '90000002' + ('0' + i).slice(-2), '', 'CREATED', 'Amira Saikh']);
   var p5 = mas2_plan_(mas2_parseSource_(many).rows, ledger, mas2_crmIndex_(crmRecords), roster, { newId: newId, max: 5 });
   ok(p5.imports.length === 5 && p5.pending === 2, 'MAX_PER_RUN respected; the rest wait for the next run');
+
+  ok(mas2_tsSortKey_('19-10-2026 12:52:41') === '20261019125241' && mas2_tsSortKey_('01-11-2026 00:00:00') > mas2_tsSortKey_('31-10-2026 23:59:59'), 'time sort key orders dd-MM-yyyy times correctly');
 
   /* missing column */
   ok(mas2_parseSource_([['id', 'full_name']]).missing.length > 0, 'missing source columns are reported, nothing imported');
