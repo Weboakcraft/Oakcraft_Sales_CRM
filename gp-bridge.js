@@ -26,7 +26,10 @@
      Sheet ke M_Components me Type ka naam hamesha "Armrest" / "Seat mechanism"
      nahi hota -- asli sheet me armrest "Handle" aur seat mechanism "Plate"
      likha hai. Isliye har part kuch milte-julte naamon se pehchaana jaata hai
-     (PART_MATCH). Product Fix Cost = Type "Chair Fix" (ya "Fixing" / "Fitting").
+     (PART_MATCH).
+     Product Fix Cost (v76) = M_Products ka column D ("Sale Rate", JSON me
+     listPrice) -- chune hue model ka naam column B se milaakar. M_Components
+     se nahi aata.
 
    Kaun dekh sakta hai
      GP_FULL_ROLES / GP_FULL_USERS -- inko poora breakdown (cost, GP Rs, GP%)
@@ -113,13 +116,13 @@
      key -> label (card par yahi dikhta hai) aur sheet ke Type column ke woh
      naam jo is part ke maane jaate hain (norm() ke baad, "andar aata hai").  */
   var PART_KEYS = ['arm', 'seat', 'base', 'wheels', 'fix'];
-  var PART_TYPE = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels', fix: 'Chair Fix' };
+  var PART_TYPE = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels', fix: 'Product Fix' };
   var PART_MATCH = {
     arm: ['armrest', 'arm', 'handle'],
     seat: ['seatmech', 'mechanism', 'mech', 'plate', 'synchro', 'synkro', 'seat'],
     base: ['base'],
-    wheels: ['wheel', 'castor', 'caster'],
-    fix: ['chairfix', 'fixcost', 'fixing', 'fitting', 'fix']
+    wheels: ['wheel', 'castor', 'caster']
+    /* fix: M_Components se nahi -- M_Products col D (fixRate) */
   };
   function partKeyOf(type) {
     var t = norm(type); if (!t) return '';
@@ -128,7 +131,7 @@
       if (norm(PART_TYPE[k]) === t) return k;
     }
     for (var j = 0; j < PART_KEYS.length; j++) {
-      var kk = PART_KEYS[j], words = PART_MATCH[kk];
+      var kk = PART_KEYS[j], words = PART_MATCH[kk] || [];
       for (var w = 0; w < words.length; w++) if (t.indexOf(words[w]) >= 0) return kk;
     }
     return '';
@@ -236,6 +239,9 @@
   function partsFor(key) {
     var m = masters(); if (!m) return [];
     if (!PART_TYPE[key]) return componentsByType(key);
+    if (key === 'fix') {
+      return modelList().map(function (p) { return { name: p.name, rate: num(p.listPrice) }; });
+    }
     var seen = {}, out = [];
     (m.components || []).forEach(function (c) {
       if (partKeyOf(c.type) !== key) return;
@@ -245,8 +251,16 @@
     return out.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
   }
 
+  /* Product Fix Cost: M_Products col B (naam) -> col D (listPrice) */
+  function fixRate(name) {
+    var k = norm(name); if (!k) return 0;
+    var p = IDX.prod[k] || IDX.sku[k] || null;
+    return p ? num(p.listPrice) : 0;
+  }
+
   function compRate(type, name) {
     if (!name) return 0;
+    if (partKeyOf(type) === 'fix') return fixRate(name);
     var k = norm(type) + '|' + norm(name);
     if (IDX.comp[k] !== undefined) return IDX.comp[k];
     var n = norm(name), pk = partKeyOf(type);
@@ -260,10 +274,10 @@
       seat: compRate('Seat mechanism', p.seatMechName),
       base: compRate('Base', p.baseName),
       wheels: compRate('Wheels', p.wheelsName),
-      fix: compRate('Chair Fix', p.chairFixName),
+      fix: num(p.listPrice),
       names: {
         arm: p.armrestName || '', seat: p.seatMechName || '',
-        base: p.baseName || '', wheels: p.wheelsName || '', fix: p.chairFixName || ''
+        base: p.baseName || '', wheels: p.wheelsName || '', fix: p.name || ''
       }
     };
   }
@@ -623,7 +637,7 @@
     cfg: cfg, setCfg: setCfg, load: load, ensure: ensure, masters: masters, lastError: lastError,
     modelList: modelList, bySku: bySku, findModel: findModel, costOf: costOf, compRate: compRate,
     componentsByType: componentsByType, partsFor: partsFor, PART_TYPE: PART_TYPE,
-    PART_KEYS: PART_KEYS, partKeyOf: partKeyOf,
+    PART_KEYS: PART_KEYS, partKeyOf: partKeyOf, fixRate: fixRate,
     compute: compute, snapshot: snapshot, renderPanel: renderPanel, panelHTML: panelHTML,
     visibility: visibility, sessionEmail: sessionEmail, myRole: myRole,
     remember: remember, norm: norm, fmt: { inr: inr, pct: pct }

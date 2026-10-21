@@ -30,6 +30,10 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## Product Fix Cost = M_Products column D (v76)
+
+GP section ka **Product Fix Cost** ab GP sheet ke **M_Products** tab se aata hai: chuna hua model ka naam **column B (Model Name)** se milaaya jaata hai aur cost **column D** se (bootstrap JSON me `listPrice`). Model chunte hi apne aap lagta hai, neeche ₹ rate (0 ho to "rate is 0 in the sheet"); dropdown me saare M_Products naam unke col D ke saath, chaho to doosra chuno. Cost/pc aur GP me judta hai — Orders ka GP bhi isi model cost se. M_Components ki "Chair Fix" rows ab nahi padhi jaati. Column D ab List price me apne aap nahi bharta (pehle bharta tha). Code: `fixRate()` / `partsFor('fix')` in `gp-bridge.js`; `?v=5`.
+
 ## Quotation GP — part dropdowns fix + Product Fix Cost (v75)
 
 **Bug:** Quotation Builder ke product card me "Parts & cost (for GP)" ke Armrest aur Seat mechanism dropdown khaali the. Wajah: GP sheet (M_Components) me Type ka naam "Armrest" / "Seat mechanism" hai hi nahi — armrest **Handle** aur seat mechanism **Plate** (aur "SYNKRO 3 LOCK SEAT SLIDER PLATE") naam se hain, aur `gp-bridge.js` exact Type milaata tha.

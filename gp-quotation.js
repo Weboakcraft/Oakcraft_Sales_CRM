@@ -300,7 +300,8 @@
     if (m) {
       it.name = m.name;                       /* PDF par yahi naam chhapta hai */
       it.gpParts = {};                        /* model ke standard parts apne aap lagenge */
-      if (!num(it.price) && num(m.listPrice)) it.price = num(m.listPrice);
+      /* v76: M_Products col D (listPrice) ab Product Fix Cost hai, sale rate nahi --
+         isliye List price me nahi bharte */
       if (m.hsn) it.hsn = String(m.hsn);
     } else {
       it.name = '';
