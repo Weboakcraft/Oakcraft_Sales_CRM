@@ -144,7 +144,7 @@
   var _loading = null, _lastErr = '';
   /* live sync (v78): sheet ka data badla ya nahi -- poore data ki JSON se pehchaan */
   var _sig = (_masters && _masters.data) ? JSON.stringify(_masters.data) : '';
-  var _lastSync = 0, _lastPull = 0, _syncErr = '';
+  var _lastSync = 0, _lastPull = 0, _syncErr = '', _fails = 0;
   function fire(name, detail) {
     try { root.dispatchEvent(new CustomEvent(name, { detail: detail || {} })); } catch (e) {}
   }
@@ -187,14 +187,14 @@
         try { lsSet(LS_MASTERS, JSON.stringify(_masters)); } catch (e) {}
         buildIndex(); _lastErr = ''; _loading = null;
         var sig = JSON.stringify(j.data), changed = (sig !== _sig);
-        _sig = sig; _lastSync = Date.now(); _syncErr = '';
+        _sig = sig; _lastSync = Date.now(); _syncErr = ''; _fails = 0;
         fire('ocgp:synced', { changed: changed, at: _lastSync });
         if (changed) fire('ocgp:updated', { at: _lastSync });
         return j.data;
       })
       .catch(function (e) {
         _loading = null; _lastErr = (e && e.message) ? e.message : String(e);
-        _syncErr = _lastErr;
+        _syncErr = _lastErr; _fails++;
         fire('ocgp:syncerror', { error: _lastErr, lastSync: _lastSync });
         throw e;
       });
@@ -655,7 +655,11 @@
      'ocgp:updated' event jaata hai aur UI dobara banta hai. Ek tab ne taaza
      data laaya to baaki khule tab (CRM / builder) 'storage' event se wahi le
      lete hain. Har safal sync par 'ocgp:synced', fail par 'ocgp:syncerror'. */
-  var LIVE_MS = 30 * 1000;
+  var LIVE_MS = 30 * 1000, LIVE_MAX_MS = 5 * 60 * 1000;
+  /* sheet / Google fail kare (jaise 503) to dheere: 30s -> 1m -> 2m -> 4m -> 5m;
+     ek bhi safal sync par wapas 30s */
+  function nextDelay() { return Math.min(LIVE_MS * Math.pow(2, Math.min(_fails, 4)), LIVE_MAX_MS); }
+  function loop() { setTimeout(function () { tick(); loop(); }, nextDelay()); }
   function gpOnScreen() {
     if (typeof document === 'undefined') return false;
     if (document.getElementById('itemsEd')) return true;          /* Quotation Builder */
@@ -673,7 +677,7 @@
   function startLive() {
     if (root.__ocgpLive || typeof document === 'undefined') return;
     root.__ocgpLive = 1;
-    setInterval(tick, LIVE_MS);
+    loop();
     document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') pullSoon(); });
     root.addEventListener('focus', pullSoon);
     root.addEventListener('storage', function (e) {
@@ -688,7 +692,7 @@
     });
   }
   function liveStatus() {
-    return { lastSync: _lastSync || (_masters && _masters.at) || 0, error: _syncErr, everyMs: LIVE_MS };
+    return { lastSync: _lastSync || (_masters && _masters.at) || 0, error: _syncErr, everyMs: nextDelay(), fails: _fails };
   }
 
   root.OCGP = {
