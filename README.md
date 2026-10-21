@@ -30,6 +30,12 @@ see only their own records. **Permissions saved in Admin Panel → Permissions a
 (Sales Executive: no delete, no add/edit of Customers & Products masters — inline customer
 add from an enquiry/order form still works).
 
+## GP live sync + negative GP par PDF band (v78)
+
+**Live sync.** Google Sheet khud push nahi kar sakti, isliye `gp-bridge.js` har **30 sec** GP sheet (bootstrap) se poochhta hai — sirf jab tab dikh raha ho aur GP wala hissa screen par ho (Quotation Builder hamesha; CRM me order form ka GP panel). Tab / window par wapas aate hi turant bhi. Data sach me badla ho tabhi `ocgp:updated` event aata hai: builder me GP panel, card ka Total GP Cost / GP % / summary turant, aur dropdown wale card tab dobara bante hain jab user kisi field me type na kar raha ho (focus nahi jaata). CRM ka order GP panel bhi isi event se. Ek tab ne naya data laaya to baaki khule tab `storage` event se wahi le lete hain. Parts section me "● Live from GP sheet · synced hh:mm:ss" (sheet na mile to laal "not reachable … retrying"). Sheet ki har cheez (cost, naye model / parts, standard parts, Product Fix Cost, target GP, approval) isi raaste aati hai. Interval: `LIVE_MS`.
+
+**PDF rok.** Quotation ka GP minus ho — koi costed line ghate me (discount ke baad net rate < Total GP Cost) ya poori quotation ka GP minus — to PDF **kisi ko nahi** (Owner / Administrator ko bhi): Download PDF (naya, edit, view), view mode ka PDF preview, Print button aur Ctrl+P band; browser menu se print kiya to page par sirf "PDF blocked" chhapta hai. Button grey, click par laal toast me wajah (kaunsi line, GP %). Rate / discount / parts theek karte hi apne aap khul jaata hai. Cost master abhi load ho raha ho to download 8 sec tak intezaar karke jaanchta hai; GP code ki apni galti kabhi PDF nahi rokti. Save ka purana niyam (ocGPGate, admin 25 sec me dobara daba kar save kar sakta hai) waisa hi hai — par aisi quotation ka PDF phir bhi nahi milta. Code: `ocGPPdfBlocked()` / `ocGPPdfCheck()` in `gp-quotation.js`; `?v=7`.
+
 ## Total GP Cost + GP %, cost jaldi taaza (v77)
 
 **Bug:** M_Products me "01 Black" ka cost (col D = 2,830) bhara, par CRM ₹ 0 dikhata raha. Mapping sahi tha — sheet ka bootstrap 2830 hi bhejta tha. Wajah: cost master browser me **6 ghante** cache rehta tha (`oc_gpMasters`), isliye sheet ka naya cost 6 ghante tak nahi aata tha. Ab: Quotation Builder khulte hi cost master hamesha sheet se taaza load hota hai (cache sirf turant dikhane ke liye; data badla ho tabhi card dobara banta hai), aur cache 15 min ka. "Cost refresh" button pehle jaisa.

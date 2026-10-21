@@ -136,6 +136,7 @@
   function render() {
     if (_busy) return; /* onChange -> render ke andar dobara render se bacho */
     try { refreshCards(); } catch (e) {}
+    try { syncBlockUI(lossInfo()); } catch (e) {}
     var box = el('gpBody');
     if (!box || !window.OCGP) return;
     _busy = true;
@@ -202,6 +203,12 @@
     + '.gp-totbox{border:1px solid var(--line-dark,#C9B68E);border-radius:3px;padding:1px 8px;font-weight:700;'
     + 'font-size:13px;line-height:18px;font-variant-numeric:tabular-nums;background:rgba(201,182,142,.14);box-sizing:border-box}'
     + '.gp-rate.ok{color:var(--ok,#2E7D32);font-weight:600}.gp-rate.bad{color:var(--err,#A32020);font-weight:600}'
+    + '.gp-livetag{font-size:10.5px;margin:-2px 0 6px;color:var(--ok,#2E7D32);font-variant-numeric:tabular-nums}'
+    + '.gp-livetag.err{color:var(--err,#A32020)}'
+    + '#dlBtn.gp-blocked{background:#8f8f8f !important;border-color:#8f8f8f !important;color:#fff !important;cursor:not-allowed}'
+    + '@media print{body.gp-blocked > *{display:none !important}'
+    + 'body.gp-blocked::before{display:block;content:"PDF blocked: this quotation has a negative GP. Fix the rate, discount or parts first.";'
+    + 'font:18px/1.5 sans-serif;padding:40px;color:#A32020}}'
     + '.gp-sectitle{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:4px 0 4px}';
   function injectCardCSS() {
     if (document.getElementById('gp-card-css')) return;
@@ -254,7 +261,9 @@
     var chosen = it.gpParts || {};
     var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
     var std = model ? window.OCGP.costOf(model) : null;
-    var h = '<div class="gp-sectitle">Parts &amp; cost (for GP — not printed on the quotation)</div><div class="gp-parts">';
+    var lv = liveText();
+    var h = '<div class="gp-sectitle">Parts &amp; cost (for GP — not printed on the quotation)</div>'
+      + '<div class="gp-livetag' + lv.cls + '">' + lv.txt + '</div><div class="gp-parts">';
     PART_KEYS.forEach(function (k) {
       var list = window.OCGP.partsFor(k);
       var cur = chosen[k] || (std ? std.names[k] : '') || '';
@@ -424,6 +433,121 @@
     } catch (e) { return true; }   /* GP ki apni galti se kaam kabhi na ruke */
   };
 
+  /* ================= 5. LIVE (v78) =================
+     GP sheet me kuch bhi badla (cost, naya model / part, standard parts, target
+     GP, approval) to gp-bridge.js 'ocgp:updated' bhejta hai. GP panel + card ke
+     total / GP % / summary turant; dropdown wale card tab dobara bante hain jab
+     user kisi field me type na kar raha ho (warna focus chala jaata). */
+  var _pendingCards = false;
+  function itemsFocused() {
+    var ed = el('itemsEd'), a = document.activeElement;
+    return !!(ed && a && a !== document.body && ed.contains(a));
+  }
+  function rebuildCards() {
+    if (typeof renderItemsEditor !== 'function') return;
+    if (!itemsFocused()) { _pendingCards = false; try { renderItemsEditor(); } catch (e) {} return; }
+    if (_pendingCards) return;
+    _pendingCards = true;
+    var ed = el('itemsEd');
+    ed.addEventListener('focusout', function h() {
+      setTimeout(function () {
+        if (itemsFocused()) return;              /* focus card ke andar hi doosre field par gaya */
+        ed.removeEventListener('focusout', h);
+        _pendingCards = false;
+        try { renderItemsEditor(); } catch (e) {}
+      }, 0);
+    });
+  }
+  function hhmmss(t) { return t ? new Date(t).toLocaleTimeString('en-IN', { hour12: false }) : '—'; }
+  function liveText() {
+    var st = (window.OCGP && window.OCGP.liveStatus) ? window.OCGP.liveStatus() : {};
+    if (st.error) return { cls: ' err', txt: '● GP sheet not reachable — showing data from ' + hhmmss(st.lastSync) + ' · retrying' };
+    return { cls: '', txt: '● Live from GP sheet · synced ' + hhmmss(st.lastSync) };
+  }
+  function paintLive() {
+    var lv = liveText();
+    [].forEach.call(document.querySelectorAll('.gp-livetag'), function (t) {
+      t.className = 'gp-livetag' + lv.cls; t.textContent = lv.txt;
+    });
+  }
+  window.addEventListener('ocgp:updated', function () { render(); rebuildCards(); });
+  window.addEventListener('ocgp:synced', paintLive);
+  window.addEventListener('ocgp:syncerror', paintLive);
+
+  /* ================= 6. PDF ROK (v78) =================
+     GP minus ho to PDF kisi ko nahi milti (Owner / Administrator ko bhi) --
+     Download PDF, view mode ka PDF, Print button aur Ctrl+P sab band; browser
+     menu se print kiya to page par sirf "PDF blocked" chhapta hai. Wahi hisaab
+     jo GP section dikhata hai: koi bhi costed line ghate me (net rate < Total
+     GP Cost) ya poori quotation ka GP minus. Rate / discount / parts theek
+     karte hi button apne aap khul jaata hai. */
+  function lossInfo() {
+    if (!ready() || typeof S === 'undefined') return null;
+    var input = gpInput();
+    var priced = (input.lines || []).filter(function (l) { return l.qty > 0 && (l.name || l.model); });
+    if (!priced.length) return null;
+    var out = window.OCGP.compute(input), t = out.res.totals, bad = [];
+    out.res.lines.forEach(function (lr, i) {
+      if (num(lr.qty) > 0 && out.meta[i] && out.meta[i].costed && num(lr.gp) < 0) {
+        bad.push((out.meta[i].name || ('Product ' + (i + 1))) + ' (GP ' + window.OCGP.fmt.pct(lr.gpPct) + ')');
+      }
+    });
+    if (!bad.length && !(num(t.grossProfit) < 0)) return null;
+    return { lines: bad, gp: t.grossProfit, pct: t.grossProfitPct };
+  }
+  function blockMsg(b) {
+    return '⛔ PDF download blocked — negative GP'
+      + (b.lines.length ? ': ' + b.lines.join(', ') : ' on the whole quotation (' + window.OCGP.fmt.pct(b.pct) + ')')
+      + '. Increase the List price, reduce the discount or change the parts — the PDF unlocks as soon as GP is positive.';
+  }
+  function syncBlockUI(b) {
+    document.body.classList.toggle('gp-blocked', !!b);
+    var btn = el('dlBtn');
+    if (btn) {
+      btn.classList.toggle('gp-blocked', !!b);
+      btn.title = b ? 'Blocked — this quotation has a negative GP' : '';
+    }
+    var t = el('gpToast');
+    if (!b && t) t.style.display = 'none';        /* GP theek hote hi chetavni hatao */
+  }
+  function toast(msg) {
+    var t = el('gpToast');
+    if (!t) {
+      t = document.createElement('div'); t.id = 'gpToast';
+      t.style.cssText = 'position:fixed;top:66px;right:16px;max-width:430px;z-index:9999;background:#A32020;color:#fff;'
+        + 'padding:11px 14px;border-radius:8px;font:13px/1.45 system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer';
+      t.onclick = function () { t.style.display = 'none'; var g = el('gpSec'); if (g) g.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+      document.body.appendChild(t);
+    }
+    t.textContent = msg; t.style.display = 'block';
+    clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, 9000);
+  }
+  /* true = PDF band. show = user ko wajah dikhao */
+  window.ocGPPdfBlocked = function (show) {
+    var b = null;
+    try { b = lossInfo(); } catch (e) { b = null; }    /* GP ki apni galti se PDF kabhi na ruke */
+    syncBlockUI(b);
+    if (b && show) { toast(blockMsg(b)); say(blockMsg(b), false); }
+    return !!b;
+  };
+  /* download se pehle: cost master abhi aa raha ho to (max 8 sec) intezaar, phir jaanch */
+  window.ocGPPdfCheck = function () {
+    var wait = (window.OCGP && window.OCGP.cfg().url && !ready())
+      ? Promise.race([window.OCGP.ensure(), new Promise(function (r) { setTimeout(r, 8000); })]).catch(function () {})
+      : Promise.resolve();
+    return wait.then(function () { return window.ocGPPdfBlocked(true); });
+  };
+  /* Print button / Ctrl+P bhi PDF ka raasta hain ("Save as PDF") */
+  (function () {
+    var _print = window.print ? window.print.bind(window) : null;
+    window.print = function () { if (window.ocGPPdfBlocked(true)) return; if (_print) return _print(); };
+    document.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P') && window.ocGPPdfBlocked(true)) {
+        e.preventDefault(); e.stopPropagation();
+      }
+    }, true);
+  })();
+
   /* ================= hooks ================= */
   function hook() {
     /* har render ke baad GP dobara bane */
@@ -447,17 +571,10 @@
        ho chuki ho -- pehla render is se pehle ho jaata hai, isliye ek baar dobara
        khinch lete hain; aur cost master aane ke baad phir se, taaki dropdown bhar jaayein. */
     try { if (typeof renderItemsEditor === 'function') renderItemsEditor(); } catch (e) {}
-    /* v77: builder khulte hi cost master hamesha sheet se taaza (cache sirf turant
-       dikhane ke liye) -- sheet me cost badla to agli baar kholte hi dikhe.
-       Data sach me badla ho tabhi card dobara banta hai. */
-    if (window.OCGP && window.OCGP.cfg().url) {
-      var before = JSON.stringify(window.OCGP.masters() || null);
-      window.OCGP.load(true).then(function () {
-        if (JSON.stringify(window.OCGP.masters() || null) === before) return;
-        try { if (typeof renderItemsEditor === 'function') renderItemsEditor(); } catch (e) {}
-        render();
-      }).catch(function () {});
-    }
+    /* builder khulte hi cost master sheet se taaza; uske baad gp-bridge.js har
+       30 sec khud poochhta hai. Data badla to 'ocgp:updated' -> neeche LIVE. */
+    injectCardCSS();
+    if (window.OCGP && window.OCGP.cfg().url) window.OCGP.load(true).catch(function () {});
     render();
     /* CRM se cloud sync hone par customer list badal sakti hai */
     setTimeout(mountCustomer, 4000);

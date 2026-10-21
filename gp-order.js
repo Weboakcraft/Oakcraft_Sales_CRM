@@ -108,6 +108,22 @@
     return h;
   };
 
+  /* v78: GP sheet badla to khula order form ka GP panel bhi taaza. Panel ke kisi
+     field me type ho raha ho to focus chhodne ke baad. */
+  var _pend = false;
+  window.addEventListener('ocgp:updated', function () {
+    var box = document.getElementById('o-gp');
+    if (!box || !box.getClientRects().length) return;
+    if (!box.contains(document.activeElement)) { window.ocOrderGPRender(); return; }
+    if (_pend) return; _pend = true;
+    box.addEventListener('focusout', function h() {
+      setTimeout(function () {
+        if (box.contains(document.activeElement)) return;
+        box.removeEventListener('focusout', h); _pend = false; window.ocOrderGPRender();
+      }, 0);
+    });
+  });
+
   /* masters pehle se garam rakho, taaki order form khulte hi GP dikhe */
   try { if (window.OCGP && window.OCGP.cfg().url) window.OCGP.ensure().catch(function () {}); } catch (e) {}
 })();

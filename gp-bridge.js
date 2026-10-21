@@ -142,6 +142,12 @@
   /* ---------- masters --------------------------------------------------- */
   var _masters = jget(LS_MASTERS, null);
   var _loading = null, _lastErr = '';
+  /* live sync (v78): sheet ka data badla ya nahi -- poore data ki JSON se pehchaan */
+  var _sig = (_masters && _masters.data) ? JSON.stringify(_masters.data) : '';
+  var _lastSync = 0, _lastPull = 0, _syncErr = '';
+  function fire(name, detail) {
+    try { root.dispatchEvent(new CustomEvent(name, { detail: detail || {} })); } catch (e) {}
+  }
   var IDX = { prod: {}, sku: {}, comp: {}, compByName: {}, part: {} };
 
   function fresh() { return !!(_masters && _masters.at && (Date.now() - _masters.at) < TTL); }
@@ -180,10 +186,16 @@
         _masters = { at: Date.now(), data: j.data };
         try { lsSet(LS_MASTERS, JSON.stringify(_masters)); } catch (e) {}
         buildIndex(); _lastErr = ''; _loading = null;
+        var sig = JSON.stringify(j.data), changed = (sig !== _sig);
+        _sig = sig; _lastSync = Date.now(); _syncErr = '';
+        fire('ocgp:synced', { changed: changed, at: _lastSync });
+        if (changed) fire('ocgp:updated', { at: _lastSync });
         return j.data;
       })
       .catch(function (e) {
         _loading = null; _lastErr = (e && e.message) ? e.message : String(e);
+        _syncErr = _lastErr;
+        fire('ocgp:syncerror', { error: _lastErr, lastSync: _lastSync });
         throw e;
       });
     return _loading;
@@ -635,6 +647,50 @@
     return out;
   }
 
+  /* ---------- LIVE SYNC (v78) -------------------------------------------
+     Google Sheet push nahi kar sakti, isliye page khud har LIVE_MS (30 sec)
+     sheet se poochhta hai -- sirf jab tab dikh raha ho aur GP wala hissa
+     screen par ho (Quotation Builder hamesha; CRM me order form ka GP panel).
+     Tab par wapas aate hi turant bhi. Data sach me badla ho tabhi
+     'ocgp:updated' event jaata hai aur UI dobara banta hai. Ek tab ne taaza
+     data laaya to baaki khule tab (CRM / builder) 'storage' event se wahi le
+     lete hain. Har safal sync par 'ocgp:synced', fail par 'ocgp:syncerror'. */
+  var LIVE_MS = 30 * 1000;
+  function gpOnScreen() {
+    if (typeof document === 'undefined') return false;
+    if (document.getElementById('itemsEd')) return true;          /* Quotation Builder */
+    var els = document.querySelectorAll('.ocgp, .gp-parts');
+    for (var i = 0; i < els.length; i++) if (els[i].getClientRects().length) return true;
+    return false;
+  }
+  function tick() {
+    if (!cfg().url || typeof document === 'undefined') return;
+    if (document.visibilityState === 'hidden' || !gpOnScreen()) return;
+    _lastPull = Date.now();
+    load(true).catch(function () {});
+  }
+  function pullSoon() { if (Date.now() - _lastPull > 5000) tick(); }
+  function startLive() {
+    if (root.__ocgpLive || typeof document === 'undefined') return;
+    root.__ocgpLive = 1;
+    setInterval(tick, LIVE_MS);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') pullSoon(); });
+    root.addEventListener('focus', pullSoon);
+    root.addEventListener('storage', function (e) {
+      if (e.key !== LS_MASTERS || !e.newValue) return;
+      var v = jget(LS_MASTERS, null);
+      if (!v || !v.data) return;
+      var sig = JSON.stringify(v.data);
+      _masters = v; buildIndex(); _lastSync = v.at || Date.now(); _syncErr = '';
+      var changed = (sig !== _sig); _sig = sig;
+      fire('ocgp:synced', { changed: changed, at: _lastSync, from: 'tab' });
+      if (changed) fire('ocgp:updated', { at: _lastSync, from: 'tab' });
+    });
+  }
+  function liveStatus() {
+    return { lastSync: _lastSync || (_masters && _masters.at) || 0, error: _syncErr, everyMs: LIVE_MS };
+  }
+
   root.OCGP = {
     cfg: cfg, setCfg: setCfg, load: load, ensure: ensure, masters: masters, lastError: lastError,
     modelList: modelList, bySku: bySku, findModel: findModel, costOf: costOf, compRate: compRate,
@@ -642,6 +698,8 @@
     PART_KEYS: PART_KEYS, partKeyOf: partKeyOf, fixRate: fixRate,
     compute: compute, snapshot: snapshot, renderPanel: renderPanel, panelHTML: panelHTML,
     visibility: visibility, sessionEmail: sessionEmail, myRole: myRole,
+    liveStatus: liveStatus, startLive: startLive, pullNow: tick,
     remember: remember, norm: norm, fmt: { inr: inr, pct: pct }
   };
+  startLive();
 })(typeof window !== 'undefined' ? window : globalThis);

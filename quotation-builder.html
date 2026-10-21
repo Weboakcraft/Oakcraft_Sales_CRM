@@ -1968,6 +1968,9 @@ window.addEventListener('focus', ()=>{
        mode me PDF ban rahi ho tab click karne par wo "Preparing PDF…" hota tha aur
        kaam khatam hone ke baad bhi button par wahi likha reh jaata tha. */
     var label = '\u2913 Download PDF';
+    /* v78: GP minus ho to PDF bilkul nahi -- naya, edit aur view, sab par
+       (gp-quotation.js ocGPPdfCheck; wajah toast + hint me dikhti hai) */
+    if(typeof window.ocGPPdfCheck === 'function' && await window.ocGPPdfCheck()) return;
     /* rep ka naam aur number zaroori hain \u2014 ye quotation par print hote hain */
     if(typeof repMissing === 'function' && repMissing()) return;
     if(btn){ btn.disabled = true; btn.textContent = 'Preparing PDF\u2026'; }
@@ -2628,6 +2631,10 @@ window.addEventListener('focus', ()=>{
     if(btn) btn.textContent = 'Preparing PDF…';
     /* Android WebView PDF ko iframe me render nahi karta — wahan preview hi dikhate hain */
     if(window.OakAndroid){ if(btn) btn.textContent = '⤓ Download PDF'; return; }
+    /* v78: GP minus wali quotation ka PDF preview bhi nahi banta */
+    var gpCheck = (typeof window.ocGPPdfCheck === 'function') ? window.ocGPPdfCheck() : Promise.resolve(false);
+    gpCheck.then(function(blocked){
+    if(blocked){ if(btn) btn.textContent = '⤓ Download PDF'; return; }
     setTimeout(function(){
       (function(){
         var imgs = [].slice.call(document.querySelectorAll('#printArea img'));
@@ -2642,6 +2649,7 @@ window.addEventListener('focus', ()=>{
         if(btn) btn.textContent = '⤓ Download PDF';
       });
     }, 60);
+    });
   }
 
   /* ---------- boot ---------- */
@@ -2724,7 +2732,7 @@ window.addEventListener('focus', ()=>{
      gp-quotation.js   = is page ka glue: customer auto-fill + GP panel.
      Inme kuch badlo to ?v= number bhi badhao, warna purana cached file chalta rahega. -->
 <script src="lib/gp-engine.js?v=3"></script>
-<script src="gp-bridge.js?v=6"></script>
-<script src="gp-quotation.js?v=6"></script>
+<script src="gp-bridge.js?v=7"></script>
+<script src="gp-quotation.js?v=7"></script>
 </body>
 </html>
