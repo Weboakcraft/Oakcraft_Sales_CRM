@@ -4,6 +4,19 @@ Enquiry → Quotation → Order → Dispatch pipeline for OakCraft. Single-file 
 (`index.html`) + Pro-forma Quotation Builder (`quotation-builder.html`), data in a
 Google Sheet through an Apps Script backend, plus an Android app (`android/`).
 
+## Meta import V2 — Lead ID se sync (21-10-2026)
+
+Meta leads ab `apps-script/MetaAutoSyncV2.gs` se CRM me aati hain (trigger `mas2Tick`, har minute). Purana `metaAutoSyncTick` trigger hata diya gaya; `MetaAutoSync.gs` file project me padi hai par chalti nahi.
+
+- **Pehchaan = Meta Lead ID** (`Combined` tab ka `id`, jaise `l:2303706027082689`), row number nahi. Source sheet sirf padhi jaati hai — column H ab nahi likha jaata.
+- **Salesperson** = usi lead ki apni source row ka `assigned_to`, lead pehli baar dikhte hi, jaisa likha hai waisa; owner email sirf exact naam match se (CRM users). Naam CRM user nahi hai to lead phir bhi aati hai, owner khaali, ledger me note.
+- **Sync tracking = ledger** — alag chhoti file *Meta Lead Sync Ledger (CRM import)*, tab `MetaSync_Ledger`, har Lead ID ki ek row (status, CRM id, salesperson, phone, time, note). Ledger me jo ID hai wo dobara import nahi hoti, row kahin bhi khisak jaaye. Status: `BASELINE` (cutover se pehle ki 1,608 leads — kabhi import/badli nahi jaayengi), `IMPORTED`, `IMPORTED_CHECK_FAILED`, `ALREADY_IN_CRM`, `SKIPPED_REPEAT_PHONE`, `SKIPPED_NO_VALID_PHONE`.
+- Ek hi Lead ID source me do baar (Sheet4 connector) → ek baar, **pehli copy** se; note me dono copies. Purane phone wali nayi Lead ID → import nahi (pehle jaisa niyam).
+- Likhne ke baad CRM record wapas padh kar salesperson / owner / naam / phone / time / platform / city source se milaaye jaate hain; farak ho to `IMPORTED_CHECK_FAILED`.
+- CRM record ke fields wahi jo pehle (koi naya column nahi). Lock sirf nayi Lead ID hone par.
+- Dhyan: `Combined!S619` ka formula salesperson ko **row position** se ghumata hai (Amira → Mayank → Ujala). Rows khisakne par source me purani leads ka naam badal jaata hai — CRM me nahi badalta (import ke waqt ka naam pakka). Source me bhi naam pakka chahiye to assignment Lead ID se karna hoga (source sheet ka badlaav).
+- Functions: `mas2_status`, `mas2_preview`, `mas2_runNow`, `mas2_selfTest`, `mas2_e2eTest`, `mas2_install`, `mas2_uninstall`.
+
 ## Run
 
 * **Web:** host the repo root on any static host (GitHub Pages works) and open `index.html`.
