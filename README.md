@@ -4,6 +4,30 @@ Enquiry → Quotation → Order → Dispatch pipeline for OakCraft. Single-file 
 (`index.html`) + Pro-forma Quotation Builder (`quotation-builder.html`), data in a
 Google Sheet through an Apps Script backend, plus an Android app (`android/`).
 
+## Stale-write guard — purani copy naya data overwrite nahi karegi (22-10-2026)
+
+**Kyun:** ek hi login kai devices par khula hai. 22-10 10:32 par ek purane khule tab ne apni
+purani copy se saari 1481 Meta leads save kar di aur 142 leads ke status wapas New / purane ho
+gaye (`apps-script/StatusRestore_20261022.gs` se wapas kiye). Client ke guard purane tab par
+nahi chalte (wo purana code chalata hai), isliye pehra ab **server par** hai.
+
+**File:** `apps-script/CodeGs_StaleGuard.gs` (Web_Sales_CRM me sabse neeche), web app Version 54.
+
+- Sirf web app ke `save` / `saveMany` par, collections: metaLeads, indiamartLeads, enquiries,
+  quotations, orders, dispatch, customers. Apps Script ke apne imports par asar nahi.
+- Aate record ka `updatedAt` sheet wale record se purana ho (aur content alag ho) -> **nahi
+  likha jaata**; poora record "CRM Stale Write Log (blocked old-copy saves)" spreadsheet me
+  darj hota hai (property `SG_LOG_SS_ID`).
+- Content bilkul wahi ho -> likha hi nahi jaata (bekaar `updatedAt` badalna band).
+- Naya record ya asli edit (naye time ke saath) -> pehle jaisa likha jaata hai.
+- Jawab me `staleBlocked` / `unchanged` ginti aati hai.
+- Jaanch: `sg_status`, `sg_selfTest` (14 PASS). Band karna: `SG_ON = false` + New version deploy.
+
+**Zaroori:** Apps Script ki file list ka kram (order) mat badliye — wrappers isi kram par chalte
+hain: Code, FMS_Sheet, MetaSheet, LeadNotify, AssignNotify, MetaAutoSync, IndiamartAutoSync,
+FastMode, LockLight, CodeGs_LeadCoordinator, MetaAutoSyncV2, StatusRestore_20261022,
+CodeGs_StaleGuard. ("Sort A-Z" button mat dabaiye.)
+
 ## Meta import V2 — Lead ID se sync (21-10-2026)
 
 Meta leads ab `apps-script/MetaAutoSyncV2.gs` se CRM me aati hain (trigger `mas2Tick`, har minute). Purana `metaAutoSyncTick` trigger hata diya gaya; `MetaAutoSync.gs` file project me padi hai par chalti nahi.
