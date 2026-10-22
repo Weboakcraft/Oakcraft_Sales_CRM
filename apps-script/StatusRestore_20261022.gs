@@ -13,6 +13,7 @@
  *       in the CRM activity log (the salesperson's own change),
  *     - the record was last written by that push (updatedAt in 2026-10-22T05:02,
  *       updatedBy mis@oakcraft.in) -- nobody has touched it since,
+ *     - that last status entry is from 20-10-2026 or later (SR_MIN_CHANGE),
  *   Then it sets, from the activity log:
  *     lead_status, stage  -> the salesperson's last status (stage label as the CRM uses it)
  *     respAt, respResult, respBy, respMins -> from the matching response-timer
@@ -26,6 +27,11 @@
  */
 var SR_PUSH_MINUTE = '2026-10-22T05:02';
 var SR_PUSH_BY = 'mis@oakcraft.in';
+/* Only changes made after the old copy was taken are certainly lost. The earliest
+   overwritten change seen is 2026-10-20 16:44 IST, so restore only status changes
+   logged on/after 20-10-2026. Older mismatches (10 leads) are left as they are:
+   their current status may come from a later step that is not in the activity log. */
+var SR_MIN_CHANGE = '2026-10-20T00:00';
 var SR_STAGE = {
   CREATED: 'New', CONTACTED: 'Contacted', WON: 'Won', LOST: 'Lost', QUALIFIED: 'Qualified',
   PROPOSAL: 'Proposal', FOLLOW_UP: 'Follow-up', SYSTEM_MASTER: 'System Master',
@@ -49,13 +55,14 @@ function sr_plan_(leads, activity, nowIso){
     if(a.field === 'status'){ var p = lastStatus[a.recId]; if(!p || String(a.ts) > String(p.ts)) lastStatus[a.recId] = a; }
     if(a.field === 'response'){ (responses[a.recId] = responses[a.recId] || []).push(a); }
   });
-  var plan = [], skipped = { touchedSinceOrNotByPush: 0, noStageLabel: 0 };
+  var plan = [], skipped = { touchedSinceOrNotByPush: 0, noStageLabel: 0, olderChangeLeftAsIs: 0 }, older = [];
   leads.forEach(function(l){
     var a = lastStatus[l.id];
     if(!a) return;
     var want = sr_code_(a.to), now = sr_code_(l.lead_status);
     if(!want || want === now) return;
     if(String(l.updatedAt || '').slice(0, 16) !== SR_PUSH_MINUTE || String(l.updatedBy || '').toLowerCase() !== SR_PUSH_BY){ skipped.touchedSinceOrNotByPush++; return; }
+    if(String(a.ts) < SR_MIN_CHANGE){ skipped.olderChangeLeftAsIs++; older.push(l.id + ' now ' + now + ', last logged ' + want + ' on ' + String(a.ts).slice(0, 10)); return; }
     if(!SR_STAGE[want]){ skipped.noStageLabel++; return; }
     var rec = JSON.parse(JSON.stringify(l));
     rec.lead_status = want;
@@ -78,7 +85,7 @@ function sr_plan_(leads, activity, nowIso){
     rec.updatedAt = nowIso;
     plan.push({ rec: rec, from: now, to: want, by: a.byName || '', at: String(a.ts), resp: !!resp });
   });
-  return { plan: plan, skipped: skipped };
+  return { plan: plan, skipped: skipped, older: older };
 }
 
 function sr_run_(apply){
@@ -92,7 +99,8 @@ function sr_run_(apply){
     res.plan.forEach(function(p){ var k = p.from + ' -> ' + p.to; cnt[k] = (cnt[k] || 0) + 1; byWho[p.by] = (byWho[p.by] || 0) + 1; });
     var head = (apply ? 'APPLY' : 'PREVIEW') + ': ' + res.plan.length + ' leads to restore | skipped ' + JSON.stringify(res.skipped)
       + '\n  by change: ' + JSON.stringify(cnt) + '\n  by salesperson: ' + JSON.stringify(byWho)
-      + '\n  timer fields restored for: ' + res.plan.filter(function(p){ return p.resp; }).length;
+      + '\n  timer fields restored for: ' + res.plan.filter(function(p){ return p.resp; }).length
+      + '\n  left as is (older change, check by hand): ' + res.older.join(' | ');
     if(!apply){ Logger.log(head + '\n  ' + res.plan.slice(0, 15).map(function(p){ return p.rec.id + ' ' + p.from + ' -> ' + p.to + ' (' + p.by + ', ' + p.at + ')'; }).join('\n  ')); return res.plan.length; }
     if(res.plan.length){
       _upsertMany('metaLeads', res.plan.map(function(p){ return { id: p.rec.id, data: p.rec }; }));
