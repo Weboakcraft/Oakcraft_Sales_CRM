@@ -22161,5 +22161,133 @@ console.log('[oc v69/v70/v73] lead coordinator (status + assign, sees all):', CO
 })();
 </script>
 
+<script>
+/* ============================================================================
+ *  FMS DB  (v79, build 2026.10.28.1)
+ * ----------------------------------------------------------------------------
+ *  Sidebar me Dispatch ke neeche naya section. Iske andar OakCraft FMS
+ *  Dashboard (https://weboakcraft.github.io/oakcraft-fms-dashboard/) khulta
+ *  hai -- wahi live site, bas CRM chhode bina.
+ *
+ *  LOGIN
+ *    FMS ka apna alag login hai (login ID + password, jo admin deta hai).
+ *    Section kholte hi wahi Sign in screen aati hai; sign in karte hi data
+ *    dikhne lagta hai. CRM ka login yahan nahi chalta aur na hi CRM kuch
+ *    bhejta hai -- credentials sirf FMS ke server tak jaate hain.
+ *
+ *  KISKO KYA DIKHTA HAI
+ *    Row-level filter FMS ka SERVER lagata hai (uski sheet ka column L =
+ *    salesperson). Yaani har banda sirf apni rows dekhta hai, aur doosre ka
+ *    data uske browser tak pahunchta hi nahi. CRM yahan kuch filter nahi
+ *    karta -- aur kar bhi nahi sakta. Jiska FMS role admin / manager hai
+ *    wahi sabka data dekhta hai.
+ *
+ *  EK TAB, DO LOG
+ *    CRM se logout karne par FMS ka session token bhi saaf kar diya jaata hai
+ *    (dono pages ek hi origin par hain, isliye ye yahin se ho jaata hai).
+ *    Bina iske usi tab me agle user ko pichle user ka FMS data dikh sakta tha.
+ *
+ *  Permission: baaki sections jaisi -- Admin Panel > Permissions > "fmsdb".
+ * ========================================================================== */
+(function(){
+  'use strict';
+
+  var VIEW     = 'fmsdb';
+  var FMS_URL  = 'https://weboakcraft.github.io/oakcraft-fms-dashboard/';
+  var FRAME_ID = 'oc-fms-frame';
+
+  function $$id(id){ return document.getElementById(id); }
+
+  /* ------------------------------------------------------------ 1. routing */
+  try{ PAGE_META[VIEW] = ['FMS DB', 'Fulfilment dashboard — order to delivery']; }catch(e){}
+  try{ if(typeof PERM_SECTIONS !== 'undefined' && PERM_SECTIONS.indexOf(VIEW) < 0) PERM_SECTIONS.push(VIEW); }catch(e){}
+
+  function canView(){
+    try{ return typeof can !== 'function' || can(VIEW, 'view') !== false; }catch(e){ return true; }
+  }
+
+  function addNav(){
+    try{
+      var nav = document.querySelector('.nav'); if(!nav) return;
+      if(nav.querySelector('a[data-view="' + VIEW + '"]')) return;
+      var anchor = nav.querySelector('a[data-view="dispatch"]'); if(!anchor) return;
+      var a = document.createElement('a');
+      a.setAttribute('data-view', VIEW);
+      a.innerHTML = ((typeof I !== 'undefined' && I.box) ? I.box : '') + '<span>FMS DB</span>';
+      a.addEventListener('click', function(){ setView(VIEW); });
+      anchor.parentNode.insertBefore(a, anchor.nextSibling);
+      try{ if(typeof applyNavPerms === 'function') applyNavPerms(); }catch(e){}
+    }catch(e){ console.warn('[oc v79] nav', e); }
+  }
+  addNav();
+  [200, 800, 2000, 5000].forEach(function(t){ setTimeout(addNav, t); });
+
+  var _setView = window.setView;
+  if(typeof _setView === 'function' && !_setView.__ocFms){
+    var wrapped = function(v){
+      if(v !== VIEW) return _setView.apply(this, arguments);
+      if(!canView()){ try{ permToast('view'); }catch(e){} return _setView.call(this, 'dashboard'); }
+      try{ state.view = VIEW; }catch(e){}
+      try{
+        document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active', a.dataset.view === VIEW); });
+        var t = $$id('pageTitle'), s = $$id('pageSub');
+        if(t && t.childNodes[0]) t.childNodes[0].nodeValue = PAGE_META[VIEW][0];
+        if(s) s.textContent = PAGE_META[VIEW][1];
+        var sb = $$id('searchBox'); if(sb) sb.style.display = 'none';
+        var qa = $$id('quickAdd');  if(qa) qa.style.display = 'none';
+        Object.keys(state.charts || {}).forEach(function(k){ try{ state.charts[k].destroy(); }catch(e){} });
+        state.charts = {};
+      }catch(e){}
+      try{ localStorage.setItem('oc_lastView', VIEW); }catch(e){}
+      render();
+      try{ content.scrollTop = 0; }catch(e){}
+      try{ if(typeof navOpen === 'function') navOpen(false); }catch(e){}
+      return true;
+    };
+    wrapped.__ocFms = 1; window.setView = wrapped;
+  }
+
+  /* -------------------------------------------------------------- 2. view */
+  function render(){
+    if(!canView()){ try{ permToast('view'); }catch(e){} return; }
+    content.innerHTML =
+      '<div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--line,#e6e2db)">' +
+          '<div style="font-weight:600">OakCraft FMS Dashboard</div>' +
+          '<div style="font-size:12px;color:var(--muted,#858178)">Apne FMS login ID aur password se sign in kijiye</div>' +
+          '<div style="flex:1"></div>' +
+          '<button class="btn ghost" type="button" id="oc-fms-reload">Reload</button>' +
+          '<a class="btn ghost" href="' + FMS_URL + '" target="_blank" rel="noopener noreferrer">Open in new tab</a>' +
+        '</div>' +
+        '<iframe id="' + FRAME_ID + '" title="OakCraft FMS Dashboard" src="' + FMS_URL + '" ' +
+          'style="display:block;width:100%;border:0;height:calc(100vh - 210px);min-height:560px;background:#f5f4f1"' +
+          ' referrerpolicy="origin"></iframe>' +
+      '</div>';
+
+    var btn = $$id('oc-fms-reload');
+    if(btn) btn.addEventListener('click', function(){
+      var f = $$id(FRAME_ID); if(f) f.src = FMS_URL;
+    });
+  }
+
+  /* ------------------------------------------- 3. CRM logout = FMS logout
+   * Dono pages ek hi origin par hain, isliye FMS ka session token (jo wo
+   * sessionStorage me rakhta hai) CRM yahin se hata sakta hai. Bina iske agla
+   * user usi tab me pichle user ka FMS data dekh leta. */
+  try{
+    var _logout = AUTH.logout;
+    if(typeof _logout === 'function' && !_logout.__ocFms){
+      var wl = function(){
+        try{ ['fms.session', 'fms.cache'].forEach(function(k){ sessionStorage.removeItem(k); }); }catch(e){}
+        return _logout.apply(this, arguments);
+      };
+      wl.__ocFms = 1; AUTH.logout = wl;
+    }
+  }catch(e){}
+
+  console.log('[oc v79] FMS DB section ready →', FMS_URL);
+})();
+</script>
+
 </body>
 </html>
