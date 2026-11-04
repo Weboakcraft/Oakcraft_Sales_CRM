@@ -4,6 +4,20 @@ Enquiry → Quotation → Order → Dispatch pipeline for OakCraft. Single-file 
 (`index.html`) + Pro-forma Quotation Builder (`quotation-builder.html`), data in a
 Google Sheet through an Apps Script backend, plus an Android app (`android/`).
 
+## Storage full par bhi save kabhi gum nahi hota (v57, build 2026.11.04.1)
+
+**Bug:** browser storage bhar jaane par `localStorage.setItem` fail hota tha. `store.set` nayi copy `mem` me rakhta tha, par `store.get` / `DB.*` hamesha localStorage ki **purani** copy padhte the — user Save dabata, koi error nahi, screen par purana data wapas, reload par edit / nayi entry gayab. Snapshot, edit journal aur pending queue ke writes bhi chupchaap fail hote the. (Test browser me reproduce kiya: storage 100%, enquiry edit + nayi enquiry → save ke turant baad aur reload ke baad dono gayab.)
+
+**Ilaaj — `lib/oc-store.js` v57** (app ke 192 storage call bina badle):
+
+1. Jagah na ho to pehle doosre apps ke re-loadable cache (pehle jaisa), phir CRM ki wo keys jo sheet se dobara ban jaati hain — `oc_srvSnap`, `oc_leadSnap`, `activity`, `oc_gpMasters` — disk se hata kar sirf memory me (sabse badi pehle). Asli data (orders, leads, enquiries, pending queue, edit journal) ko jagah milti hai. Agle load par ye apne aap wapas bante hain.
+2. Phir bhi na likha jaaye to value **memory overlay** me: `getItem` wahi lautaata hai, isliye save turant dikhta hai aur Sheet sync usi taaza copy se chalta hai. Error throw nahi hota.
+3. Asli data sirf memory me ho to neeche **laal patti** + tab band / reload par browser ka *Leave site?* sawaal. Har 20 sec (ya patti par click) disk par dobara likhne ki koshish; ho jaaye to patti hari ho kar hat jaati hai.
+
+Console: `ocStorageReport()` ab "memory only" keys bhi dikhata hai · `__ocStore.flush()` · `__ocStore.unsaved()`.
+
+Pakka ilaaj (agla kadam): CRM data localStorage (~5 MB, weboakcraft.github.io ke saare apps ke saath share) se IndexedDB (GBs) me.
+
 ## Stale-write guard — purani copy naya data overwrite nahi karegi (22-10-2026)
 
 **Kyun:** ek hi login kai devices par khula hai. 22-10 10:32 par ek purane khule tab ne apni

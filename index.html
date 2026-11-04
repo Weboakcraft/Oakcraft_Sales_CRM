@@ -2,7 +2,7 @@
 
 <html lang="en" data-theme="light">
 <head>
-<script src="lib/oc-store.js?v=56"></script>
+<script src="lib/oc-store.js?v=57"></script>
 <script>try{var _t=localStorage.getItem('oc_theme');if(_t==='dark'||_t==='light'){document.documentElement.setAttribute('data-theme',_t);}}catch(e){}</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20241,7 +20241,7 @@ function renderGem(){
     + '<div style="overflow-x:auto"><table><thead><tr><th>Enquiry ID</th><th>Enquiry Timestamp</th><th>Customer Name</th><th>Contact Number</th><th>Total Qty</th><th>Status</th><th>Salesperson</th><th></th></tr></thead>'
     + '<tbody>' + (rows || '<tr><td colspan="8" class="empty">No Gem leads yet.' + (canDo('create') ? ' Click <b>Add Gem Lead</b> to create one.' : '') + '</td></tr>') + '</tbody></table></div>'
     + (list.length > lim ? '<div style="padding:12px 20px"><button class="btn sm" onclick="GEM.more()">Show more (' + (list.length - lim) + ')</button></div>' : '')
-    + '<div style="padding:10px 20px 14px;font-size:12px;color:var(--muted)">Qualified hote hi lead <b>Qualified</b> section me chali jaati hai; wahan Follow-up karne par <b>Follow-ups</b> me. Lead ka data Meta wali sheet (metaLeads) me Source = Gem ke saath save hota hai.</div>'
+    + '<div style="padding:10px 20px 14px;font-size:12px;color:var(--muted)">Once qualified, the lead moves to the <b>Qualified</b> section; after a follow-up is added there, it appears in <b>Follow-ups</b>. Lead data is saved in the Meta sheet (metaLeads) with Source = Gem.</div>'
     + '</div>';
   var q = $$('gemQ');
   if(q){
@@ -20317,7 +20317,7 @@ GEM.form = function(id){
       + roster.map(function(u){ return '<option value="' + E(LC(u.email)) + '"' + (LC(u.email) === own ? ' selected' : '') + '>' + E(u.name || u.email) + '</option>'; }).join('') + '</select>';
   } else if(!l){
     spSel = '<select id="gemSp" disabled><option value="' + E(my) + '">' + E(nameOfEmail(my) || my) + '</option></select>'
-      + '<div class="sub" style="margin-top:4px">Aapki banayi lead aapke naam par hi rehti hai.</div>';
+      + '<div class="sub" style="margin-top:4px">Leads you create stay assigned to you.</div>';
   } else {
     spSel = '<input disabled value="' + E(TR(l.assigned_to) || nameOfEmail(own) || '— Unassigned —') + '">';
   }
@@ -20356,7 +20356,7 @@ GEM.save = function(id){
   var digits = phone.replace(/\D/g, '').slice(-10);
   if(!id){
     var dup = arr.filter(function(x){ return x && TR(x.phone_number).replace(/\D/g, '').slice(-10) === digits; })[0];
-    if(dup && !confirm('Is number ki lead pehle se hai: ' + (dup.id || '') + ' — ' + (dup.full_name || '') + (isGem(dup) ? ' (Gem)' : ' (Meta)') + '\n\nPhir bhi nayi Gem lead banayein?')) return;
+    if(dup && !confirm('A lead with this number already exists: ' + (dup.id || '') + ' — ' + (dup.full_name || '') + (isGem(dup) ? ' (Gem)' : ' (Meta)') + '\n\nCreate a new Gem lead anyway?')) return;
     var owner = adm ? LC(spEl && spEl.value) : my;
     var rec = {
       id: newId(arr), platform: 'gem', source: 'Gem',
@@ -20806,13 +20806,13 @@ window.ocOrderPdf = function(id){
   var o = orderById(id);
   if(!o){ tell('Order not found'); return Promise.resolve(false); }
   var rows = pdfRows(o);
-  if(!rows.length){ tell('Is order me koi product nahi hai'); return Promise.resolve(false); }
+  if(!rows.length){ tell('This order has no products'); return Promise.resolve(false); }
   var btn = $$('oc-opdf-btn'), old = btn ? btn.innerHTML : '';
   if(btn){ btn.disabled = true; btn.innerHTML = 'Preparing PDF…'; }
   function done(v){ if(btn){ btn.disabled = false; btn.innerHTML = old; } return v; }
   return Promise.all([loadJsPDF(), loadImg('logo.png', 400, 5000)].concat(rows.map(function(r){ return imgFor(r.image); })))
     .then(function(res){
-      if(!res[0]){ tell('PDF engine load nahi hua — internet check karke dobara try karein'); return done(false); }
+      if(!res[0]){ tell('The PDF engine did not load. Please check your internet connection and try again.'); return done(false); }
       var logo = res[1], imgs = res.slice(2);
       var J = window.jspdf.jsPDF;
       var doc = new J({ unit:'mm', format:'a4', orientation:'portrait', compress:true });
@@ -20905,7 +20905,7 @@ window.ocOrderPdf = function(id){
       tell('PDF downloaded ✓');
       return done(fname);
     })
-    .catch(function(e){ console.warn('[oc v67] pdf', e); tell('PDF nahi ban paya — dobara try karein'); return done(false); });
+    .catch(function(e){ console.warn('[oc v67] pdf', e); tell('The PDF could not be created. Please try again.'); return done(false); });
 };
 
 /* ---- Edit PDF details (pc2 + admin) ---- */
@@ -20930,7 +20930,7 @@ function compress(file, max, q){
   });
 }
 window.ocOrderPdfEdit = function(id){
-  if(!canEditPdf()){ tell('PDF details sirf pc2oakcraft@gmail.com / Admin badal sakte hain'); return; }
+  if(!canEditPdf()){ tell('Only pc2oakcraft@gmail.com or an Admin can edit the PDF details'); return; }
   var o = orderById(id); if(!o){ tell('Order not found'); return; }
   var rows = pdfRows(o), items = itemsOf(o);
   _edit = { id: o.id, imgs:{} };
@@ -20951,7 +20951,7 @@ window.ocOrderPdfEdit = function(id){
   }).join('');
   openModal('<div class="modal-head"><h3>Edit PDF — ' + E(o.id) + '</h3><button class="icon-btn" onclick="closeModal();openOrderDetail(\'' + E(o.id) + '\')">✕</button></div>'
     + '<div class="modal-body">'
-    + '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Ye badlaav sirf PDF ke liye hain — order ke products, billing qty aur amount nahi badalte.</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">These changes apply only to the PDF. Products, billing quantity and amount on the order are not changed.</div>'
     + body
     + (o.pdfSheet && o.pdfSheet.by ? '<div class="sub" style="font-size:11.5px;margin-top:8px">Last edited by ' + E(o.pdfSheet.byName || o.pdfSheet.by) + ' · ' + E(new Date(o.pdfSheet.at).toLocaleString('en-IN')) + '</div>' : '')
     + '</div>'
@@ -20962,8 +20962,8 @@ window.ocOrderPdfEdit = function(id){
 window.ocPdfImg = function(i, inp){
   var f = inp && inp.files && inp.files[0]; if(!f) return;
   compress(f, 1400, 0.85).then(function(d){
-    if(!d){ tell('Image read nahi hui'); return; }
-    if(d.length > 4000000){ tell('Image bahut badi hai — chhoti image chunein'); return; }
+    if(!d){ tell('The image could not be read'); return; }
+    if(d.length > 4000000){ tell('The image is too large. Please choose a smaller image.'); return; }
     _edit.imgs[i] = d;
     var im = $$('ocpe-img-' + i); if(im){ im.src = d; im.style.visibility = ''; }
   });
@@ -21047,8 +21047,8 @@ window.ocGemCanBulk = canBulk;
 var COLS = [
   { key:'name',  head:'Customer Name',  req:true,  eg:['Ramesh Traders', 'Sunita Enterprises'], note:'Customer / company ka naam' },
   { key:'phone', head:'Contact Number', req:true,  eg:['9876543210', '9123456780'],            note:'10 digit mobile (+91 / 0 chalega)' },
-  { key:'qty',   head:'Total Qty',      req:true,  eg:['25', '10'],                            note:'Sirf number, 1 ya zyada' },
-  { key:'sp',    head:'Salesperson',    req:false, eg:['', ''],                                note:'CRM salesperson ka naam ya email. Khaali = Unassigned' }
+  { key:'qty',   head:'Total Qty',      req:true,  eg:['25', '10'],                            note:'Number only, 1 or more' },
+  { key:'sp',    head:'Salesperson',    req:false, eg:['', ''],                                note:'CRM salesperson name or email. Blank = Unassigned' }
 ];
 var ALIAS = {
   name:  ['customer name', 'customer', 'name', 'full name', 'company', 'company name', 'buyer name'],
@@ -21080,7 +21080,7 @@ function newId(have){
 
 var _bulk = { rows: [] };
 window.ocGemBulk = function(){
-  if(!canBulk()){ tell('Bulk upload sirf mis@oakcraft.in ke liye hai'); return; }
+  if(!canBulk()){ tell('Bulk upload is available only to mis@oakcraft.in'); return; }
   var eg = rosterEg();
   COLS[3].eg = eg;
   var th = 'padding:8px 10px;border:1px solid var(--border);background:var(--surface-2);font-size:12px;text-align:left;white-space:nowrap';
@@ -21093,12 +21093,12 @@ window.ocGemBulk = function(){
   openModal('<div class="modal-head"><h3>Gem — Bulk Upload</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>'
     + '<div class="modal-body">'
     + '<div style="font-weight:700;margin-bottom:4px">Step 1 — File ka format (template)</div>'
-    + '<div style="font-size:12.5px;color:var(--text-2)">Pehli row me yahi headings honi chahiye (order kuch bhi ho). <b>Enquiry ID, Source (Gem) aur Enquiry Timestamp apne aap</b> lagte hain. Status har lead ka <b>New</b> rehta hai — Qualified / Not Qualified baad me Gem table se (remark ke saath) karein.</div>'
+    + '<div style="font-size:12.5px;color:var(--text-2)">The first row must contain these headings (in any order). <b>Enquiry ID, Source (Gem) and Enquiry Timestamp are added automatically</b>. Every lead starts with status <b>New</b>; set Qualified / Not Qualified later from the Gem table (with a remark).</div>'
     + tbl
     + '<button class="btn sm" onclick="ocGemTemplate()">' + icon('download') + 'Download Template (.xlsx)</button>'
-    + '<div style="font-weight:700;margin:16px 0 4px">Step 2 — Bhari hui file chunein</div>'
+    + '<div style="font-weight:700;margin:16px 0 4px">Step 2 — Choose the completed file</div>'
     + '<input type="file" id="ocgb-file" accept=".xlsx,.xls,.csv" onchange="ocGemBulkRead(this)">'
-    + '<div class="sub" style="font-size:11.5px;margin-top:4px">.xlsx / .xls / .csv · ek baar me max ' + BULK_MAX + ' rows · same Contact Number wali lead (CRM me ya file me) skip hoti hai.</div>'
+    + '<div class="sub" style="font-size:11.5px;margin-top:4px">.xlsx / .xls / .csv · max ' + BULK_MAX + ' rows per upload · leads with a Contact Number that already exists (in the CRM or in the file) are skipped.</div>'
     + '<div id="ocgb-prev" style="margin-top:12px"></div>'
     + '</div>'
     + '<div class="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button>'
@@ -21108,7 +21108,7 @@ window.ocGemBulk = function(){
 window.ocGemTemplate = function(){
   var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
   Promise.resolve(pre).then(function(ok){
-    if(ok === false || typeof XLSX === 'undefined'){ tell('Excel engine load nahi hua'); return; }
+    if(ok === false || typeof XLSX === 'undefined'){ tell('The Excel engine did not load'); return; }
     var aoa = [COLS.map(function(c){ return c.head; })];
     var eg = rosterEg();
     aoa.push(['Ramesh Traders', '9876543210', 25, eg[0]]);
@@ -21119,7 +21119,7 @@ window.ocGemTemplate = function(){
     var ws2 = XLSX.utils.aoa_to_sheet([['Salesperson (Name)', 'Email']].concat(r.map(function(u){ return [u.name || '', u.email || '']; })));
     ws2['!cols'] = [{ wch:28 }, { wch:32 }];
     var ws3 = XLSX.utils.aoa_to_sheet([['Column', 'Required', 'Rule']].concat(COLS.map(function(c){ return [c.head, c.req ? 'Yes' : 'No', c.note]; }))
-      .concat([[], ['Note', '', 'Example rows (2-3) hata kar apna data bharein. Enquiry ID / Source / Timestamp apne aap lagte hain.']]));
+      .concat([[], ['Note', '', 'Delete the example rows (2-3) and enter your data. Enquiry ID / Source / Timestamp are added automatically.']]));
     ws3['!cols'] = [{ wch:18 }, { wch:10 }, { wch:70 }];
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Gem Leads');
@@ -21141,10 +21141,10 @@ window.ocGemBulkRead = function(inp){
   var f = inp && inp.files && inp.files[0], box = $$('ocgb-prev'), go = $$('ocgb-go');
   _bulk.rows = []; if(go) go.disabled = true;
   if(!f){ if(box) box.innerHTML = ''; return; }
-  if(box) box.innerHTML = '<div class="sub">File padh rahe hain…</div>';
+  if(box) box.innerHTML = '<div class="sub">Reading file…</div>';
   var pre = (typeof awaitXLSX === 'function') ? awaitXLSX() : Promise.resolve(true);
   Promise.resolve(pre).then(function(ok){
-    if(ok === false || typeof XLSX === 'undefined'){ box.innerHTML = '<div style="color:#d03b3b">Excel engine load nahi hua.</div>'; return; }
+    if(ok === false || typeof XLSX === 'undefined'){ box.innerHTML = '<div style="color:#d03b3b">The Excel engine did not load.</div>'; return; }
     var fr = new FileReader();
     fr.onload = function(){
       try{
@@ -21152,7 +21152,7 @@ window.ocGemBulkRead = function(inp){
         var ws = wb.Sheets[wb.SheetNames[0]];
         var aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false, blankrows:false });
         preview(aoa);
-      }catch(e){ box.innerHTML = '<div style="color:#d03b3b">File padhi nahi ja saki: ' + E(e.message || e) + '</div>'; }
+      }catch(e){ box.innerHTML = '<div style="color:#d03b3b">The file could not be read: ' + E(e.message || e) + '</div>'; }
     };
     fr.readAsArrayBuffer(f);
   });
@@ -21165,7 +21165,7 @@ function preview(aoa){
     if(m.name != null && m.phone != null && m.qty != null){ hi = r; idx = m; break; }
   }
   if(hi < 0){
-    box.innerHTML = '<div style="color:#d03b3b;font-size:13px">Headings nahi mili. Pehli row me <b>Customer Name, Contact Number, Total Qty</b> (aur optional <b>Salesperson</b>) honi chahiye — template download karke usi me data bharein.</div>';
+    box.innerHTML = '<div style="color:#d03b3b;font-size:13px">Headings not found. The first row must contain <b>Customer Name, Contact Number, Total Qty</b> (and optionally <b>Salesperson</b>). Download the template and enter your data in it.</div>';
     return;
   }
   var ros = roster(), byMail = {}, byName = {};
@@ -21179,16 +21179,16 @@ function preview(aoa){
     var errs = [], skip = '', owner = '';
     if(!name) errs.push('Customer Name khaali');
     var p10 = last10(phone);
-    if(p10.length < 10) errs.push('Contact Number 10 digit ka nahi');
+    if(p10.length < 10) errs.push('Contact Number is not 10 digits');
     var qn = +String(qty).replace(/,/g, '');
     if(!(qn > 0)) errs.push('Total Qty galat');
     if(sp){
       var u = byMail[LC(sp)] || byName[LC(sp)];
       if(!u){ var hit = ros.filter(function(x){ return LC(x.name).indexOf(LC(sp)) === 0; }); if(hit.length === 1) u = hit[0]; }
-      if(u) owner = LC(u.email); else errs.push('Salesperson "' + sp + '" CRM me nahi mila');
+      if(u) owner = LC(u.email); else errs.push('Salesperson "' + sp + '" not found in the CRM');
     }
     if(!errs.length && p10.length === 10){
-      if(have[p10]) skip = 'Duplicate — CRM me pehle se (' + T(have[p10].id) + ')';
+      if(have[p10]) skip = 'Duplicate — already in the CRM (' + T(have[p10].id) + ')';
       else if(seen[p10]) skip = 'Duplicate — file me row ' + seen[p10] + ' jaisa';
     }
     if(p10.length === 10 && !seen[p10]) seen[p10] = hi + 2 + k;
@@ -21204,7 +21204,7 @@ function preview(aoa){
     + (dup.length ? '<span class="chip c-prog">' + dup.length + ' duplicate (skip)</span>' : '')
     + (bad.length ? '<span class="chip c-lost">' + bad.length + ' galat (skip)</span>' : '')
     + '</div>'
-    + (out.length > BULK_MAX ? '<div style="color:#d03b3b;font-size:12.5px;margin-bottom:6px">File me ' + out.length + ' rows hain — ek baar me max ' + BULK_MAX + '. File chhoti karke dobara chunein.</div>' : '')
+    + (out.length > BULK_MAX ? '<div style="color:#d03b3b;font-size:12.5px;margin-bottom:6px">The file has ' + out.length + ' rows; the maximum per upload is ' + BULK_MAX + '. Please reduce the file and choose it again.</div>' : '')
     + '<div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:8px"><table style="width:100%;border-collapse:collapse">'
     + '<thead><tr><th style="' + td + '">Row</th><th style="' + td + '">Customer Name</th><th style="' + td + '">Contact</th><th style="' + td + '">Qty</th><th style="' + td + '">Salesperson</th><th style="' + td + '">Result</th></tr></thead><tbody>'
     + show.map(function(r){
@@ -21213,7 +21213,7 @@ function preview(aoa){
         return '<tr' + (r.errs.length ? ' style="background:rgba(208,59,59,.06)"' : '') + '><td style="' + td + '">' + r.line + '</td><td style="' + td + '">' + E(r.name) + '</td><td style="' + td + '">' + E(r.phone) + '</td><td style="' + td + '">' + E(r.qty || '') + '</td><td style="' + td + '">' + (E(r.spLabel) || '<span class="sub">Unassigned</span>') + '</td><td style="' + td + '">' + res + '</td></tr>';
       }).join('')
     + '</tbody></table></div>'
-    + (out.length > show.length ? '<div class="sub" style="font-size:11.5px;margin-top:4px">Pehli ' + show.length + ' rows dikh rahi hain.</div>' : '');
+    + (out.length > show.length ? '<div class="sub" style="font-size:11.5px;margin-top:4px">Showing the first ' + show.length + ' rows.</div>' : '');
   if(go){ go.disabled = !(ok.length && out.length <= BULK_MAX); go.innerHTML = icon('check') + 'Import ' + ok.length + ' lead' + (ok.length === 1 ? '' : 's'); }
 }
 window.ocGemBulkImport = function(){
@@ -21236,7 +21236,7 @@ window.ocGemBulkImport = function(){
     if(r.owner) rec.assignedAt = iso;
     recs.push(rec);
   });
-  if(!recs.length){ tell('Import ke liye koi nayi lead nahi'); return; }
+  if(!recs.length){ tell('No new leads to import'); return; }
   store.set('metaLeads', recs.concat(arr));
   try{ closeModal(); }catch(e){}
   tell(recs.length + ' Gem lead' + (recs.length === 1 ? '' : 's') + ' imported ✓');
@@ -22254,7 +22254,7 @@ console.log('[oc v69/v70/v73] lead coordinator (status + assign, sees all):', CO
       '<div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">' +
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--line,#e6e2db)">' +
           '<div style="font-weight:600">OakCraft FMS Dashboard</div>' +
-          '<div style="font-size:12px;color:var(--muted,#858178)">Apne FMS login ID aur password se sign in kijiye</div>' +
+          '<div style="font-size:12px;color:var(--muted,#858178)">Sign in with your FMS login ID and password</div>' +
           '<div style="flex:1"></div>' +
           '<button class="btn ghost" type="button" id="oc-fms-reload">Reload</button>' +
           '<a class="btn ghost" href="' + FMS_URL + '" target="_blank" rel="noopener noreferrer">Open in new tab</a>' +
