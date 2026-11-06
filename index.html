@@ -6712,7 +6712,19 @@ console.log('[oc v7] row-safe save active');
   window.__mlQ    = window.__mlQ    || '';
   window.__mlSel  = window.__mlSel  || {};
   window.__mlLim  = window.__mlLim  || PAGE;
-  window.__mlFilt = window.__mlFilt || { platform:'', status:'', owner:'' };
+  window.__mlFilt = window.__mlFilt || { platform:'', status:'', owner:'', campaign:'' };
+  /* v79 (06-11-2026): source sheet ke 3 naye columns -- ad_name, campaign_name, quantity */
+  var ML_AD_COLS = ['ad_name', 'campaign_name', 'quantity'];
+  window.ML_AD_COLS = ML_AD_COLS.slice();
+  /* Qualified / Follow-ups ke "Product" cell ke liye ek line: campaign · Ad · Qty */
+  window.ocMetaAdInfo = function(r){
+    if(!r) return '';
+    var p = [];
+    if(String(r.campaign_name || '').trim()) p.push(String(r.campaign_name).trim());
+    if(String(r.ad_name || '').trim())       p.push('Ad: ' + String(r.ad_name).trim());
+    if(String(r.quantity || '').trim())      p.push('Qty: ' + String(r.quantity).trim());
+    return p.join(' · ');
+  };
   window.__mlSort = window.__mlSort || { k:'created_time_ist', dir:-1 };
 
   function visibleLeads(){
@@ -6721,12 +6733,15 @@ console.log('[oc v7] row-safe save active');
     var f = window.__mlFilt, q = _lc(window.__mlQ);
     return list.filter(function(l){
       if(f.platform && platCode(l.platform) !== f.platform) return false;
+      if(f.campaign === '__none__'){ if(String(l.campaign_name || '').trim()) return false; }
+      else if(f.campaign && String(l.campaign_name || '').trim() !== f.campaign) return false;
       if(f.status   && statusCode(l.lead_status) !== f.status) return false;
       if(f.owner === '__none__'){ if(l.assigned_to || l.owner) return false; }
       else if(f.owner && _lc(l.owner) !== _lc(f.owner) && _lc(l.assigned_to) !== _lc(nameOf(f.owner))) return false;
       if(!q) return true;
       return [l.id, l.created_time_ist, l.platform, l.full_name, l.phone_number, l.city_state,
-              l.lead_status, l.assigned_to, l.email, l.product, l.campaign, l.note]
+              l.lead_status, l.assigned_to, l.email, l.product, l.campaign, l.note,
+              l.ad_name, l.campaign_name, l.quantity]
              .join(' ').toLowerCase().indexOf(q) >= 0;
     });
   }
@@ -6763,8 +6778,8 @@ console.log('[oc v7] row-safe save active');
        dikhti hai jo "Showing: ..." keh raha hai. */
     var base;
     (function(){
-      var f = window.__mlFilt, keep = { platform:f.platform, status:f.status, owner:f.owner };
-      window.__mlFilt = { platform:keep.platform, status:'', owner:'' };
+      var f = window.__mlFilt, keep = { platform:f.platform, status:f.status, owner:f.owner, campaign:f.campaign || '' };
+      window.__mlFilt = { platform:keep.platform, status:'', owner:'', campaign:keep.campaign };
       try{ base = visibleLeads(); } finally { window.__mlFilt = keep; }
     })();
 
@@ -6806,6 +6821,18 @@ console.log('[oc v7] row-safe save active');
         + Object.keys(platsPresent).map(function(p){
             return '<option value="' + esc(p) + '"' + (window.__mlFilt.platform === p ? ' selected' : '') + '>' + esc(p) + (PLAT_LABEL[p] ? ' · ' + PLAT_LABEL[p] : '') + '</option>';
           }).join('') + '</select>'
+      + (function(){
+          var camps = {}, none = 0;
+          all.forEach(function(l){ var c = String(l.campaign_name || '').trim(); if(c) camps[c] = (camps[c] || 0) + 1; else none++; });
+          var cur = window.__mlFilt.campaign || '';
+          if(cur && cur !== '__none__' && !camps[cur]) camps[cur] = 0;
+          return '<select class="mls-f" id="mlFCamp" title="campaign_name" style="max-width:220px"><option value="">All campaigns</option>'
+            + Object.keys(camps).sort().map(function(c){
+                return '<option value="' + esc(c) + '"' + (cur === c ? ' selected' : '') + '>' + esc(c) + ' (' + camps[c] + ')</option>';
+              }).join('')
+            + (none ? '<option value="__none__"' + (cur === '__none__' ? ' selected' : '') + '>— No campaign — (' + none + ')</option>' : '')
+            + '</select>';
+        })()
       + '<select class="mls-f" id="mlFStat"><option value="">All status</option>'
         + statusOptions().map(function(s){
             return '<option value="' + esc(s) + '"' + (window.__mlFilt.status === s ? ' selected' : '') + '>' + esc(s) + '</option>';
@@ -6852,7 +6879,7 @@ console.log('[oc v7] row-safe save active');
       + '<th>#</th>'
       /* v55: backend (metaLeads tab) ka `id` = Enquiry ID -- ab list me bhi dikhta hai */
       + th('id', 'Enquiry ID')
-      + SHEET_COLS.map(function(k){ return th(k); }).join('')
+      + SHEET_COLS.map(function(k){ return th(k) + (k === 'city_state' ? ML_AD_COLS.map(function(a){ return th(a); }).join('') : ''); }).join('')
       + '<th>actions</th></tr></thead>';
 
     var body = rows.map(function(l, i){
@@ -6891,6 +6918,9 @@ console.log('[oc v7] row-safe save active');
             + (l.product ? '<div class="sub">' + esc(l.product) + '</div>' : '') + '</td>'
         + '<td class="num">' + esc(l.phone_number || '—') + '</td>'
         + '<td class="wrap">' + esc(l.city_state || '—') + '</td>'
+        + '<td class="wrap" style="max-width:180px">' + esc(l.ad_name || '—') + '</td>'
+        + '<td class="wrap" style="max-width:220px">' + esc(l.campaign_name || '—') + '</td>'
+        + '<td class="num" style="white-space:nowrap">' + esc(l.quantity || '—') + '</td>'
         + '<td>' + statusCell + '</td>'
         + '<td>' + ownCell + '</td>'
         + '<td><div class="rowact">'
@@ -6938,6 +6968,7 @@ console.log('[oc v7] row-safe save active');
       if(el) el.onchange = function(){ window.__mlFilt[key] = el.value; window.__mlLim = PAGE; renderMetaLeads(); };
     }
     bindFilter('mlFPlat', 'platform');
+    bindFilter('mlFCamp', 'campaign');
     bindFilter('mlFStat', 'status');
     bindFilter('mlFOwn',  'owner');
 
@@ -7118,6 +7149,9 @@ console.log('[oc v7] row-safe save active');
       + '<div><label>full_name</label><input id="mlName" value="' + esc(l.full_name) + '"></div>'
       + '<div><label>phone_number</label><input id="mlPhone" value="' + esc(l.phone_number) + '"></div>'
       + '<div><label>city_state</label><input id="mlCity" value="' + esc(l.city_state) + '"></div>'
+      + '<div><label>ad_name</label><input id="mlAdName" value="' + esc(l.ad_name) + '"></div>'
+      + '<div><label>campaign_name</label><input id="mlCampName" value="' + esc(l.campaign_name) + '"></div>'
+      + '<div><label>quantity</label><input id="mlQuantity" value="' + esc(l.quantity) + '" placeholder="e.g. 10-50"></div>'
       + '<div><label>Status</label><select id="mlStatus">'
         + window.ocLeadQnqOptions(statusCode(l.lead_status) || 'CREATED')   /* v52 */
         + '</select></div>'
@@ -7161,6 +7195,9 @@ console.log('[oc v7] row-safe save active');
     rec.full_name        = v('mlName');
     rec.phone_number     = v('mlPhone');
     rec.city_state       = v('mlCity');
+    rec.ad_name          = v('mlAdName');        /* v79 */
+    rec.campaign_name    = v('mlCampName');
+    rec.quantity         = v('mlQuantity');
     rec.platform         = platCode(v('mlPlat')) || 'fb';
     rec.created_time_ist = normTime(v('mlCreated')) || fmtIST(new Date());
     rec.lead_status      = statusCode(v('mlStatus'));
@@ -8415,7 +8452,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.10.20.1';
+var OC_WEB_BUILD = '2026.11.06.1';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -15645,7 +15682,7 @@ var SRC = {
       return {
         src:'metaLeads', id:r.id, date:isoOfStamp(r.created_time_ist) || T(r.createdAt).slice(0, 10),
         name:T(r.full_name) || T(r.name), contact:T(r.phone_number) || T(r.phone),
-        product:T(r.product), qty:'', value:0,
+        product:T(r.product) || ((typeof window.ocMetaAdInfo === 'function') ? window.ocMetaAdInfo(r) : ''), qty:'', value:0,
         person:T(r.assigned_to) || nameOfEmail(r.owner), owner:LC(r.owner), rec:r
       };
     }
@@ -17311,7 +17348,9 @@ function ask(coll, id, onOk, onCancel){
   var name = rec ? TR(rec.sender_name || rec.full_name || rec.customer || rec.name) : '';
   var curT = rec ? TR(rec.qualCustType) : '';
   var curO = rec ? TR(rec.qualCustTypeOther) : '';
-  var curQ = rec ? TR(rec.qualQty || rec.qty || rec.quantity) : '';
+  /* v79: Meta lead ka `quantity` (source form ka jawab, jaise 10-50) prefill nahi hota -- sirf hint */
+  var curQ = rec ? TR(rec.qualQty || rec.qty || (coll === 'metaLeads' ? '' : rec.quantity)) : '';
+  var metaQ = (rec && coll === 'metaLeads') ? TR(rec.quantity) : '';
   pending = { coll:coll, id:id, onOk:onOk, onCancel:onCancel };
 
   var opts = optionsHTML(curT);
@@ -17328,7 +17367,9 @@ function ask(coll, id, onOk, onCancel){
       +     '<label>Enter type</label>'
       +     '<input id="ocqOther" value="' + A(curO) + '" placeholder="e.g. Builder, Contractor, Govt…"></div>'
       +   '<div class="form-row"><label>Purchase Quantity <span style="color:var(--crit)">*</span></label>'
-      +     '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="number of pieces"></div>'
+      +     '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="number of pieces">'
+      +     (metaQ ? '<div class="sub" style="font-size:11.5px;color:var(--muted);margin-top:4px">Meta form answer (quantity): <b>' + E(metaQ) + '</b> — confirm the actual number with the customer</div>' : '')
+      +   '</div>'
       +   '<div id="ocqErr" style="display:none;color:var(--crit);font-size:12px;margin-top:-4px"></div>'
       + '</div>'
       + '<div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 20px">'
@@ -17405,7 +17446,8 @@ OCQ.needs = function(coll, id){
 OCQ.fieldsHTML = function(coll, id){
   var rec = findRec(coll, id) || {};
   var curT = TR(rec.qualCustType), curO = TR(rec.qualCustTypeOther);
-  var curQ = TR(rec.qualQty || rec.qty || rec.quantity);
+  var curQ = TR(rec.qualQty || rec.qty || (coll === 'metaLeads' ? '' : rec.quantity));   /* v79 */
+  var metaQ = (coll === 'metaLeads') ? TR(rec.quantity) : '';
   var opts = optionsHTML(curT);
   var inp = 'width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border,#dde3ee);'
           + 'border-radius:9px;font:inherit;background:var(--surface-2,#f7f9fc);color:inherit';
@@ -17420,6 +17462,7 @@ OCQ.fieldsHTML = function(coll, id){
     +   '</div>'
     +   '<label class="lbl" style="' + lbl + ';display:block;margin-top:10px">Purchase Quantity <span style="color:var(--crit,#d03b3b)">*</span></label>'
     +   '<input id="ocqQty" type="number" min="0" step="1" value="' + A(curQ) + '" placeholder="number of pieces" style="' + inp + '">'
+    +   (metaQ ? '<div style="font-size:11.5px;color:var(--muted,#7a869a);margin-top:4px">Meta form answer (quantity): <b>' + E(metaQ) + '</b> — confirm the actual number with the customer</div>' : '')
     + '</div>';
 };
 
@@ -17787,7 +17830,8 @@ var SRC = {
     label:'Meta', section:'metaLeads', fu:'FOLLOW_UP',
     all: function(){ return scoped(lsArr('metaLeads'), 'metaLeads').filter(function(r){ return !(r && r.dupOf); }); },
     isFu: function(r){ return code(r.lead_status) === 'FOLLOW_UP' || (!TR(r.lead_status) && code(r.stage) === 'FOLLOW_UP'); },
-    row: function(r){ return { name:T(r.full_name) || T(r.name), contact:T(r.phone_number) || T(r.phone), product:T(r.product) || T(r.campaign),
+    row: function(r){ return { name:T(r.full_name) || T(r.name), contact:T(r.phone_number) || T(r.phone),
+                               product:T(r.product) || ((typeof window.ocMetaAdInfo === 'function') ? window.ocMetaAdInfo(r) : '') || T(r.campaign),
                                person:T(r.assigned_to) || nameOfEmail(r.owner), since:T(r.statusUpdatedAt) || T(r.updatedAt) }; },
     opts: function(){ return LEAD_OPTS_META.map(function(c){ return [c, leadLabel(c)]; }); },
     cur: function(r){ return code(r.lead_status); },
