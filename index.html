@@ -6878,8 +6878,10 @@ console.log('[oc v7] row-safe save active');
       + '<th class="cbx"><input type="checkbox" id="mlChkAll"' + (allOn ? ' checked' : '') + ' onclick="ML.selPage(this.checked)"></th>'
       + '<th>#</th>'
       /* v55: backend (metaLeads tab) ka `id` = Enquiry ID -- ab list me bhi dikhta hai */
+      /* v80: campaign_name Enquiry ID se pehle; ad_name + quantity city_state ke baad */
+      + th('campaign_name')
       + th('id', 'Enquiry ID')
-      + SHEET_COLS.map(function(k){ return th(k) + (k === 'city_state' ? ML_AD_COLS.map(function(a){ return th(a); }).join('') : ''); }).join('')
+      + SHEET_COLS.map(function(k){ return th(k) + (k === 'city_state' ? ML_AD_COLS.filter(function(a){ return a !== 'campaign_name'; }).map(function(a){ return th(a); }).join('') : ''); }).join('')
       + '<th>actions</th></tr></thead>';
 
     var body = rows.map(function(l, i){
@@ -6911,6 +6913,7 @@ console.log('[oc v7] row-safe save active');
       return '<tr class="' + (sel ? 'sel' : '') + '">'
         + '<td class="cbx"><input type="checkbox"' + (sel ? ' checked' : '') + ' onclick="ML.selOne(\'' + l.id + '\',this.checked)"></td>'
         + '<td class="num">' + (i + 1) + '</td>'
+        + '<td class="wrap" style="max-width:220px">' + esc(l.campaign_name || '—') + '</td>'
         + '<td class="num" style="white-space:nowrap"><span class="strong tabular" title="Enquiry ID (backend sheet: metaLeads → id)">' + esc(l.id || '—') + '</span></td>'
         + '<td class="num">' + esc(l.created_time_ist || '—') + '</td>'
         + '<td>' + (l.platform ? '<span class="chip c-neutral" title="' + esc(PLAT_LABEL[l.platform] || l.platform) + '">' + esc(l.platform) + '</span>' : '—') + '</td>'
@@ -6919,7 +6922,6 @@ console.log('[oc v7] row-safe save active');
         + '<td class="num">' + esc(l.phone_number || '—') + '</td>'
         + '<td class="wrap">' + esc(l.city_state || '—') + '</td>'
         + '<td class="wrap" style="max-width:180px">' + esc(l.ad_name || '—') + '</td>'
-        + '<td class="wrap" style="max-width:220px">' + esc(l.campaign_name || '—') + '</td>'
         + '<td class="num" style="white-space:nowrap">' + esc(l.quantity || '—') + '</td>'
         + '<td>' + statusCell + '</td>'
         + '<td>' + ownCell + '</td>'
@@ -8452,7 +8454,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.11.06.1';
+var OC_WEB_BUILD = '2026.11.06.2';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
