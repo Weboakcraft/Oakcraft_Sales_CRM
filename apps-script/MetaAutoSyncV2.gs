@@ -122,10 +122,14 @@ function mas2_parseSource_(values){
   if(!values || !values.length) return out;
   var head = values[0].map(function(h){ return mas2_trim_(h).toLowerCase(); });
   var col = function(name){ return head.indexOf(name); };
+  /* ad_name / campaign_name exist twice in Combined (E/I from Meta + the S/T columns added
+     06-11-2026 for the CRM); both carry the same value -- use the LAST one (the CRM columns). */
+  var colLast = function(name){ return head.lastIndexOf(name); };
   var c = {
     tab: col('source_sheet'), id: col('id'), ts: col('created_time_ist'), platform: col('platform'),
     name: col('full_name'), phone: col('phone_number'), city: col('city_state'),
-    status: col('lead_status'), assigned: col('assigned_to')
+    status: col('lead_status'), assigned: col('assigned_to'),
+    adName: colLast('ad_name'), campaignName: colLast('campaign_name'), quantity: colLast('quantity')   /* optional (06-11-2026) */
   };
   ['id', 'ts', 'name', 'phone', 'assigned'].forEach(function(k){ if(c[k] < 0) out.missing.push(k); });
   if(out.missing.length) return out;
@@ -150,6 +154,9 @@ function mas2_parseSource_(values){
       city_state: mas2_trim_(get(r, c.city)),
       lead_status: mas2_code_(get(r, c.status)) || 'CREATED',
       assigned_to: mas2_trim_(get(r, c.assigned)),
+      ad_name: mas2_trim_(get(r, c.adName)),
+      campaign_name: mas2_trim_(get(r, c.campaignName)),
+      quantity: mas2_trim_(get(r, c.quantity)),
       source_tab: mas2_trim_(get(r, c.tab))
     });
   }
@@ -243,6 +250,9 @@ function mas2_plan_(rows, ledger, crm, roster, opts){
       stage: mas2_stage_(r.lead_status),
       assigned_to: r.assigned_to,
       owner: owner,
+      ad_name: r.ad_name || '',
+      campaign_name: r.campaign_name || '',
+      quantity: r.quantity || '',
       createdAt: opts.now || new Date().toISOString(),
       source: MAS2.SOURCE_LABEL
     };
@@ -261,7 +271,7 @@ function mas2_newId_(){
 function mas2_diff_(want, got){
   if(!got) return ['record not found after write'];
   var bad = [];
-  ['assigned_to', 'owner', 'full_name', 'phone_number', 'created_time_ist', 'platform', 'city_state'].forEach(function(f){
+  ['assigned_to', 'owner', 'full_name', 'phone_number', 'created_time_ist', 'platform', 'city_state', 'ad_name', 'campaign_name', 'quantity'].forEach(function(f){
     var w = mas2_cell_(want[f]), g = mas2_cell_(got[f]);
     /* the sheet may store a time or a phone as a date / number; compare those by their digits */
     if(w !== g && (f === 'created_time_ist' || f === 'phone_number') && mas2_digits_(w) === mas2_digits_(g)) return;
@@ -547,7 +557,15 @@ function mas2_logicTests_(){
   ok(lo['l:4'] && lo['l:4'].status === 'SKIPPED_REPEAT_PHONE' && lo['l:4'].crmId === 'ML-OLD001', 'repeat phone not imported, linked to existing CRM record');
   ok(imp['l:5'] && imp['l:5'].rec.assigned_to === 'Pinky' && imp['l:5'].rec.owner === '' && /not found/.test(imp['l:5'].note), 'name not in CRM users: kept exactly, no owner guessed');
   ok(mas2_roster_([{ name: 'Ujala', email: 'x@x' }, { name: 'Ujala Rajput', email: 'u@x' }])['ujala'] === 'x@x', 'no prefix matching: "Ujala" only matches a user named exactly "Ujala"');
-  ok(Object.keys(imp['l:1'].rec).sort().join(',') === 'assigned_to,city_state,createdAt,created_time_ist,full_name,id,lead_status,owner,phone_number,platform,source,stage' && imp['l:1'].rec.source === MAS2.SOURCE_LABEL && imp['l:1'].rec.stage === 'New', 'record has exactly the fields the old import wrote (no new CRM column)');
+  ok(Object.keys(imp['l:1'].rec).sort().join(',') === 'ad_name,assigned_to,campaign_name,city_state,createdAt,created_time_ist,full_name,id,lead_status,owner,phone_number,platform,quantity,source,stage' && imp['l:1'].rec.source === MAS2.SOURCE_LABEL && imp['l:1'].rec.stage === 'New', 'record fields = old import + ad_name, campaign_name, quantity (06-11-2026)');
+  ok(imp['l:1'].rec.ad_name === '' && imp['l:1'].rec.quantity === '', 'source without the new columns -> new fields empty, import still works');
+  /* 06-11-2026: Combined has ad_name / campaign_name twice (E/I + S/T) and quantity */
+  var HN = ['source_sheet', 'id', 'created_time_ist', 'ad_name', 'campaign_name', 'platform', 'full_name', 'phone_number', 'city_state', 'lead_status', 'ad_name', 'campaign_name', 'quantity', 'assigned_to'];
+  var pn = mas2_parseSource_([HN, ['Sheet4', 'l:N1', '06-11-2026 10:00:00', 'Ad A', 'Camp A', 'ig', 'New Cols', '9000000061', '', 'CREATED', 'Ad A2', 'Camp A2', '10-50', 'Amira Saikh']]);
+  ok(pn.missing.length === 0 && pn.rows[0].ad_name === 'Ad A2' && pn.rows[0].campaign_name === 'Camp A2' && pn.rows[0].quantity === '10-50' && pn.rows[0].assigned_to === 'Amira Saikh', 'new columns read by header name (last ad_name / campaign_name), assigned_to still found after it moved');
+  var pnp = mas2_plan_(pn.rows, {}, mas2_crmIndex_([]), roster, { newId: newId, now: 'TN' });
+  ok(pnp.imports.length === 1 && pnp.imports[0].rec.ad_name === 'Ad A2' && pnp.imports[0].rec.campaign_name === 'Camp A2' && pnp.imports[0].rec.quantity === '10-50', 'new lead carries ad_name, campaign_name, quantity into the CRM record');
+  ok(mas2_diff_(pnp.imports[0].rec, { assigned_to: 'Amira Saikh', owner: 'a@x', full_name: 'New Cols', phone_number: '9000000061', created_time_ist: '06-11-2026 10:00:00', platform: 'ig', city_state: '', ad_name: 'Ad A2', campaign_name: 'Camp A2', quantity: '' }).join() === 'quantity (want "10-50", got "")', 'read-back check catches a missing quantity');
 
   /* write run 1 into fake CRM + ledger */
   p1.imports.forEach(function(p){ crmRecords.push(p.rec); ledger[p.leadId] = true; });
@@ -718,4 +736,133 @@ function mas2_e2eTest(){
   out.unshift((fails ? 'E2E TEST FAILED: ' + fails : 'E2E TEST OK') + ' (' + out.length + ' lines) -- scratch file: ' + book.getName());
   Logger.log(out.join('\n'));
   return out;
+}
+
+/* ======================================================================== *
+ * 06-11-2026 -- ad_name / campaign_name / quantity for leads already in    *
+ * the CRM (backfill). New leads get them from mas2_plan_ directly.         *
+ *                                                                          *
+ *   mas2_backfillPreview   -> counts + samples, writes nothing             *
+ *   mas2_backfillNewCols   -> backup tab, then fills ONLY these 3 fields   *
+ *                             where the CRM value is empty. Nothing else   *
+ *                             changes (updatedAt stays as it was).         *
+ *   Safe to run again: leads that already have the values are skipped.     *
+ * ======================================================================== */
+var MAS2_NEW_FIELDS = ['ad_name', 'campaign_name', 'quantity'];
+
+/**
+ * Pure: which CRM lead gets which values.
+ *   srcRows    mas2_parseSource_().rows
+ *   ledgerRows [[leadId, status, crmId], ...]
+ *   crmRecs    plain CRM records (metaLeads)
+ * Match order: ledger IMPORTED -> same phone + time -> ledger BASELINE / ALREADY_IN_CRM -> phone (only if one Lead ID has it).
+ */
+function mas2_backfillPlan_(srcRows, ledgerRows, crmRecs){
+  var byLead = {}, byKey = {}, byPhone = {};
+  (srcRows || []).forEach(function(r){
+    if(byLead[r.leadId]) return;                            /* first copy = top-most row */
+    byLead[r.leadId] = r;
+    if(r.phone10 && r.phone10.length === 10){
+      if(!byKey[r.key]) byKey[r.key] = r;
+      (byPhone[r.phone10] = byPhone[r.phone10] || []).push(r);
+    }
+  });
+  var rank = { IMPORTED: 3, IMPORTED_CHECK_FAILED: 3, BASELINE: 2, ALREADY_IN_CRM: 1 };
+  var viaLedger = {};
+  (ledgerRows || []).forEach(function(l){
+    var lead = mas2_trim_(l[0]), st = mas2_trim_(l[1]), crmId = mas2_trim_(l[2]);
+    if(!lead || !crmId || !rank[st] || !byLead[lead]) return;
+    var cur = viaLedger[crmId];
+    if(!cur || rank[st] > cur.rank) viaLedger[crmId] = { rank: rank[st], row: byLead[lead], how: 'ledger ' + st };
+  });
+  var out = { changes: [], stats: { crmMeta: 0, alreadyFilled: 0, noSource: 0, noValues: 0, toFill: 0, how: {} } };
+  (crmRecs || []).forEach(function(l){
+    if(!l || !l.id) return;
+    if(/^GEM-/i.test(String(l.id)) || String(l.platform || '').trim().toLowerCase() === 'gem') return;
+    out.stats.crmMeta++;
+    var need = MAS2_NEW_FIELDS.filter(function(f){ return !mas2_trim_(l[f]); });
+    if(!need.length){ out.stats.alreadyFilled++; return; }
+    var p10 = mas2_phone10_(l.phone_number || l.phone), key = p10 + '|' + mas2_digits_(l.created_time_ist);
+    var m = null, how = '';
+    var lg = viaLedger[l.id];
+    if(lg && lg.rank === 3){ m = lg.row; how = lg.how; }
+    else if(p10.length === 10 && byKey[key]){ m = byKey[key]; how = 'same phone + time'; }
+    else if(lg){ m = lg.row; how = lg.how; }
+    else if(p10.length === 10 && byPhone[p10] && byPhone[p10].length === 1){ m = byPhone[p10][0]; how = 'phone (one Lead ID)'; }
+    if(!m){ out.stats.noSource++; return; }
+    var set = {};
+    need.forEach(function(f){ if(m[f]) set[f] = m[f]; });
+    if(!Object.keys(set).length){ out.stats.noValues++; return; }
+    out.stats.toFill++;
+    out.stats.how[how] = (out.stats.how[how] || 0) + 1;
+    out.changes.push({ id: String(l.id), leadId: m.leadId, how: how, set: set });
+  });
+  return out;
+}
+
+function mas2_backfillLedgerRows_(ledgerSsId){
+  var book = ledgerSsId ? SpreadsheetApp.openById(ledgerSsId) : mas2_ledgerBook_(false);
+  var sh = book ? book.getSheetByName(MAS2.LEDGER_TAB) : null;
+  if(!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 3).getDisplayValues();
+}
+/** metaLeads TAB only (not the Gem tab), as {id, data, updatedAt} rows */
+function mas2_metaTabRows_(){
+  if(typeof gs_readTab_ === 'function') return gs_readTab_(MAS2.COLL);
+  return _readAll(MAS2.COLL) || [];
+}
+function mas2_body_(r){ return (r && r.data !== undefined && r.data !== null && typeof r.data === 'object') ? r.data : r; }
+
+function mas2_backfillPreview(ledgerSsId){
+  var src = mas2_parseSource_(mas2_srcValues_());
+  var crm = mas2_metaTabRows_().map(mas2_body_);
+  var plan = mas2_backfillPlan_(src.rows, mas2_backfillLedgerRows_(ledgerSsId), crm);
+  var s = 'mas2_backfillPreview: ' + JSON.stringify(plan.stats) + '\n' +
+          plan.changes.slice(0, 15).map(function(c){ return c.id + ' <- ' + c.leadId + ' (' + c.how + ') ' + JSON.stringify(c.set); }).join('\n');
+  Logger.log(s); return s;
+}
+
+function mas2_backfillNewCols(ledgerSsId){
+  var lock = LockService.getScriptLock(); lock.waitLock(60000);
+  var fresh = (typeof _FM_FRESH !== 'undefined');
+  if(fresh) _FM_FRESH++;
+  try{
+    var sh = _sheet(MAS2.COLL);
+    var src = mas2_parseSource_(mas2_srcValues_());
+    if(src.missing.length) throw new Error('Source columns missing: ' + src.missing.join(', '));
+    var before = mas2_metaTabRows_().map(mas2_body_).filter(function(b){ return b && b.id; });
+    var plan = mas2_backfillPlan_(src.rows, mas2_backfillLedgerRows_(ledgerSsId), before);
+    if(!plan.changes.length){ var n0 = 'mas2_backfillNewCols: nothing to fill ' + JSON.stringify(plan.stats); Logger.log(n0); return n0; }
+
+    /* 1. backup of the metaLeads tab */
+    var bname = 'bak_metaLeads_newcols_' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd_HHmm');
+    var cp = sh.copyTo(SS); cp.setName(bname); try{ cp.hideSheet(); }catch(e){}
+
+    /* 2. the 3 columns at the END of the tab (no rebuild of the tab) */
+    _ensurePaths(sh, MAS2.COLL, MAS2_NEW_FIELDS);
+
+    /* 3. fill only the planned fields; updatedAt untouched */
+    var orig = JSON.parse(JSON.stringify(before)), byId = {};
+    before.forEach(function(b){ byId[String(b.id)] = b; });
+    plan.changes.forEach(function(c){ var b = byId[c.id]; if(!b) return; for(var f in c.set) b[f] = c.set[f]; });
+    _writeMerged(MAS2.COLL, sh, before);
+    SpreadsheetApp.flush();
+
+    /* 4. read back: planned fields set, every other field exactly as before */
+    var want = {}; before.forEach(function(b){ want[String(b.id)] = JSON.stringify(_norm(b)); });
+    var back = mas2_metaTabRows_().map(mas2_body_), bad = [];
+    back.forEach(function(b){ var id = String(b.id); if(want[id] !== JSON.stringify(_norm(b))) bad.push(id); });
+    if(back.length !== before.length || bad.length){
+      _writeMerged(MAS2.COLL, sh, orig);                    /* put everything back */
+      SpreadsheetApp.flush();
+      var f = 'mas2_backfillNewCols: CHECK FAILED (' + bad.length + ' differ, rows ' + back.length + '/' + before.length + ': ' + bad.slice(0, 5).join(', ') + ') -> restored. Backup: ' + bname;
+      Logger.log(f); return f;
+    }
+    try{ if(typeof fmBump_ === 'function') fmBump_(MAS2.COLL); }catch(e){}
+    var msg = 'mas2_backfillNewCols: DONE -- ' + plan.changes.length + ' leads filled ' + JSON.stringify(plan.stats) + '. Backup tab: ' + bname;
+    Logger.log(msg); return msg;
+  } finally {
+    if(fresh) _FM_FRESH--;
+    lock.releaseLock();
+  }
 }
