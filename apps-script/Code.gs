@@ -17,6 +17,10 @@ var SHARED      = ['products','formfields','meta','permissions','slacfg','apicon
 var ADMIN_ONLY  = [];                  // permissions read-only sabke liye                    // read+write sirf admin
 var ADMIN_WRITE  = ['users','permissions','slacfg'];            // write sirf admin
 var FULL_DATA_ROLES = { orders: ['sales manager'], activity: ['sales manager'] }; var FULL_DATA_USERS = { quotations: ['accounts@oakcraft.in'], dispatch: ['pc2oakcraft@gmail.com','accounts@oakcraft.in'], enquiries: ['pc2oakcraft@gmail.com'], metaLeads: ['pc2oakcraft@gmail.com'] }; /* naam se poora data: Arun Mourya -> Quotations */
+/* READ-ONLY ACCOUNTS: in emails ka save / saveMany / delete server par hi
+   band hai (frontend ke buttons chhupane ke alawa ek aur pehra).
+   Lowercase me likhiye. */
+var OC_READ_ONLY_ACCOUNTS = ['marketing@oakcraft.in'];
 var LEGACY_READS  = false;   // Phase 2 me false karna -> asli isolation ON
 var LEGACY_WRITES = false;   // purana frontend save/delete kar sake (users/permissions blocked)
 var LEGACY_QUOTE  = false;   // quotation-builder ka numbering bina sid chale
@@ -931,6 +935,10 @@ if (action === 'dryCheck'){
     var coll = p.collection;
     if (COLLECTIONS.indexOf(coll) < 0) return { error:'bad_collection' };
     if (ADMIN_WRITE.indexOf(coll) >= 0 && !u.isAdmin) return { error:'forbidden' };
+    /* read-only account: kuch bhi likhna / mitana mana */
+    if (!u.isAdmin && !u.legacy
+        && OC_READ_ONLY_ACCOUNTS.indexOf(String(u.email || '').trim().toLowerCase()) >= 0)
+      return { ok:false, error:'forbidden', message:'This account is view-only' };
 
     var recs  = (action === 'saveMany') ? (p.records || [])
              : [ p.record || (p.records && p.records[0]) ];
@@ -1191,8 +1199,10 @@ function _reqMissing(coll, rec, cur){
  * ====================================================================== */
 try {
   var OC_VIEW_ONLY = {
-    enquiries: ['pc2oakcraft@gmail.com'],
-    metaLeads: ['pc2oakcraft@gmail.com']
+    enquiries:      ['pc2oakcraft@gmail.com', 'marketing@oakcraft.in'],
+    metaLeads:      ['pc2oakcraft@gmail.com', 'marketing@oakcraft.in'],
+    /* Qualified + Follow-ups in teeno collections se bante hain */
+    indiamartLeads: ['marketing@oakcraft.in']
   };
   Object.keys(OC_VIEW_ONLY).forEach(function (coll) {
     FULL_DATA_USERS[coll] = FULL_DATA_USERS[coll] || [];

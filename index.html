@@ -10910,7 +10910,12 @@ console.log('[oc v20] dashboard: meta + indiamart leads counted as enquiries; in
 if(window.__ocViewOnly) return; window.__ocViewOnly = true;
 
 var VIEW_ONLY_USERS = {
-  'pc2oakcraft@gmail.com': ['enquiries', 'metaLeads']
+  'pc2oakcraft@gmail.com': ['enquiries', 'metaLeads'],
+  /* Abhishek Singh -- Meta / Qualified / Follow-ups sirf dekhne ke liye.
+     Qualified aur Follow-ups enquiries + indiamartLeads + metaLeads se bante
+     hain, isliye teeno ka poora data (read-only) chahiye. Code.gs ke
+     OC_VIEW_ONLY me bhi yahi entries hain. */
+  'marketing@oakcraft.in': ['enquiries', 'metaLeads', 'indiamartLeads', 'indiamart', 'qualified', 'followups']
 };
 window.OC_VIEW_ONLY_USERS = VIEW_ONLY_USERS;
 
