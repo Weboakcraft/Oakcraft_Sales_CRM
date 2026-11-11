@@ -20,7 +20,9 @@
  *     product, qty, status aur remarks hi jaate hain.
  */
 var AI_GEM_BASE = 'https://generativelanguage.googleapis.com/v1beta/';
-var AI_GEM_DEFAULT_MODEL = 'gemini-flash-latest';
+/* 11-11-2026: free tier par gemini-flash-latest / 3.8-flash ka generateContent 60+ sec atak raha tha;
+   3.5-flash-lite 3 sec me jawab deta hai. Isliye default = lite. Settings > Model se badal sakte hain. */
+var AI_GEM_DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 var AI_BIZ = 'Oakcraft (India) office / institutional furniture bechta hai. Leads IndiaMART, Meta Ads, GEM aur JustDial se aati hain.';
 
 function ai_key_(){ return ai_s_(ai_props_().getProperty(AI_PROP_KEY)); }
@@ -59,7 +61,8 @@ function ai_pickModel_(key){
   });
   if(!names.length) return '';
   function ver(n){ var m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; }
-  names.sort(function(a, b){ return (ver(b) - ver(a)) || ((a.indexOf('lite') >= 0 ? 1 : 0) - (b.indexOf('lite') >= 0 ? 1 : 0)) || (a.length - b.length); });
+  /* lite pehle (sasta + tez), phir naya version */
+  names.sort(function(a, b){ return ((b.indexOf('lite') >= 0 ? 1 : 0) - (a.indexOf('lite') >= 0 ? 1 : 0)) || (ver(b) - ver(a)) || (a.length - b.length); });
   return names[0];
 }
 function ai_model_(S){
