@@ -8454,7 +8454,7 @@ guardDelete('bulkDeleteProducts', 'products');
  *     kisi CRM data / workflow ko touch nahi karta.                        *
  *     >>> Har web release par OC_WEB_BUILD badhayein (YYYY.MM.DD.n) <<<   *
  * ====================================================================== */
-var OC_WEB_BUILD = '2026.11.11.5';
+var OC_WEB_BUILD = '2026.11.11.6';
 (function(){
   if(window.OakAndroid) return;                       // Android: apna banner hai
   if(!/^https?:$/.test(location.protocol)) return;    // file:// / assets: kuch nahi
@@ -21314,15 +21314,24 @@ console.log('[oc v67] order PDF button + Gem bulk upload');
  * ====================================================================== */
 (function(){
 'use strict';
-var ORDER_COLS = ['Date','Order ID','Customer','Product','Qty','Salesperson','Billing Amount','Freight Amount',
+/* v83: customer contact details (Contact Person, Phone, Email, City) Customer ke baad */
+var ORDER_COLS = ['Date','Order ID','Customer','Contact Person','Phone','Email','City','Product','Qty','Salesperson','Billing Amount','Freight Amount',
   'Total Amount','Full Amount','Pending Balance Amount','Advance Payment Amt','Number of Boxes','Box Amount (without GST)','Status'];
 window.OC_ORDER_EXPORT_COLS = ORDER_COLS;
 function blank(v){ return v == null || String(v).trim() === ''; }
+function contactMaps(){
+  var ord = {}, cust = {}, byName = {};
+  try{ (DB.customers() || []).forEach(function(c){ if(!c) return; if(c.id) cust[c.id] = c; var n = String(c.name || '').trim().toLowerCase(); if(n && !byName[n]) byName[n] = c; }); }catch(e){}
+  try{ (DB.orders() || []).forEach(function(x){ if(x && x.id) ord[x.id] = x; }); }catch(e){}
+  return { ord: ord, cust: cust, byName: byName };
+}
 function shape(rows){
+  var M = contactMaps();
   return rows.map(function(r){
-    var o = {};
+    var o = {}, od = M.ord[r['Order ID']] || {}, c = M.cust[od.custId] || M.byName[String(r.Customer || '').trim().toLowerCase()] || {};
+    var contact = { 'Contact Person': c.contact || od._cContact || '', 'Phone': String(c.phone || od._cPhone || ''), 'Email': c.email || '', 'City': c.city || '' };
     ORDER_COLS.forEach(function(k){
-      var v = r[k];
+      var v = (k in contact) ? contact[k] : r[k];
       if(k === 'Billing Amount' && blank(v)) v = r['Billing Amount (incl. 18% GST)'];
       o[k] = (v == null) ? '' : v;
     });
