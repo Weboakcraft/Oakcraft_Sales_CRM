@@ -33,7 +33,7 @@
  *   `ai_removeTriggers` Run, phir `var AI_ON = false;` -> Save -> New version deploy.
  */
 var AI_ON  = true;
-var AI_VER = '1.2.0';
+var AI_VER = '1.3.0';
 var AI_PROP_SS = 'AI_SS_ID', AI_PROP_SET = 'AI_SETTINGS', AI_PROP_KEY = 'GEMINI_API_KEY';
 var AI_SS_NAME = 'CRM AI Analytics (Informatics)';
 var AI_IST_MS = 19800000, AI_DAY_MS = 86400000;
@@ -216,7 +216,7 @@ function ai_build_(D, S, nowMs){
       product: ai_s_(r.product), city: ai_s_(r.city_state || r.sender_city_state || r.city || (c && c.city)),
       remarks: ai_cut_(rem, 600), respMins: (r.respMins === '' || r.respMins === null || r.respMins === undefined) ? null : ai_num_(r.respMins),
       responded: !!(r.respAt || (lastAct[String(r.id)] || 0) > created + 60000 || st !== 'CREATED'),
-      campaign: ai_s_(r.campaign_name || r.campaign), linkId: '', linkConf: 0, orderIds: [], revenue: 0,
+      campaign: ai_s_(r.campaign_name || r.campaign), lossReason: ai_s_(r.lossReason), linkId: '', linkConf: 0, orderIds: [], revenue: 0,
       aiIntent: an ? an.intent : '', aiScore: an ? an.score : '', aiNext: an ? an.next : '', aiSummary: an ? an.summary : '', aiConf: an ? an.conf : '',
       aiSig: an ? an.sig : ''
     });
@@ -662,6 +662,7 @@ function ai_load_(ss){
     an[String(r[1])] = { sig: String(r[3]), intent: String(r[4]), score: r[5], next: String(r[6]), summary: String(r[7]), conf: r[8] };
   }
   D.analysis = an;
+  if(typeof ai_adv_load_ === 'function'){ try{ ai_adv_load_(ss, D); }catch(eL){} }
   return D;
 }
 function ai_readSnap_(ss){
