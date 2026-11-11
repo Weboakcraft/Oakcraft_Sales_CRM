@@ -33,7 +33,7 @@
  *   `ai_removeTriggers` Run, phir `var AI_ON = false;` -> Save -> New version deploy.
  */
 var AI_ON  = true;
-var AI_VER = '1.0.0';
+var AI_VER = '1.1.0';
 var AI_PROP_SS = 'AI_SS_ID', AI_PROP_SET = 'AI_SETTINGS', AI_PROP_KEY = 'GEMINI_API_KEY';
 var AI_SS_NAME = 'CRM AI Analytics (Informatics)';
 var AI_IST_MS = 19800000, AI_DAY_MS = 86400000;
@@ -251,27 +251,27 @@ function ai_build_(D, S, nowMs){
     var cat, why, pr;
     if(l.status === 'WON' || l.orderIds.length){
       cat = 'Converted'; pr = 0;
-      why = l.orderIds.length ? ('Order ' + l.orderIds[0] + ' se juda (' + (l.linkConf === 1 ? 'pakka link' : l.linkConf === 0.8 ? 'phone match' : 'customer match') + ')') : 'Status Won';
+      why = l.orderIds.length ? ('Linked to order ' + l.orderIds[0] + '  (' + (l.linkConf === 1 ? 'confirmed link' : l.linkConf === 0.8 ? 'phone match' : 'customer match') + ')') : 'Status Won';
       l.open = false;
     } else if(l.status === 'LOST'){ cat = 'Lost'; why = 'Status Lost'; pr = 0; }
     else if(l.status === 'NOT_QUALIFIED'){ cat = 'Not Qualified'; why = 'Status Not Qualified'; pr = 0; }
     else if(l.followUp && l.followUp < today){
       var od = ai_daysBetween_(ai_ms_(l.followUp), nowMs);
-      cat = 'Follow-up Overdue'; why = 'Follow-up ' + l.followUp + ' ko tha, ' + od + ' din late'; pr = Math.min(95, 70 + od * 3);
-    } else if(l.followUp && l.followUp === today){ cat = 'Follow-up Due Today'; why = 'Aaj follow-up hai'; pr = 80; }
+      cat = 'Follow-up Overdue'; why = 'Follow-up was due ' + l.followUp + ', ' + od + ' day(s) late'; pr = Math.min(95, 70 + od * 3);
+    } else if(l.followUp && l.followUp === today){ cat = 'Follow-up Due Today'; why = 'Follow-up due today'; pr = 80; }
     else if(l.status === 'CREATED' && !l.responded && age >= ai_num_(S.untouchedHours)){
-      cat = 'Untouched'; why = Math.round(age / 24 * 10) / 10 + ' din se New, koi response nahi'; pr = Math.min(90, 60 + Math.round(age / 24) * 2);
+      cat = 'Untouched'; why = Math.round(age / 24 * 10) / 10 + ' day(s) as New with no response'; pr = Math.min(90, 60 + Math.round(age / 24) * 2);
     } else if(idle >= ai_num_(S.inactiveDays)){
-      cat = 'Inactive'; why = idle + ' din se koi activity nahi (status ' + (AI_STATUS_LABEL[l.status] || l.status) + ')';
+      cat = 'Inactive'; why = 'No activity for ' + idle + ' day(s) (status ' + (AI_STATUS_LABEL[l.status] || l.status) + ')';
       pr = (l.status === 'QUALIFIED' || l.status === 'QUOTATION_SENT' || l.status === 'SYSTEM_MASTER') ? 75 : 40;
     } else if((l.status === 'QUALIFIED' || l.status === 'QUOTATION_SENT' || l.status === 'SYSTEM_MASTER') && idle <= ai_num_(S.hotDays)){
-      cat = 'Hot'; why = (AI_STATUS_LABEL[l.status] || l.status) + ', ' + idle + ' din pehle activity'; pr = 85;
+      cat = 'Hot'; why = (AI_STATUS_LABEL[l.status] || l.status) + ', last activity ' + idle + ' day(s) ago'; pr = 85;
     } else if(l.status === 'QUALIFIED' || l.status === 'QUOTATION_SENT' || l.status === 'SYSTEM_MASTER'){
-      cat = 'Warm'; why = (AI_STATUS_LABEL[l.status] || l.status) + ', ' + idle + ' din se shaant'; pr = 65;
-    } else if(l.status === 'CALL_NOT_PICK'){ cat = 'Unreachable'; why = 'Call nahi uthaya'; pr = 45; }
+      cat = 'Warm'; why = (AI_STATUS_LABEL[l.status] || l.status) + ', quiet for ' + idle + ' day(s)'; pr = 65;
+    } else if(l.status === 'CALL_NOT_PICK'){ cat = 'Unreachable'; why = 'Call not picked'; pr = 45; }
     else if(l.status === 'CONTACTED' || l.status === 'FOLLOW_UP'){
-      cat = 'Warm'; why = (AI_STATUS_LABEL[l.status] || l.status) + (l.followUp ? ', follow-up ' + l.followUp : ', follow-up date nahi'); pr = 55;
-    } else { cat = 'New'; why = 'Nayi lead'; pr = 50; }
+      cat = 'Warm'; why = (AI_STATUS_LABEL[l.status] || l.status) + (l.followUp ? ', follow-up ' + l.followUp : ', no follow-up date set'); pr = 55;
+    } else { cat = 'New'; why = 'New lead'; pr = 50; }
     l.category = cat; l.reason = why; l.priority = pr;
   });
 
@@ -304,12 +304,12 @@ function ai_build_(D, S, nowMs){
     if(!o && phone){ o = firstAfter(ordByPhone[phone], created); if(o) conf = 0.8; }
     if(!o && nk && nk.length >= 5){ o = firstAfter(ordByName[nk], created); if(o) conf = 0.6; }
     var age = ai_daysBetween_(created, nowMs), cat, why, pr;
-    if(o || st === 'Accepted'){ cat = 'Converted'; why = o ? ('Order ' + o.id + (conf === 1 ? ' (pakka link)' : conf === 0.8 ? ' (phone match)' : ' (naam match)')) : 'Status Accepted'; pr = 0; }
+    if(o || st === 'Accepted'){ cat = 'Converted'; why = o ? ('Order ' + o.id + (conf === 1 ? ' (confirmed link)' : conf === 0.8 ? ' (phone match)' : ' (name match)')) : 'Status Accepted'; pr = 0; }
     else if(st === 'Rejected'){ cat = 'Rejected'; why = 'Status Rejected'; pr = 0; }
-    else if(st === 'Draft'){ cat = 'Draft'; why = 'Abhi bheji nahi'; pr = 30; }
-    else if(valid && valid < today){ cat = 'Expired'; why = 'Valid till ' + valid + ' nikal gaya, order nahi'; pr = 35; }
-    else if(age >= ai_num_(S.quoteFollowDays)){ cat = 'Follow-up Needed'; why = age + ' din pehle bheji, order nahi'; pr = Math.min(85, 55 + age); }
-    else { cat = 'Fresh'; why = age + ' din pehle bheji'; pr = 50; }
+    else if(st === 'Draft'){ cat = 'Draft'; why = 'Not sent yet'; pr = 30; }
+    else if(valid && valid < today){ cat = 'Expired'; why = 'Validity ended ' + valid + ', no order'; pr = 35; }
+    else if(age >= ai_num_(S.quoteFollowDays)){ cat = 'Follow-up Needed'; why = 'Sent ' + age + ' day(s) ago, no order yet'; pr = Math.min(85, 55 + age); }
+    else { cat = 'Fresh'; why = 'Sent ' + age + ' day(s) ago'; pr = 50; }
     quotes.push({
       id: String(q.id), type: 'quotation', coll: 'quotations', source: '', name: ai_s_(qb.co || q.customer), phone: phone,
       owner: owner, ownerName: ownerName(owner, q.salesperson || qb.rep), status: st, created: created, last: ai_max_(created, lastAct[String(q.id)] || 0),
@@ -321,19 +321,19 @@ function ai_build_(D, S, nowMs){
   /* ---- order categories ---- */
   orders.forEach(function(o){
     var cat, why, pr, d = o.disp, late;
-    if(o.status === 'Cancelled'){ cat = 'Cancelled'; why = 'Order cancel'; pr = 0; }
+    if(o.status === 'Cancelled'){ cat = 'Cancelled'; why = 'Order cancelled'; pr = 0; }
     else if(o.status === 'Delivered'){
       var dAge = ai_daysBetween_(o.last, nowMs);
-      if(o.payment && o.payment !== 'Paid' && dAge >= ai_num_(S.payPendingDays)){ cat = 'Payment Pending'; why = 'Delivered, payment ' + o.payment + ' (' + dAge + ' din)'; pr = 60; }
+      if(o.payment && o.payment !== 'Paid' && dAge >= ai_num_(S.payPendingDays)){ cat = 'Payment Pending'; why = 'Delivered, payment ' + o.payment + ' (' + dAge + ' day(s))'; pr = 60; }
       else { cat = 'Delivered'; why = 'Delivered'; pr = 0; }
     } else if(o.status === 'Dispatched'){
-      if(d && ai_s_(d.status) !== 'Delivered' && ai_s_(d.eta) && ai_s_(d.eta).slice(0, 10) < today){ cat = 'Delivery Overdue'; why = 'ETA ' + ai_s_(d.eta).slice(0, 10) + ' nikal gaya'; pr = 65; }
-      else { cat = 'Dispatched'; why = 'Raaste me'; pr = 20; }
+      if(d && ai_s_(d.status) !== 'Delivered' && ai_s_(d.eta) && ai_s_(d.eta).slice(0, 10) < today){ cat = 'Delivery Overdue'; why = 'ETA ' + ai_s_(d.eta).slice(0, 10) + ' has passed'; pr = 65; }
+      else { cat = 'Dispatched'; why = 'In transit'; pr = 20; }
     } else if(o.exp && o.exp < today){
       late = ai_daysBetween_(ai_ms_(o.exp), nowMs);
-      cat = 'Delayed'; why = 'Expected ' + o.exp + ', ' + late + ' din late (status ' + o.status + ')'; pr = Math.min(98, 80 + late);
+      cat = 'Delayed'; why = 'Expected ' + o.exp + ', ' + late + ' day(s) late (status ' + o.status + ')'; pr = Math.min(98, 80 + late);
     } else if(o.exp && ai_daysBetween_(nowMs, ai_ms_(o.exp) + AI_DAY_MS) <= ai_num_(S.atRiskDays) && o.status !== 'Ready'){
-      cat = 'At Risk'; why = 'Expected ' + o.exp + ', abhi ' + o.status; pr = 70;
+      cat = 'At Risk'; why = 'Expected ' + o.exp + ', currently ' + o.status; pr = 70;
     } else { cat = 'On Track'; why = 'Status ' + o.status + (o.exp ? ', expected ' + o.exp : ''); pr = 25; }
     o.category = cat; o.reason = why; o.priority = pr; o.daysIdle = ai_daysBetween_(o.last, nowMs);
     o.open = !(o.status === 'Delivered' || o.status === 'Cancelled');
@@ -358,7 +358,7 @@ function ai_build_(D, S, nowMs){
     else if(o.category === 'At Risk') alert('medium', 'Order At Risk', o, o.reason);
     else if(o.category === 'Payment Pending') alert('medium', 'Payment Pending', o, o.reason);
     else if(o.category === 'Delivery Overdue') alert('medium', 'Delivery Overdue', o, o.reason);
-    if(o.trackPending && o.status === 'Dispatched') alert('low', 'Tracking Pending', o, 'Dispatch row me asli courier / tracking number nahi');
+    if(o.trackPending && o.status === 'Dispatched') alert('low', 'Tracking Pending', o, 'Dispatch entry has no real courier / tracking number');
   });
   var SEV = { high: 3, medium: 2, low: 1 };
   alerts.sort(function(a, b){ return (SEV[b.sev] - SEV[a.sev]) || (b.pr - a.pr) || (b.amount - a.amount); });
@@ -435,7 +435,7 @@ function ai_build_(D, S, nowMs){
   var revBySource = {}, linkStats = { explicit: 0, phone: 0, customer: 0, none: 0 };
   orders.forEach(function(o){
     if(!live(o)) return;
-    inc(revBySource, o.source || 'Link nahi', bill(o.amount));
+    inc(revBySource, o.source || 'Not linked', bill(o.amount));
     if(o.linkConf === 1) linkStats.explicit++; else if(o.linkConf === 0.8) linkStats.phone++; else if(o.linkConf === 0.6) linkStats.customer++; else linkStats.none++;
   });
 
@@ -634,6 +634,7 @@ function ai_cachePut_(ss, obj){
   var sh = ai_tab_(ss, 'AI_Cache');
   sh.getRange(1, 1, sh.getMaxRows(), 1).setNumberFormat('@');
   ai_writeTab_(ss, 'AI_Cache', rows);
+  try{ CacheService.getScriptCache().remove('ai:ctx'); }catch(e){}
   return s.length;
 }
 function ai_cacheGet_(ss){
@@ -705,7 +706,7 @@ function ai_route_(p){
   var u = null;
   try{ u = _verify(p.sid); }catch(e){ u = null; }
   if(!u) return { ok: false, error: 'unauthorized' };
-  if(!u.isAdmin) return { ok: false, error: 'forbidden', hint: 'Informatics Analytics sirf Administrator ke liye' };
+  if(!u.isAdmin) return { ok: false, error: 'forbidden', hint: 'Informatics Analytics is for Administrators only' };
   var act = String(p.action), ss;
   try{
     if(act === 'ai_status'){
@@ -717,7 +718,7 @@ function ai_route_(p){
       ss = ai_ss_(false);
       var c = ss ? ai_cacheGet_(ss) : null;
       if(!c){ var r0 = ai_refresh_('first'); if(r0 && r0.ok){ ss = ai_ss_(false); c = ai_cacheGet_(ss); } }
-      if(!c) return { ok: false, error: 'not_ready', hint: 'ai_setup chalaiye' };
+      if(!c) return { ok: false, error: 'not_ready', hint: 'Run ai_setup in Apps Script' };
       c.keySet = !!ai_props_().getProperty(AI_PROP_KEY);
       c.settings = ai_settings_();
       c.sheetUrl = ss.getUrl();
@@ -725,7 +726,7 @@ function ai_route_(p){
     }
     if(act === 'ai_run'){
       var r = ai_refresh_('manual');
-      if(r && r.busy) return { ok: false, error: 'busy', hint: 'Refresh pehle se chal raha hai' };
+      if(r && r.busy) return { ok: false, error: 'busy', hint: 'A refresh is already running' };
       return { ok: true, entities: r.entities, events: r.events, alerts: r.alerts, aiPending: r.aiPending, ms: r.ms };
     }
     if(act === 'ai_entities') return ai_apiEntities_(p);
@@ -734,7 +735,7 @@ function ai_route_(p){
     if(act === 'ai_key_set'){
       var key = ai_s_(p.key);
       if(key === ''){ ai_props_().deleteProperty(AI_PROP_KEY); return { ok: true, keySet: false }; }
-      if(key.length < 20 || /\s/.test(key)) return { ok: false, error: 'bad_key', hint: 'Key galat lag rahi hai' };
+      if(key.length < 20 || /\s/.test(key)) return { ok: false, error: 'bad_key', hint: 'The key does not look valid' };
       ai_props_().setProperty(AI_PROP_KEY, key);
       try{ ai_props_().deleteProperty('AI_MODEL_RESOLVED'); }catch(e){}
       return { ok: true, keySet: true };
@@ -807,7 +808,7 @@ function ai_setup(){
   for(n in AI_TABS){ if(AI_TABS.hasOwnProperty(n)) ai_tab_(ss, n); }
   try{ var s1 = ss.getSheetByName('Sheet1'); if(s1 && ss.getSheets().length > 1) ss.deleteSheet(s1); }catch(e){}
   var r = ai_refresh_('setup');
-  var msg = 'AI spreadsheet: ' + ss.getUrl() + '\nPehla refresh: ' + (r && r.ok ? (r.entities + ' entities, ' + r.alerts + ' alerts, ' + r.ms + ' ms') : JSON.stringify(r));
+  var msg = 'AI spreadsheet: ' + ss.getUrl() + '\nFirst refresh: ' + (r && r.ok ? (r.entities + ' entities, ' + r.alerts + ' alerts, ' + r.ms + ' ms') : JSON.stringify(r));
   Logger.log(msg); return msg;
 }
 function aiRefreshTick(){
@@ -822,35 +823,35 @@ function ai_removeTriggers(){
     var f = t.getHandlerFunction();
     if(f === 'aiRefreshTick' || f === 'aiAnalyseTick' || f === 'aiDailyTick'){ ScriptApp.deleteTrigger(t); n++; }
   });
-  Logger.log('AI triggers hataye: ' + n); return n;
+  Logger.log('AI triggers removed: ' + n); return n;
 }
 function ai_installTriggers(){
   ai_removeTriggers();
   ScriptApp.newTrigger('aiRefreshTick').timeBased().everyMinutes(15).create();
   ScriptApp.newTrigger('aiAnalyseTick').timeBased().everyMinutes(30).create();
   ScriptApp.newTrigger('aiDailyTick').timeBased().atHour(9).everyDays(1).create();
-  var msg = 'AI triggers lage: aiRefreshTick (15 min), aiAnalyseTick (30 min), aiDailyTick (roz 9 baje)';
+  var msg = 'AI triggers installed: aiRefreshTick (15 min), aiAnalyseTick (30 min), aiDailyTick (daily 9 am)';
   Logger.log(msg); return msg;
 }
 function ai_selfTest(){
   var L = [], ok = true;
   function t(name, pass, extra){ L.push((pass ? 'PASS  ' : 'FAIL  ') + name + (extra ? '  -- ' + extra : '')); if(!pass) ok = false; }
-  t('_route par ai_* laga', typeof _route === 'function' && !!_route.__ocAi);
-  t('_readAll / _body / _verify maujood', typeof _readAll === 'function' && typeof _body === 'function' && typeof _verify === 'function');
+  t('ai_* actions attached to _route', typeof _route === 'function' && !!_route.__ocAi);
+  t('_readAll / _body / _verify present', typeof _readAll === 'function' && typeof _body === 'function' && typeof _verify === 'function');
   t('date parse', ai_day_(ai_ms_('07-11-2026 14:05')) === '2026-11-07' && ai_day_(ai_ms_('2026-11-07')) === '2026-11-07');
   t('status normalise', ai_status_('Quoted') === 'QUOTATION_SENT' && ai_status_('call not pick') === 'CALL_NOT_PICK');
-  t('bina login ai_dashboard band', (function(){ var r = _route({ action: 'ai_dashboard' }, 'POST'); return r && r.ok === false && r.error === 'unauthorized'; })());
-  t('purana action waisa hi (ping)', (function(){ var r = _route({ action: 'ping' }, 'POST'); return r && r.ok === true; })());
+  t('ai_dashboard blocked without login', (function(){ var r = _route({ action: 'ai_dashboard' }, 'POST'); return r && r.ok === false && r.error === 'unauthorized'; })());
+  t('existing actions unchanged (ping)', (function(){ var r = _route({ action: 'ping' }, 'POST'); return r && r.ok === true; })());
   var ss = null;
   try{ ss = ai_ss_(false); }catch(e){}
-  t('AI spreadsheet', !!ss, ss ? ss.getUrl() : 'ai_setup chalaiye');
+  t('AI spreadsheet', !!ss, ss ? ss.getUrl() : 'run ai_setup');
   if(ss){
     var c = ai_cacheGet_(ss);
     t('dashboard cache', !!(c && c.kpis), c ? ('leads ' + c.kpis.leads + ', orders ' + c.kpis.orders + ', alerts ' + c.kpis.alerts + ', ' + c.generatedAt) : '');
   }
   var n = 0; ScriptApp.getProjectTriggers().forEach(function(tr){ if(/^ai/.test(tr.getHandlerFunction())) n++; });
-  t('AI triggers', n === 3, n + ' / 3 (ai_installTriggers chalaiye)');
-  L.push((ai_props_().getProperty(AI_PROP_KEY) ? 'INFO  Gemini key set hai' : 'INFO  Gemini key abhi nahi (Admin > Informatics Analytics > Settings se daalein) -- rules-only chalega'));
-  L.push(ok ? '==== SAB PASS ====' : '==== KUCH FAIL -- upar dekhiye ====');
+  t('AI triggers', n === 3, n + ' / 3 (run ai_installTriggers)');
+  L.push((ai_props_().getProperty(AI_PROP_KEY) ? 'INFO  Gemini key is set' : 'INFO  Gemini key not set yet (add it in Informatics Analytics > Settings) -- rules-only mode'));
+  L.push(ok ? '==== ALL PASS ====' : '==== SOME FAILED -- see above ====');
   var s = L.join('\n'); Logger.log(s); return s;
 }
