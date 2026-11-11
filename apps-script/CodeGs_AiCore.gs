@@ -33,11 +33,17 @@
  *   `ai_removeTriggers` Run, phir `var AI_ON = false;` -> Save -> New version deploy.
  */
 var AI_ON  = true;
-var AI_VER = '1.1.0';
+var AI_VER = '1.2.0';
 var AI_PROP_SS = 'AI_SS_ID', AI_PROP_SET = 'AI_SETTINGS', AI_PROP_KEY = 'GEMINI_API_KEY';
 var AI_SS_NAME = 'CRM AI Analytics (Informatics)';
 var AI_IST_MS = 19800000, AI_DAY_MS = 86400000;
 var AI_DEFAULTS = {
+  minGpPct: 15,           /* quotation margin below this % -> flag */
+  adSpend: '',            /* monthly ad spend, e.g. "Meta=50000, IndiaMART=12000" */
+  custEmail: false,       /* automatic customer e-mail on order status change */
+  custEmailStatuses: 'Dispatched,Delivered',
+  custEmailFrom: 'OakCraft',
+  custEmailReplyTo: '',
   enabled: true,          /* refresh trigger chale ya nahi */
   aiEnabled: true,        /* Gemini calls chalein ya nahi (key ho tab bhi band kar sakte hain) */
   model: '',              /* khaali = apne aap (gemini-flash-latest, warna list se) */
@@ -579,7 +585,7 @@ function ai_saveSettings_(inp){
     var d = AI_DEFAULTS[k];
     if(typeof d === 'boolean') cur[k] = (inp[k] === true || inp[k] === 'true' || inp[k] === 1 || inp[k] === '1');
     else if(typeof d === 'number'){ var n = ai_num_(inp[k]); if(n >= 0 && n <= 100000) cur[k] = n; }
-    else cur[k] = ai_cut_(inp[k], 120);
+    else cur[k] = ai_cut_(inp[k], 400);
   }
   if(cur.batch < 1) cur.batch = 1; if(cur.batch > 30) cur.batch = 30;
   ai_props_().setProperty(AI_PROP_SET, JSON.stringify(cur));
@@ -676,6 +682,7 @@ function ai_refresh_(why){
     var ss = ai_ss_(true), S = ai_settings_(), nowMs = Date.now();
     var D = ai_load_(ss);
     var B = ai_build_(D, S, nowMs);
+    if(typeof ai_adv_build_ === 'function'){ try{ B.dashboard.adv = ai_adv_build_(B, D, S, nowMs); }catch(eAdv){ B.dashboard.advError = String(eAdv); Logger.log('AI advanced fail: ' + eAdv + (eAdv && eAdv.stack ? '\n' + eAdv.stack : '')); } }
     var oldSnap = ai_readSnap_(ss), first = true, k;
     for(k in oldSnap){ if(oldSnap.hasOwnProperty(k)){ first = false; break; } }
     var events = first ? [] : ai_diff_(oldSnap, B.snapshot, new Date(nowMs).toISOString());
@@ -688,11 +695,13 @@ function ai_refresh_(why){
     var old = ai_cacheGet_(ss) || {};
     B.dashboard.insights = old.insights || [];
     B.dashboard.insightsAt = old.insightsAt || '';
+    B.dashboard.review = old.review || null;
     B.dashboard.keySet = !!ai_props_().getProperty(AI_PROP_KEY);
     B.dashboard.eventsNew = events.length;
     B.dashboard.ms = Date.now() - t0;
     B.dashboard.why = why || '';
     ai_cachePut_(ss, B.dashboard);
+    if(typeof ai_adv_after_ === 'function'){ try{ ai_adv_after_(B, D, S); }catch(eAft){ Logger.log('AI after-hook fail: ' + eAft); } }
     return { ok: true, entities: B.entities.length, events: events.length, alerts: B.dashboard.kpis.alerts, aiPending: B.aiTodo.length, ms: Date.now() - t0, build: B };
   } finally {
     try{ C.remove('ai:running'); }catch(e){}
@@ -743,7 +752,8 @@ function ai_route_(p){
     if(act === 'ai_key_test'){ return (typeof ai_geminiPing_ === 'function') ? ai_geminiPing_() : { ok: false, error: 'gemini_file_missing' }; }
     if(act === 'ai_analyse_now'){ return (typeof ai_analyseBatch_ === 'function') ? ai_analyseBatch_(2) : { ok: false, error: 'gemini_file_missing' }; }
     if(act === 'ai_insights_now'){ return (typeof ai_makeInsights_ === 'function') ? ai_makeInsights_() : { ok: false, error: 'gemini_file_missing' }; }
-    if(act === 'ai_ask'){ return (typeof ai_ask_ === 'function') ? ai_ask_(p.q, u.email) : { ok: false, error: 'gemini_file_missing' }; }
+    if(act === 'ai_ask'){ return (typeof ai_ask_ === 'function') ? ai_ask_(p.q, u.email, p.history) : { ok: false, error: 'gemini_file_missing' }; }
+    if(typeof ai_adv_route_ === 'function'){ var adv = ai_adv_route_(act, p, u); if(adv) return adv; }
     return { ok: false, error: 'unknown ai action: ' + act };
   }catch(e){
     Logger.log('AI route ' + act + ' fail: ' + e + (e && e.stack ? '\n' + e.stack : ''));
