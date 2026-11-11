@@ -4,6 +4,10 @@ Enquiry → Quotation → Order → Dispatch pipeline for OakCraft. Single-file 
 (`index.html`) + Pro-forma Quotation Builder (`quotation-builder.html`), data in a
 Google Sheet through an Apps Script backend, plus an Android app (`android/`).
 
+## Searchable customer dropdown (v82, build 2026.11.11.5)
+
+`cust-search.js` — every customer dropdown (New Order, New Enquiry) now opens a panel with a search box on top and the customer list below. Search matches company name, contact person, city and phone. Customers who already have orders are listed first. The underlying `<select>` is unchanged, so saving works as before.
+
 ## Informatics Analytics — advanced phases 1-5 + customer e-mail (v81, build 2026.11.11.3)
 
 New backend file `apps-script/CodeGs_AiAdvanced.gs` (place it last, after CodeGs_AiCore.gs and CodeGs_AiGemini.gs). Read-only on CRM data.
