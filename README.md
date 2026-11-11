@@ -4,6 +4,26 @@ Enquiry → Quotation → Order → Dispatch pipeline for OakCraft. Single-file 
 (`index.html`) + Pro-forma Quotation Builder (`quotation-builder.html`), data in a
 Google Sheet through an Apps Script backend, plus an Android app (`android/`).
 
+## Informatics Analytics + AI (v80, build 2026.11.11.1)
+
+Naya menu **Informatics Analytics** (Dashboard ke neeche) — sirf Administrator / Owner ko dikhta hai, server par bhi admin-only.
+
+- **Kya dikhata hai:** Overview KPIs, Leads / Quotations / Orders ki category list (Untouched, Follow-up Overdue, Inactive, Hot, Expired, Delayed, At Risk, Payment Pending…), Source wise aur Salesperson wise performance, Alerts, Change Log, Forecast (run-rate), Ask AI, Settings.
+- **Kaise banta hai:** categories aur alerts seedhe rules se bante hain (bina AI ke). Gemini sirf 3 kaam karta hai — lead ke remarks se intent, roz ki insights, aur Ask AI. AI CRM ka koi data nahi badalta.
+- **Live save path ko nahi chhuta:** koi hook nahi. Har 15 minute ka trigger CRM sheets padh kar alag spreadsheet "CRM AI Analytics (Informatics)" me likhta hai (AI_Entity_Master, AI_Event_Log, AI_Snapshot, AI_Analysis, AI_API_Logs, AI_Daily_Summary, AI_Cache).
+- **Order form:** "Linked Quotation" aur "Linked Lead" (optional) — order par `quoteId`, `leadRef`, `leadSrc` save hota hai. Link na ho to analytics phone / customer se match karta hai (confidence ke saath dikhata hai).
+- **Gemini key:** Settings tab se daali jaati hai, sirf Script Properties (`GEMINI_API_KEY`) me rehti hai — browser, Sheet ya repo me kahin nahi, aur wapas kabhi nahi bheji jaati.
+
+**Files:** `ai-analytics.js` (frontend), `apps-script/CodeGs_AiCore.gs`, `apps-script/CodeGs_AiGemini.gs`.
+
+**Install (ek baar, Apps Script project "Web_Sales_CRM"):**
+1. Dono `.gs` files naye script files me paste karein — file list me **sabse neeche** (Core pehle, Gemini uske baad).
+2. Editor se `ai_setup` chalayein (permission dein) → `ai_selfTest` → `ai_installTriggers`.
+3. Deploy → Manage deployments → Edit → **New version** → Deploy.
+4. CRM me Informatics Analytics → Settings → Gemini API key paste karke Save → Test key.
+
+Band karna ho: `ai_removeTriggers` chalayein, ya file ke upar `AI_ON = false`.
+
 ## Storage full par bhi save kabhi gum nahi hota (v57, build 2026.11.04.1)
 
 **Bug:** browser storage bhar jaane par `localStorage.setItem` fail hota tha. `store.set` nayi copy `mem` me rakhta tha, par `store.get` / `DB.*` hamesha localStorage ki **purani** copy padhte the — user Save dabata, koi error nahi, screen par purana data wapas, reload par edit / nayi entry gayab. Snapshot, edit journal aur pending queue ke writes bhi chupchaap fail hote the. (Test browser me reproduce kiya: storage 100%, enquiry edit + nayi enquiry → save ke turant baad aur reload ke baad dono gayab.)
