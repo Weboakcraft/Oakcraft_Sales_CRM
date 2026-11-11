@@ -54,7 +54,9 @@ function paintList(){
   if(shown.length > max) h += '<div style="padding:8px 12px;color:var(--muted);font-size:12px">+' + (shown.length - max) + ' more — type to narrow down</div>';
   box.innerHTML = h;
   cnt.textContent = shown.length + ' of ' + rows.length;
-  var on = box.querySelector('.ocs-it.on'); if(on && on.scrollIntoView){ try{ on.scrollIntoView({ block:'nearest' }); }catch(e){} }
+  /* keep the highlighted row visible by scrolling ONLY the list (never the form behind it) */
+  var on = box.querySelector('.ocs-it.on');
+  if(on){ try{ var top = on.offsetTop - box.offsetTop, bot = top + on.offsetHeight; if(top < box.scrollTop) box.scrollTop = Math.max(0, top - 30); else if(bot > box.scrollTop + box.clientHeight) box.scrollTop = bot - box.clientHeight; }catch(e){} }
 }
 function place(){
   if(!panel || !cur) return;
@@ -112,6 +114,13 @@ document.addEventListener('mousedown', function(ev){
 }, true);
 document.addEventListener('keydown', function(ev){
   var t = ev.target;
+  if(isCustSel(t) && panel){   /* focus slipped back to the dropdown while the panel is open: keep typing in the search box */
+    var q0 = panel.querySelector('.ocs-q'); ev.preventDefault();
+    if(ev.key === 'Escape'){ close(true); return; }
+    try{ q0.focus(); }catch(e){}
+    if(ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey){ q0.value += ev.key; shown = filter(q0.value); active = 0; paintList(); }
+    return;
+  }
   if(isCustSel(t) && !panel && (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'ArrowDown' || ev.key === 'ArrowUp' || (ev.key.length === 1 && /[a-z0-9]/i.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey))){
     ev.preventDefault(); open(t);
     if(ev.key.length === 1 && ev.key !== ' '){ var q = panel.querySelector('.ocs-q'); q.value = ev.key; shown = filter(q.value); active = 0; paintList(); }
