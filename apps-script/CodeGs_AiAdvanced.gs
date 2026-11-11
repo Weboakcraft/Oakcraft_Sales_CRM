@@ -23,7 +23,7 @@
  *   - Customer e-mail: one mail per order per status, logged in AI_Email_Log,
  *     existing orders are baselined (not mailed) when the switch is turned on.
  */
-var AI_ADV_VER = '1.2.0';
+var AI_ADV_VER = '1.3.0';
 try{ AI_TABS.AI_Email_Log = ['ts','orderId','status','to','result','detail']; }catch(e){}
 
 /* ---------------------------------------------------------------- helpers */
@@ -162,13 +162,14 @@ function ai_adv_build_(B, D, S, nowMs){
   });
   openQ.sort(function(a, b){ return b.expected - a.expected; });
   var lossLeads = {}, lossN = 0;
-  leads.forEach(function(l){ if(l.status !== 'LOST' && l.status !== 'NOT_QUALIFIED') return; var r = ai_lossReason_(l.remarks); lossLeads[r] = (lossLeads[r] || 0) + 1; lossN++; });
+  var lossPicked = 0;
+  leads.forEach(function(l){ if(l.status !== 'LOST' && l.status !== 'NOT_QUALIFIED') return; var r = l.lossReason || ai_lossReason_(l.remarks); if(l.lossReason) lossPicked++; lossLeads[r] = (lossLeads[r] || 0) + 1; lossN++; });
   var lossBySource = {};
-  leads.forEach(function(l){ if(l.status !== 'LOST' && l.status !== 'NOT_QUALIFIED') return; var r = ai_lossReason_(l.remarks), m = lossBySource[l.source] = lossBySource[l.source] || {}; m[r] = (m[r] || 0) + 1; });
+  leads.forEach(function(l){ if(l.status !== 'LOST' && l.status !== 'NOT_QUALIFIED') return; var r = l.lossReason || ai_lossReason_(l.remarks), m = lossBySource[l.source] = lossBySource[l.source] || {}; m[r] = (m[r] || 0) + 1; });
   var quoteAdv = { open: openQ.slice(0, 50), openCount: openQ.length, pipeline: openQ.reduce(function(s, q){ return s + q.amount; }, 0), weighted: openQ.reduce(function(s, q){ return s + q.expected; }, 0),
     marginFlags: marginFlags, minGpPct: minGp, baseRate: ai_round1_(baseAll * 100), settled: allQ.n,
     bands: bands.map(function(b, ix){ return { band: b[2], n: bandStat[ix].n, won: bandStat[ix].won, pct: bandStat[ix].n ? ai_round1_(bandStat[ix].won / bandStat[ix].n * 100) : null }; }),
-    lossReasons: lossLeads, lossTotal: lossN, lossBySource: lossBySource };
+    lossReasons: lossLeads, lossTotal: lossN, lossPicked: lossPicked, lossBySource: lossBySource };
 
   /* ---------------- Phase 3: operations + collections ---------------- */
   var lt = {}, ltAll = [];
@@ -208,7 +209,20 @@ function ai_adv_build_(B, D, S, nowMs){
   });
   pend.sort(function(a, b){ return b.pr - a.pr || b.amount - a.amount; });
   var topCustPend = Object.keys(byCustPend).map(function(k){ return { name: k, amount: byCustPend[k] }; }).sort(function(a, b){ return b.amount - a.amount; }).slice(0, 10);
-  var collections = { list: pend.slice(0, 50), count: pend.length, total: pendTotal, ageing: age, ageingValue: ageVal, topCustomers: topCustPend };
+  /* cash forecast: payment dates are learnt from the change log (payment -> Paid), counted from dispatch */
+  var paidAt = D.paidAt || {}, payDays = [], firstPaid = 0;
+  orders.forEach(function(o){ var t = paidAt[o.id]; if(!t) return; var d = o.disp, base = d ? (ai_ms_(d.dispatchedOn) || o.created) : o.created; if(!base) return; var dd = Math.round((t - base) / DAY); if(dd >= 0 && dd <= 365){ payDays.push(dd); if(!firstPaid || t < firstPaid) firstPaid = t; } });
+  var forecast = { enough: payDays.length >= 5, recorded: payDays.length, since: firstPaid ? ai_day_(firstPaid) : '' };
+  if(forecast.enough){
+    var medPay = ai_median_(payDays), wk = [0, 0, 0, 0], later = 0, overdue = 0, overdueN = 0;
+    orders.forEach(function(o){
+      if(!liveOrder(o) || !o.payment || o.payment === 'Paid' || (o.status !== 'Delivered' && o.status !== 'Dispatched')) return;
+      var d = o.disp, base = d ? (ai_ms_(d.dispatchedOn) || o.last) : o.last, due = base + medPay * DAY, amt = bill(o.amount), w = Math.floor((due - nowMs) / (7 * DAY));
+      if(due < nowMs){ overdue += amt; overdueN++; } else if(w < 4) wk[w] += amt; else later += amt;
+    });
+    forecast.medianDays = ai_round1_(medPay); forecast.weeks = wk.map(function(v, ix){ return { label: ix === 0 ? 'This week' : 'In ' + (ix + 1) + ' weeks', amount: v }; }); forecast.later = later; forecast.overdue = overdue; forecast.overdueOrders = overdueN;
+  }
+  var collections = { list: pend.slice(0, 50), count: pend.length, total: pendTotal, ageing: age, ageingValue: ageVal, topCustomers: topCustPend, forecast: forecast };
 
   /* ---------------- Phase 4: campaigns, spend, customers ---------------- */
   var camp = {}, ads = {};
@@ -304,7 +318,7 @@ function ai_adv_build_(B, D, S, nowMs){
   var ls = B.dashboard.linkStats || {}, liveN = (ls.explicit || 0) + (ls.phone || 0) + (ls.customer || 0) + (ls.none || 0);
   var emRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/, custEmail = 0; (D.customers || []).forEach(function(c){ if(emRe.test(ai_s_(c.email))) custEmail++; });
   var noRemarkLost = lossLeads['No remark written'] || 0;
-  var quality = { ordersLinkedPct: ai_pct_(ls.explicit || 0, liveN), ordersAnyLinkPct: ai_pct_(liveN - (ls.none || 0), liveN), lostWithReasonPct: lossN ? ai_pct_(lossN - noRemarkLost, lossN) : null, trackingGaps: trackGaps,
+  var quality = { ordersLinkedPct: ai_pct_(ls.explicit || 0, liveN), ordersAnyLinkPct: ai_pct_(liveN - (ls.none || 0), liveN), lostWithReasonPct: lossN ? ai_pct_(lossN - noRemarkLost, lossN) : null, lostPickedPct: lossN ? ai_pct_(lossPicked, lossN) : null, trackingGaps: trackGaps,
     customers: (D.customers || []).length, customersWithEmail: custEmail, spendSet: marketing.spendSet };
 
   return { ver: AI_ADV_VER, actions: actions, dupes: dupes, assign: assign, quotes: quoteAdv, ops: ops, collections: collections, marketing: marketing, customers: customers, anomalies: anomalies, coaching: coaching, quality: quality,
@@ -324,7 +338,7 @@ function ai_adv_context_(a){
     loss_reasons_leads: a.quotes.lossReasons,
     dispatch_lead_time_days: a.ops.leadTime, orders_likely_late: a.ops.riskCount, likely_late_top: a.ops.risk.slice(0, 8).map(function(r){ return { id: r.id, customer: r.name, owner: r.owner, expected: r.exp, predicted: r.predicted, late_by_days: r.lateBy }; }),
     delayed_orders_by: a.ops.delayedBy, tracking_gaps: a.ops.trackingGaps,
-    payment_pending: { orders: a.collections.count, total: a.collections.total, ageing_orders: a.collections.ageing, ageing_value: a.collections.ageingValue, top_customers: a.collections.topCustomers,
+    cash_forecast: a.collections.forecast, payment_pending: { orders: a.collections.count, total: a.collections.total, ageing_orders: a.collections.ageing, ageing_value: a.collections.ageingValue, top_customers: a.collections.topCustomers,
       top: a.collections.list.slice(0, 10).map(function(p){ return { id: p.id, customer: p.name, owner: p.owner, amount: p.amount, days: p.days }; }) },
     meta_campaigns: a.marketing.campaigns.slice(0, 12).map(function(c){ return { campaign: c.name, leads: c.leads, last_30d: c.d30, qualified_pct: c.qualPct, orders: c.won, linked_billing: c.revenue }; }),
     ad_spend_roi_this_month: a.marketing.roi,
@@ -471,6 +485,12 @@ function ai_custMailTest_(toEmail){
 /* ====================================================================== *
  * hooks used by CodeGs_AiCore.gs                                          *
  * ====================================================================== */
+function ai_adv_load_(ss, D){
+  var sh = ss.getSheetByName('AI_Event_Log'), m = {}; D.paidAt = m; if(!sh) return;
+  var last = sh.getLastRow(); if(last < 2) return;
+  var v = sh.getRange(2, 1, last - 1, 7).getValues(), i;
+  for(i = 0; i < v.length; i++){ if(v[i][4] === 'payment' && String(v[i][6]) === 'Paid'){ var t = (Object.prototype.toString.call(v[i][0]) === '[object Date]') ? v[i][0].getTime() : ai_ms_(v[i][0]); if(t) m[String(v[i][2])] = t; } }
+}
 function ai_adv_after_(B, D, S){
   try{ var r = ai_custMailRun_(D, S); if(r && !r.off) Logger.log('AI customer mail: ' + JSON.stringify(r)); }catch(e){ Logger.log('AI customer mail fail: ' + e); }
 }

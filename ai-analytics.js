@@ -323,8 +323,14 @@ function vCollect(d){
     + keys.map(function(k){ return kpi(k, inrShort(c.ageingValue[k]), c.ageing[k] + ' orders', k === '30+ days' && c.ageing[k] ? '--crit' : ''); }).join('') + '</div>'
     + '<div class="grid-2"><div class="card"><div class="card-head"><h3>Collect these first</h3><div class="tools"><span style="font-size:12px;color:var(--muted)">Ranked by amount and days since dispatch / delivery</span></div></div>'
     + table(['Order','Salesperson','Status','Payment','>Amount (incl. GST)','>Days',''], c.list.map(function(p){ return ['<b>' + esc(p.name || '—') + '</b><div style="font-size:11.5px;color:var(--muted)">' + esc(p.id) + '</div>', esc(p.owner), esc(p.status), esc(p.payment), inr(p.amount), p.days > 30 ? '<b style="color:var(--crit)">' + p.days + '</b>' : p.days, draftBtn(p.id, 'payment_reminder', 'Draft reminder')]; }), 'Nothing pending 🎉') + '</div>'
-    + panel('Customers owing the most', table(['Customer','>Pending'], c.topCustomers.map(function(x){ return ['<b>' + esc(x.name) + '</b>', inr(x.amount)]; }), 'Nothing pending')) + '</div>'
-    + '<div style="font-size:12px;color:var(--muted);margin-top:8px">Based on the Payment field of each order. Payment dates are not recorded in the CRM, so a week-by-week cash forecast is not shown.</div>';
+    + '<div>' + panel('Customers owing the most', table(['Customer','>Pending'], c.topCustomers.map(function(x){ return ['<b>' + esc(x.name) + '</b>', inr(x.amount)]; }), 'Nothing pending'))
+    + '<div style="height:16px"></div>' + panel('Cash forecast (estimate)', (function(f){
+        if(!f) return '<div style="padding:12px 0;color:var(--muted);font-size:13px">Refresh to load.</div>';
+        if(!f.enough) return '<div style="padding:12px 0;font-size:13px;color:var(--text-2)">Not enough payment history yet: <b>' + f.recorded + '</b> payment(s) recorded' + (f.since ? ' since ' + esc(f.since) : '') + '. The forecast starts once 5 orders have been marked Paid — each change is now dated automatically.</div>';
+        return table(['When','>Expected inflow'], [['Already past the usual payment time', '<b style="color:var(--crit)">' + inr(f.overdue) + '</b> (' + f.overdueOrders + ' orders)']].concat(f.weeks.map(function(w){ return [esc(w.label), inr(w.amount)]; })).concat([['Later', inr(f.later)]]))
+          + '<div style="font-size:12px;color:var(--muted);margin-top:8px">Customers usually pay ' + f.medianDays + ' days after dispatch (from ' + f.recorded + ' recorded payments).</div>';
+      })(c.forecast)) + '</div></div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:8px">Based on the Payment field of each order. Payment dates are learnt from the moment an order is changed to Paid.</div>';
 }
 function vMarketing(d){
   var a = adv(d); if(!a) return needAdv();
@@ -335,7 +341,7 @@ function vMarketing(d){
   return panel('Ad spend and return — this month', roi, 'Leads and orders are this month\'s; orders are matched to a source through the linked lead')
     + '<div style="height:16px"></div><div class="card"><div class="card-head"><h3>Meta campaigns</h3></div>' + ct(m.campaigns.slice(0, 15)) + '</div>'
     + '<div style="height:16px"></div><div class="card"><div class="card-head"><h3>Meta ads</h3></div>' + ct(m.ads.slice(0, 15)) + '</div>'
-    + '<div style="height:16px"></div><div class="grid-2">' + panel('Why leads are lost', bars(q.lossReasons, 10), q.lossTotal + ' lost / not-qualified leads, classified from the salesperson remarks')
+    + '<div style="height:16px"></div><div class="grid-2">' + panel('Why leads are lost', bars(q.lossReasons, 10), q.lossTotal + ' lost / not-qualified leads · ' + (q.lossPicked || 0) + ' with a reason picked by the salesperson, the rest classified from remarks')
     + panel('Loss reasons by source', table(['Source','Top reasons'], Object.keys(q.lossBySource).map(function(sn){ var o = q.lossBySource[sn]; return ['<b>' + esc(sn) + '</b>', esc(Object.keys(o).sort(function(x, y){ return o[y] - o[x]; }).slice(0, 3).map(function(k){ return k + ' (' + o[k] + ')'; }).join(' · '))]; }), 'No lost leads')) + '</div>';
 }
 function vCustomers(d){
@@ -369,7 +375,7 @@ function vReview(d){
     + panel('Data quality — what limits accuracy', table(['Check','Now','What to do'], [
       ['Orders with a confirmed lead / quotation link', '<b>' + q.ordersLinkedPct + '%</b>', 'New orders now require a link or "Direct order"'],
       ['Orders matched to a lead any way', q.ordersAnyLinkPct + '%', 'Phone / customer matching fills the gap'],
-      ['Lost leads with a usable remark', q.lostWithReasonPct == null ? '—' : q.lostWithReasonPct + '%', 'Write why the lead was lost in the remark'],
+      ['Lost leads with a known reason', q.lostWithReasonPct == null ? '—' : q.lostWithReasonPct + '%', 'A reason is now required when a lead is marked Lost / Not Qualified'],
       ['Dispatches without real tracking', q.trackingGaps, 'Enter courier and tracking number'],
       ['Customers with an e-mail address', q.customersWithEmail + ' of ' + q.customers, 'Needed for automatic customer e-mails'],
       ['Monthly ad spend entered', q.spendSet ? 'Yes' : 'No', 'Settings → Monthly ad spend']
@@ -540,6 +546,76 @@ addNav(); [300, 1200, 3000, 8000].forEach(function(t){ setTimeout(addNav, t); })
     try{ if(typeof navOpen === 'function') navOpen(false); }catch(e){}
     return true;
   };
+})();
+
+/* ===========================================================================
+   LOSS REASON (required): when a lead / enquiry is changed to Lost or
+   Not Qualified, ask why. Stored on the record as lossReason / lossNote.
+   Works for Meta, GEM, IndiaMART and Enquiries because all of them save
+   through store.set(). Records that arrive from the server are not asked.
+   =========================================================================== */
+var LOSS_REASONS = ['Price / budget','Bought elsewhere / competitor','No response','Not required / not interested','Wrong / irrelevant lead','Location / delivery','Small quantity / retail','Product not available','Other'];
+var LOSS_KEYS = { metaLeads:1, indiamartLeads:1, enquiries:1 }, lossBusy = false, lossQueue = [];
+function lostCode(r, k){ var v = k === 'enquiries' ? (r && r.stage) : (r && (r.lead_status != null ? r.lead_status : r.stage)); v = String(v == null ? '' : v).trim().toUpperCase().replace(/[\s\-]+/g, '_'); return (v === 'LOST' || v === 'NOT_QUALIFIED') ? v : ''; }
+function lossAsk(){
+  if(lossBusy || !lossQueue.length) return;
+  var job = lossQueue.shift(); lossBusy = true;
+  var ov = document.createElement('div'); ov.id = 'aiLossOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML = '<div style="background:var(--surface);color:var(--text);border-radius:14px;max-width:440px;width:100%;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
+    + '<h3 style="font-size:16px;font-weight:700;margin:0 0 4px">Why ' + (job.ids.length > 1 ? 'were these ' + job.ids.length + ' leads' : 'was this lead') + ' marked ' + (job.code === 'LOST' ? 'Lost' : 'Not Qualified') + '?</h3>'
+    + '<div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">' + esc(job.names.slice(0, 3).join(', ')) + (job.names.length > 3 ? ' +' + (job.names.length - 3) + ' more' : '') + '</div>'
+    + '<label>Reason <span style="color:var(--crit)">*</span></label><select id="aiLossSel" style="width:100%"><option value="">-- Select a reason --</option>' + LOSS_REASONS.map(function(r){ return '<option>' + esc(r) + '</option>'; }).join('') + '</select>'
+    + '<label style="margin-top:10px;display:block">Note <span id="aiLossReq" style="font-weight:500;font-size:11px;color:var(--muted)">(optional)</span></label><input id="aiLossNote" maxlength="200" style="width:100%" placeholder="One line, if useful">'
+    + '<div style="margin-top:14px;text-align:right"><button class="btn primary" id="aiLossOk">Save reason</button></div></div>';
+  document.body.appendChild(ov);
+  var sel = ov.querySelector('#aiLossSel'), note = ov.querySelector('#aiLossNote');
+  sel.addEventListener('change', function(){ ov.querySelector('#aiLossReq').textContent = sel.value === 'Other' ? '(required for Other)' : '(optional)'; });
+  ov.querySelector('#aiLossOk').addEventListener('click', function(){
+    var r = sel.value, n = note.value.trim();
+    if(!r){ say('Select a reason'); return; }
+    if(r === 'Other' && n.length < 3){ say('Write a short note for "Other"'); return; }
+    try{
+      var arr = store.get(job.key, []) || [], want = {}, now = new Date().toISOString(), hit = 0, me = '';
+      try{ me = (AUTH.current() || {}).email || ''; }catch(e){}
+      job.ids.forEach(function(id){ want[String(id)] = 1; });
+      arr.forEach(function(x){ if(x && want[String(x.id)] && lostCode(x, job.key)){ x.lossReason = r; x.lossNote = n; x.lossReasonAt = now; x.lossReasonBy = me; x.updatedAt = now; hit++; } });
+      if(hit){ lossSkip = true; try{ store.set(job.key, arr); } finally { lossSkip = false; } }
+    }catch(e){}
+    try{ ov.remove(); }catch(e){}
+    lossBusy = false; say('Reason saved'); lossAsk();
+  });
+  setTimeout(function(){ try{ sel.focus(); }catch(e){} }, 50);
+}
+var lossSkip = false, lastUserAct = 0;
+['click','keydown','change'].forEach(function(evn){ document.addEventListener(evn, function(){ lastUserAct = Date.now(); }, true); });
+(function(){
+  try{
+    if(typeof store === 'undefined' || typeof store.set !== 'function' || store.set.__ocLoss) return;
+    var _set = store.set;
+    var w = function(k, val){
+      var job = null;
+      try{
+        if(!lossSkip && LOSS_KEYS[k] && Array.isArray(val) && val.length && Date.now() - lastUserAct < 5000){   /* only right after the user did something; background syncs never ask */
+          var prevArr = store.get(k, []) || [], prev = {}, i, r, c;
+          if(prevArr.length){                                   /* first load / empty cache: nothing to compare */
+            for(i = 0; i < prevArr.length; i++){ r = prevArr[i]; if(r && r.id != null) prev[String(r.id)] = lostCode(r, k) || '-'; }
+            for(i = 0; i < val.length; i++){
+              r = val[i]; if(!r || r.id == null) continue; c = lostCode(r, k);
+              if(c && !r.lossReason && prev[String(r.id)] && prev[String(r.id)] !== c){
+                job = job || { key:k, code:c, ids:[], names:[] };
+                if(c === job.code){ job.ids.push(r.id); job.names.push(String(r.full_name || r.name || r.sender_name || r.company || r.customer || r.id)); }
+              } else if(!c && r.lossReason && prev[String(r.id)] && prev[String(r.id)] !== '-'){ r.lossReason = ''; r.lossNote = ''; }   /* re-opened lead */
+            }
+          }
+        }
+      }catch(e){ job = null; }
+      var out = _set.apply(this, arguments);
+      if(job && job.ids.length && job.ids.length <= 200){ lossQueue.push(job); setTimeout(lossAsk, 80); }
+      return out;
+    };
+    w.__ocLoss = true; store.set = w;
+  }catch(e){}
 })();
 
 /* ===========================================================================
