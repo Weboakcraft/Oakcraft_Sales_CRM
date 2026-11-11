@@ -4,6 +4,23 @@ Enquiry → Quotation → Order → Dispatch pipeline for OakCraft. Single-file 
 (`index.html`) + Pro-forma Quotation Builder (`quotation-builder.html`), data in a
 Google Sheet through an Apps Script backend, plus an Android app (`android/`).
 
+## Informatics Analytics — advanced phases 1-5 + customer e-mail (v81, build 2026.11.11.3)
+
+New backend file `apps-script/CodeGs_AiAdvanced.gs` (place it last, after CodeGs_AiCore.gs and CodeGs_AiGemini.gs). Read-only on CRM data.
+
+- **Action List** — lead score (0-100), daily call list per salesperson, duplicate buyers (same phone), suggested owner for unassigned leads.
+- **Quotations** — win estimate per open quotation, expected pipeline value, margin / discount flags, AI follow-up drafts.
+- **Orders & Dispatch** — real order-to-dispatch time by product type, orders predicted to be late, where delays sit, tracking gaps.
+- **Collections** — unpaid dispatched / delivered orders ranked, ageing buckets, AI reminder drafts.
+- **Marketing** — Meta campaign and ad results, cost per lead / order from the monthly ad spend typed in Settings, loss reasons classified from remarks.
+- **Customers** — top customers, repeat-due, dormant, cross-sell category pairs.
+- **Weekly Review** — AI-written review (also every Monday 9 am), rule-based anomalies, coaching notes, data-quality card.
+- **Ask AI** — sees all of the above, remembers the last 3 questions, looks up a named customer / lead.
+- **Order form** — a new order needs a Linked Lead, a Linked Quotation, or "Direct order".
+- **Automatic customer e-mail** — OFF by default (Settings). One e-mail per order per chosen status, only to customers with a saved e-mail; logged in `AI_Email_Log`. Drafts for WhatsApp are never sent automatically.
+
+Install: paste the three `CodeGs_Ai*.gs` files, save, Deploy > Manage deployments > New version. No new trigger is needed.
+
 ## Informatics Analytics + AI (v80, build 2026.11.11.1)
 
 Naya menu **Informatics Analytics** (Dashboard ke neeche) — sirf Administrator / Owner ko dikhta hai, server par bhi admin-only.

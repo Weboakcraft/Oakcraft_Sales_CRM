@@ -10,11 +10,11 @@
 (function(){
 'use strict';
 var VIEW = 'aiAnalytics';
-var TABS = [['overview','Overview'],['leads','Leads'],['sources','Sources'],['team','Salespeople'],['quotes','Quotations'],['orders','Orders & Dispatch'],
-            ['alerts','Alerts'],['changes','Change Log'],['forecast','Forecast'],['ask','Ask AI'],['settings','Settings']];
+var TABS = [['overview','Overview'],['actions','Action List'],['leads','Leads'],['sources','Sources'],['team','Salespeople'],['quotes','Quotations'],['orders','Orders & Dispatch'],
+            ['collect','Collections'],['marketing','Marketing'],['customers','Customers'],['alerts','Alerts'],['review','Weekly Review'],['changes','Change Log'],['forecast','Forecast'],['ask','Ask AI'],['settings','Settings']];
 var PERIODS = [['all','All time'],['month','This month'],['d7','Last 7 days'],['d30','Last 30 days'],['d90','Last 90 days']];
 var st = { tab:'overview', period:'all', dash:null, err:null, loading:false, list:{ type:'lead', category:'', source:'', owner:'', intent:'', q:'', page:0, sort:'priority', dir:'desc' },
-           rows:null, total:0, events:null, chat:[], busy:'', alertType:'' };
+           rows:null, total:0, events:null, chat:[], busy:'', alertType:'', person:'', mail:null };
 
 /* ------------------------------------------------------------------ helpers */
 function $(id){ return document.getElementById(id); }
@@ -127,6 +127,8 @@ function vOverview(d){
   var top = (d.alerts || []).slice(0, 8);
   h += '<div class="grid-2">' + panel('What needs attention today (AI insights)', insHtml + '<div style="margin-top:10px"><button class="btn sm" data-ai-act="insights"' + (d.keySet ? '' : ' disabled') + '>Generate AI insights</button></div>')
     + panel('Top alerts', table(['Type','Record','What happened'], top.map(function(a){ return [chip(a.type.replace(/^Order |^Quotation /,'')) , '<b>' + esc(a.name || a.id) + '</b><div style="font-size:11.5px;color:var(--muted)">' + esc(a.id) + ' · ' + esc(a.owner || '—') + '</div>', esc(a.title)]; }), 'No alerts 🎉')) + '</div>';
+  var av = adv(d);
+  if(av || d.review) h += '<div class="grid-2">' + panel('Unusual this week', anomalyList(av, 6)) + panel('Weekly review', d.review ? '<div style="font-weight:700;margin-top:8px">' + esc(d.review.headline) + '</div><div style="font-size:13px;color:var(--text-2);margin-top:6px">' + esc((d.review.decisions || [])[0] || '') + '</div><div style="margin-top:10px"><button class="btn sm ghost" data-ai-tab="review">Open the review</button></div>' : '<div style="padding:14px 0;color:var(--muted);font-size:13px">Not written yet.</div><button class="btn sm ghost" data-ai-tab="review">Go to Weekly Review</button>') + '</div>';
   h += '<div class="grid-2">' + panel('Leads — week by week (by source)', chartBox('aiWeeks'), 'Last 12 weeks') + panel('Lead funnel', chartBox('aiFunnel'), 'Leads at each stage right now') + '</div>';
   h += '<div class="grid-2">' + panel('Billing — month by month', chartBox('aiMonths'), 'Incl. GST, cancelled orders excluded') + panel('Billing by lead source', chartBox('aiRev'), 'Order ↔ lead link: ' + d.linkStats.explicit + ' confirmed, ' + d.linkStats.phone + ' by phone, ' + d.linkStats.customer + ' by customer, ' + d.linkStats.none + ' not linked') + '</div>';
   return h;
@@ -158,7 +160,7 @@ function vGroups(d, which){
   });
   return periodBar() + '<div class="grid-2">' + panel(which === 'team' ? 'Salesperson wise leads' : 'Source wise leads', chartBox('aiGrp')) + panel('Conversion %', chartBox('aiGrpConv'), 'Lead → order') + '</div>'
     + '<div class="card"><div class="card-head"><h3>' + (which === 'team' ? 'Salesperson performance' : 'Source performance') + '</h3></div>' + table(head, body, 'No leads in this period') + '</div>'
-    + (which === 'team' ? '<div style="font-size:12px;color:var(--muted);margin-top:8px">Quotes / Orders / Billing are counted by their own date within the selected period.</div>' : '');
+    + (which === 'team' ? '<div style="font-size:12px;color:var(--muted);margin-top:8px">Quotes / Orders / Billing are counted by their own date within the selected period.</div>' + vCoaching(d) : '');
 }
 function cGroups(d, which){
   var rows = ((which === 'team' ? d.bySales : d.bySource)[st.period] || []).slice().sort(function(a, b){ return b.leads - a.leads; }).slice(0, 12), pal = palette();
@@ -197,7 +199,7 @@ function vList(d, type){
     body += '<div style="display:flex;gap:10px;align-items:center;padding:12px 20px;border-top:1px solid var(--border);font-size:13px"><span>' + st.total + ' records</span><span style="margin-left:auto"></span>'
       + '<button class="btn sm ghost" data-ai-page="-1"' + (L.page <= 0 ? ' disabled' : '') + '>‹ Prev</button><span>Page ' + (L.page + 1) + ' / ' + Math.max(1, pages) + '</span><button class="btn sm ghost" data-ai-page="1"' + (L.page + 1 >= pages ? ' disabled' : '') + '>Next ›</button></div>';
   }
-  return catBar(cats, type) + '<div class="card"><div class="card-head"><h3>' + (type === 'lead' ? 'Leads' : type === 'quote' ? 'Quotations' : 'Orders') + '</h3><div class="tools">' + tools + '</div></div>' + body + '</div>'
+  return (type === 'quote' ? vQuoteAdv(d) + '<div style="height:16px"></div>' : type === 'order' ? vOpsAdv(d) + '<div style="height:16px"></div>' : '') + catBar(cats, type) + '<div class="card"><div class="card-head"><h3>' + (type === 'lead' ? 'Leads' : type === 'quote' ? 'All quotations' : 'All orders') + '</h3><div class="tools">' + tools + '</div></div>' + body + '</div>'
     + (type === 'order' ? '<div style="font-size:12px;color:var(--muted);margin-top:8px">"Tracking Pending" = the dispatch entry was auto-created and has no real courier / tracking number yet (see the Alerts tab).</div>' : '');
 }
 function vAlerts(d){
@@ -243,6 +245,7 @@ function vSettings(d){
     + '<div class="form-row two">' + n('hotDays','Hot — days','Qualified / quoted lead active within this many days') + n('quoteFollowDays','Quotation follow-up — days','This many days after the quotation was sent') + '</div>'
     + '<div class="form-row two">' + n('atRiskDays','Order at risk — days','This close to the expected date and not ready yet') + n('payPendingDays','Payment pending — days','Payment still due this many days after delivery') + '</div>'
     + '<div class="form-row two">' + n('gstPct','GST %','Billing = amount + GST') + '<div><label>Daily summary email</label><input type="email" data-ai-set="summaryEmail" value="' + esc(S.summaryEmail || '') + '" placeholder="leave empty for no email" autocomplete="off" name="ai-summary-to"><div style="font-size:11.5px;color:var(--muted);margin-top:3px">Sent daily at 9 am</div></div></div>'
+    + '<div class="form-row two">' + n('minGpPct','Minimum margin %','Quotations below this are flagged') + '<div><label>Monthly ad spend</label><input data-ai-set="adSpend" value="' + esc(S.adSpend || '') + '" placeholder="Meta=50000, IndiaMART=12000"><div style="font-size:11.5px;color:var(--muted);margin-top:3px">Source=amount, separated by commas</div></div></div>'
     + '<button class="btn primary" data-ai-act="saveSettings">Save settings</button></div>'
     + '<div class="panel"><h3 style="font-size:15px;font-weight:700;margin:0 0 12px">Gemini AI</h3>'
     + '<div style="font-size:13px;margin-bottom:10px">API key: ' + (d.keySet ? '<b style="color:var(--good-ink)">Saved ✓</b>' : '<b style="color:var(--crit)">Not added yet</b>') + '</div>'
@@ -253,7 +256,8 @@ function vSettings(d){
     + '<div class="form-row two"><div><label>Model</label><input data-ai-set="model" value="' + esc(S.model || '') + '" placeholder="empty = auto (fast model)"></div>' + n('batch','Leads per AI call','5 – 30') + '</div>'
     + '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:10px">Leads waiting for AI analysis: <b>' + (d.aiPending || 0) + '</b> (only open leads that have remarks)</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" data-ai-act="analyse"' + (d.keySet ? '' : ' disabled') + '>Analyse leads now</button><button class="btn sm" data-ai-act="insights"' + (d.keySet ? '' : ' disabled') + '>Generate AI insights</button></div></div></div>'
-    + '<div class="panel"><h3 style="font-size:15px;font-weight:700;margin:0 0 8px">System</h3><div style="font-size:13px;color:var(--text-2);line-height:1.7">Backend version ' + esc(d.ver) + ' · last refresh ' + esc(when(d.generatedAt)) + ' (' + esc(d.why || '') + ', ' + (d.ms || 0) + ' ms)<br>'
+    + mailPanel(d) + '<div style="height:16px"></div>'
+    + '<div class="panel"><h3 style="font-size:15px;font-weight:700;margin:0 0 8px">System</h3><div style="font-size:13px;color:var(--text-2);line-height:1.7">Backend version ' + esc(d.ver) + (d.adv ? ' · advanced ' + esc(d.adv.ver) : ' · advanced file not installed') + (d.advError ? ' · <span style="color:var(--crit)">advanced error: ' + esc(d.advError) + '</span>' : '') + ' · last refresh ' + esc(when(d.generatedAt)) + ' (' + esc(d.why || '') + ', ' + (d.ms || 0) + ' ms)<br>'
     + 'Records: ' + Object.keys(d.counts || {}).map(function(k){ return esc(k) + ' ' + d.counts[k]; }).join(' · ') + '<br>'
     + (d.sheetUrl ? '<a href="' + esc(d.sheetUrl) + '" target="_blank" rel="noopener">Open the AI Analytics Google Sheet ↗</a> (AI_Entity_Master, AI_Event_Log, AI_API_Logs…)' : '') + '</div></div>';
 }
@@ -262,6 +266,143 @@ function vInstall(){
     + '<li>Paste <b>apps-script/CodeGs_AiCore.gs</b> and <b>CodeGs_AiGemini.gs</b> from GitHub as new script files, at the <b>bottom</b> of the file list.</li>'
     + '<li>Run <b>ai_setup</b> in the editor (it asks for permission once), then <b>ai_selfTest</b>.</li><li>Run <b>ai_installTriggers</b>.</li><li>Deploy → Manage deployments → Edit → <b>New version</b> → Deploy.</li></ol></div>'
     + '<div style="margin-top:12px"><button class="btn primary sm" data-ai-act="reload">Check again</button></div></div>';
+}
+
+/* ------------------------------------------------------------------ advanced (phases 1-5) */
+function adv(d){ return (d && d.adv) || null; }
+function needAdv(){ return '<div class="panel">The advanced analytics backend file (CodeGs_AiAdvanced.gs) is not installed yet, or the data has not refreshed since it was added. Click "Refresh now".</div>'; }
+function draftBtn(id, kind, label){ return '<button class="btn sm ghost" data-ai-draft="' + esc(id) + '" data-kind="' + kind + '">' + (label || 'Draft message') + '</button>'; }
+function scoreChip(n){ var c = n >= 60 ? '--crit' : n >= 35 ? '--s4' : '--muted'; return '<span class="chip tabular" style="color:var(' + c + ');background:color-mix(in srgb,var(' + c + ') 12%,transparent)">' + n + '</span>'; }
+function bars(obj, max){
+  var keys = Object.keys(obj || {}).sort(function(a, b){ return obj[b] - obj[a]; }).slice(0, max || 10), top = keys.length ? obj[keys[0]] : 0;
+  if(!keys.length) return '<div style="padding:14px 0;color:var(--muted);font-size:13px">No data</div>';
+  return '<div style="margin-top:10px">' + keys.map(function(k){ return '<div style="display:flex;align-items:center;gap:10px;margin:6px 0;font-size:13px"><div style="width:44%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(k) + '</div><div style="flex:1;background:var(--grid);border-radius:4px;height:10px"><div style="height:10px;border-radius:4px;background:var(--s1);width:' + (top ? Math.max(2, Math.round(obj[k] / top * 100)) : 0) + '%"></div></div><div class="tabular" style="width:48px;text-align:right">' + obj[k] + '</div></div>'; }).join('') + '</div>';
+}
+function vActions(d){
+  var a = adv(d); if(!a) return needAdv();
+  var A = a.actions, people = Object.keys(A.bySales).sort(function(x, y){ return (A.counts[y] || 0) - (A.counts[x] || 0); });
+  if(st.person && !A.bySales[st.person]) st.person = '';
+  var list = st.person ? A.bySales[st.person] : A.top;
+  var h = '<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">' + kpi('High-score leads', A.scoreBands.high, 'Score 60+ · work these first', '--crit') + kpi('Medium', A.scoreBands.mid, 'Score 35-59') + kpi('Low', A.scoreBands.low, 'Score under 35')
+    + kpi('Duplicate buyers', a.dupes.groups, a.dupes.crossOwner + ' handled by two people', a.dupes.crossOwner ? '--crit' : '') + kpi('Unassigned open leads', a.assign.unassigned, 'Suggestions below', a.assign.unassigned ? '--s4' : '') + '</div>';
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"><button class="btn sm' + (st.person === '' ? ' primary' : ' ghost') + '" data-ai-person="">Top 40 overall</button>'
+    + people.map(function(p){ return '<button class="btn sm' + (st.person === p ? ' primary' : ' ghost') + '" data-ai-person="' + esc(p) + '">' + esc(p) + ' <b>' + A.counts[p] + '</b></button>'; }).join('') + '</div>';
+  h += '<div class="card"><div class="card-head"><h3>' + (st.person ? 'Today\'s call list — ' + esc(st.person) : 'Highest-priority open leads') + '</h3><div class="tools"><span style="font-size:12px;color:var(--muted)">Score = stage + source quality + quantity + recency + follow-up + AI intent</span></div></div>'
+    + table(['>Score','Lead','Source','Status','Why now','Next step','>Idle days',''], (list || []).map(function(r){
+      return [scoreChip(r.score), '<b>' + esc(r.name || '—') + '</b><div style="font-size:11.5px;color:var(--muted)">' + esc(r.id) + (r.city ? ' · ' + esc(r.city) : '') + (st.person ? '' : ' · ' + esc(r.owner)) + '</div>', esc(r.source), esc(r.status), esc(r.why), esc(r.next), r.idle, draftBtn(r.id, 'lead_followup')]; }), 'No open leads') + '</div>';
+  h += '<div class="grid-2" style="margin-top:16px"><div class="card"><div class="card-head"><h3>Duplicate buyers (same phone)</h3></div>'
+    + table(['Buyer','>Leads','Sources','Handled by','Records'], a.dupes.list.slice(0, 15).map(function(g){ return ['<b>' + esc(g.name || '—') + '</b><div style="font-size:11.5px;color:var(--muted)">phone ending ' + esc(g.phoneEnd) + '</div>', g.n, esc(g.sources.join(', ')), (g.cross ? '<span style="color:var(--crit);font-weight:700">' : '<span>') + esc(g.owners.join(', ') || '—') + '</span>', '<span style="font-size:12px">' + esc(g.ids.join(', ')) + '</span>']; }), 'No duplicates found') + '</div>'
+    + '<div class="card"><div class="card-head"><h3>Who should take unassigned leads</h3></div>'
+    + table(['>Score','Lead','Source','Suggested','Reason'], a.assign.list.slice(0, 15).map(function(r){ return [scoreChip(r.score), '<b>' + esc(r.name || '—') + '</b><div style="font-size:11.5px;color:var(--muted)">' + esc(r.id) + '</div>', esc(r.source), '<b>' + esc(r.to || '—') + '</b>', '<span style="font-size:12px">' + esc(r.why) + '</span>']; }), 'Every open lead has an owner') + '</div></div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:8px">Suggestions only — nothing is assigned or changed automatically.</div>';
+  return h;
+}
+function vQuoteAdv(d){
+  var a = adv(d); if(!a) return '';
+  var q = a.quotes;
+  return '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">' + kpi('Open pipeline', inrShort(q.pipeline), q.openCount + ' open quotations') + kpi('Expected value (estimate)', inrShort(q.weighted), 'Pipeline × win estimate')
+    + kpi('Historical win rate', q.baseRate + '%', 'From ' + q.settled + ' settled quotations') + kpi('Margin / discount flags', q.marginFlags, 'Margin under ' + q.minGpPct + '% or heavy discount', q.marginFlags ? '--crit' : '') + '</div>'
+    + '<div class="grid-2"><div class="card"><div class="card-head"><h3>Open quotations by expected value</h3><div class="tools"><span style="font-size:12px;color:var(--muted)">Win % is an estimate from past quotations of the same size and age</span></div></div>'
+    + table(['Quotation','Salesperson','>Amount','>Age','>Win est.','>GP %','Flag',''], q.open.slice(0, 15).map(function(x){ return ['<b>' + esc(x.name || '—') + '</b><div style="font-size:11.5px;color:var(--muted)">' + esc(x.qno || x.id) + '</div>', esc(x.owner), inr(x.amount), x.age + 'd', '<b>' + x.win + '%</b>', x.gpPct == null ? '—' : x.gpPct + '%', x.flag ? '<span style="color:var(--crit);font-size:12px">' + esc(x.flag) + '</span>' : '', draftBtn(x.id, 'quote_followup')]; }), 'No open quotations') + '</div>'
+    + panel('Win rate by quotation size', table(['Size','>Settled','>Won','>Win %'], q.bands.map(function(b){ return [esc(b.band), b.n, b.won, b.pct == null ? '—' : b.pct + '%']; })), 'Settled = converted, expired, rejected or older than 30 days') + '</div>';
+}
+function vOpsAdv(d){
+  var a = adv(d); if(!a) return '';
+  var o = a.ops;
+  return '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">' + kpi('Likely to miss the date', o.riskCount, 'Not late yet — predicted from past lead times', o.riskCount ? '--s4' : '') + kpi('Typical order-to-dispatch', o.overallMedian + ' days', 'Median of ' + o.measured + ' dispatched orders')
+    + kpi('Tracking not entered', o.trackingGaps, 'Dispatched orders without a real tracking no.', o.trackingGaps ? '--s4' : '') + kpi('Delayed now', d.kpis.delayedOrders, 'Past the expected date', d.kpis.delayedOrders ? '--crit' : '') + '</div>'
+    + '<div class="grid-2"><div class="card"><div class="card-head"><h3>Orders likely to be late (prediction)</h3></div>'
+    + table(['Order','Salesperson','Status','Promised','Likely','>Late by','Basis',''], o.risk.slice(0, 12).map(function(r){ return ['<b>' + esc(r.name || '—') + '</b><div style="font-size:11.5px;color:var(--muted)">' + esc(r.id) + '</div>', esc(r.owner), esc(r.status), esc(r.exp), esc(r.predicted), '<b style="color:var(--crit)">' + r.lateBy + 'd</b>', '<span style="font-size:12px">' + esc(r.basis) + '</span>', draftBtn(r.id, 'order_delay')]; }), 'No open order is predicted to be late') + '</div>'
+    + '<div>' + panel('How long orders really take', table(['Product type','>Orders','>Median days','>75% within','>Promised','>Late %'], o.leadTime.map(function(x){ return [esc(x.type), x.n, x.median, x.p75, x.promised == null ? '—' : x.promised, x.latePct == null ? '—' : x.latePct + '%']; }), 'No dispatched orders to measure'), 'Order date to dispatch date')
+    + '<div style="height:16px"></div>' + panel('Where the delayed orders are', '<div style="font-size:12px;color:var(--muted);margin-top:8px">By status</div>' + bars(o.delayedBy.status, 6) + '<div style="font-size:12px;color:var(--muted);margin-top:8px">By salesperson</div>' + bars(o.delayedBy.sales, 6)) + '</div></div>';
+}
+function vCollect(d){
+  var a = adv(d); if(!a) return needAdv();
+  var c = a.collections, keys = Object.keys(c.ageing);
+  return '<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">' + kpi('Payment pending', inrShort(c.total), c.count + ' dispatched / delivered orders', '--crit')
+    + keys.map(function(k){ return kpi(k, inrShort(c.ageingValue[k]), c.ageing[k] + ' orders', k === '30+ days' && c.ageing[k] ? '--crit' : ''); }).join('') + '</div>'
+    + '<div class="grid-2"><div class="card"><div class="card-head"><h3>Collect these first</h3><div class="tools"><span style="font-size:12px;color:var(--muted)">Ranked by amount and days since dispatch / delivery</span></div></div>'
+    + table(['Order','Salesperson','Status','Payment','>Amount (incl. GST)','>Days',''], c.list.map(function(p){ return ['<b>' + esc(p.name || '—') + '</b><div style="font-size:11.5px;color:var(--muted)">' + esc(p.id) + '</div>', esc(p.owner), esc(p.status), esc(p.payment), inr(p.amount), p.days > 30 ? '<b style="color:var(--crit)">' + p.days + '</b>' : p.days, draftBtn(p.id, 'payment_reminder', 'Draft reminder')]; }), 'Nothing pending 🎉') + '</div>'
+    + panel('Customers owing the most', table(['Customer','>Pending'], c.topCustomers.map(function(x){ return ['<b>' + esc(x.name) + '</b>', inr(x.amount)]; }), 'Nothing pending')) + '</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:8px">Based on the Payment field of each order. Payment dates are not recorded in the CRM, so a week-by-week cash forecast is not shown.</div>';
+}
+function vMarketing(d){
+  var a = adv(d); if(!a) return needAdv();
+  var m = a.marketing, q = a.quotes;
+  var roi = m.roi.length ? table(['Source','>Spend / month','>Leads','>Cost / lead','>Qualified','>Cost / qualified','>Orders','>Cost / order','>Billing','>Return'], m.roi.map(function(r){ return ['<b>' + esc(r.source) + '</b>', inr(r.spend), r.leads, r.cpl == null ? '—' : inr(r.cpl), r.qualified, r.cpq == null ? '—' : inr(r.cpq), r.orders, r.cpo == null ? '—' : inr(r.cpo), inr(r.billing), r.roas == null ? '—' : r.roas + '×']; }))
+    : '<div style="padding:16px 0;color:var(--muted);font-size:13px">Enter your monthly ad spend in Settings (for example "Meta=50000, IndiaMART=12000") to see cost per lead and cost per order.</div>';
+  var ct = function(rows){ return table(['Name','>Leads','>Last 30d','>Contacted','>Qualified %','>Orders','>Lost / NQ %','>Linked billing'], rows.map(function(c){ return ['<b>' + esc(c.name) + '</b>', c.leads, c.d30, c.contacted, c.qualPct + '%', c.won, c.lostPct + '%', inr(c.revenue)]; }), 'No Meta leads'); };
+  return panel('Ad spend and return — this month', roi, 'Leads and orders are this month\'s; orders are matched to a source through the linked lead')
+    + '<div style="height:16px"></div><div class="card"><div class="card-head"><h3>Meta campaigns</h3></div>' + ct(m.campaigns.slice(0, 15)) + '</div>'
+    + '<div style="height:16px"></div><div class="card"><div class="card-head"><h3>Meta ads</h3></div>' + ct(m.ads.slice(0, 15)) + '</div>'
+    + '<div style="height:16px"></div><div class="grid-2">' + panel('Why leads are lost', bars(q.lossReasons, 10), q.lossTotal + ' lost / not-qualified leads, classified from the salesperson remarks')
+    + panel('Loss reasons by source', table(['Source','Top reasons'], Object.keys(q.lossBySource).map(function(sn){ var o = q.lossBySource[sn]; return ['<b>' + esc(sn) + '</b>', esc(Object.keys(o).sort(function(x, y){ return o[y] - o[x]; }).slice(0, 3).map(function(k){ return k + ' (' + o[k] + ')'; }).join(' · '))]; }), 'No lost leads')) + '</div>';
+}
+function vCustomers(d){
+  var a = adv(d); if(!a) return needAdv();
+  var c = a.customers, row = function(x){ return ['<b>' + esc(x.name || '—') + '</b><div style="font-size:11.5px;color:var(--muted)">' + esc(x.owner || '') + '</div>', x.orders, inr(x.billing), esc(x.last || '—'), x.since + 'd', x.gap ? x.gap + 'd' : '—', esc((x.cats || []).join(', '))]; };
+  var heads = ['Customer','>Orders','>Billing','Last order','>Since','>Usual gap','Categories'];
+  return '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">' + kpi('Customers with orders', c.count, '') + kpi('Repeat customers', c.repeat, c.repeatPct + '% have 2+ orders') + kpi('Top 20% of customers', c.top20SharePct + '%', 'Share of total billing') + kpi('Due for a repeat order', c.repeatDue.length, 'Past their usual gap', c.repeatDue.length ? '--s4' : '') + '</div>'
+    + '<div class="card"><div class="card-head"><h3>Top customers</h3></div>' + table(heads, c.top.map(row), 'No orders') + '</div>'
+    + '<div style="height:16px"></div><div class="grid-2"><div class="card"><div class="card-head"><h3>Due for a repeat order</h3></div>' + table(heads, c.repeatDue.map(row), 'No one is past their usual gap') + '</div>'
+    + '<div>' + panel('Bought together (cross-sell)', table(['Categories','>Customers'], c.crossSell.map(function(p){ return [esc(p.pair), p.customers]; }), 'Not enough category data yet'), 'Categories that the same customer has ordered')
+    + '<div style="height:16px"></div><div class="card"><div class="card-head"><h3>Dormant (60+ days, ₹50k+ billed)</h3></div>' + table(['Customer','>Orders','>Billing','>Since'], c.dormant.slice(0, 10).map(function(x){ return ['<b>' + esc(x.name) + '</b>', x.orders, inr(x.billing), x.since + 'd']; }), 'None') + '</div></div></div>';
+}
+function vCoaching(d){
+  var a = adv(d); if(!a || !a.coaching.length) return '';
+  return '<div style="height:16px"></div><div class="card"><div class="card-head"><h3>Coaching notes</h3><div class="tools"><span style="font-size:12px;color:var(--muted)">Team: ' + a.teamConvPct + '% lead-to-order · median first response ' + a.teamMedianResp + ' min</span></div></div>'
+    + table(['Salesperson','>Open','>Conv %','Improve','Doing well'], a.coaching.map(function(c){ return ['<b>' + esc(c.name) + '</b>', c.open, c.convPct + '%', c.points.length ? '<ul style="margin:0 0 0 16px;padding:0;font-size:12.5px">' + c.points.map(function(p){ return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : '<span style="color:var(--muted)">Nothing flagged</span>', c.good.length ? '<span style="font-size:12.5px;color:var(--good-ink)">' + esc(c.good.join(' · ')) + '</span>' : '']; })) + '</div>';
+}
+function anomalyList(a, n){
+  if(!a || !a.anomalies.length) return '<div style="padding:14px 0;color:var(--muted);font-size:13px">Nothing unusual detected.</div>';
+  return a.anomalies.slice(0, n || 25).map(function(x){ var s = SEV[x.sev] || SEV.low; return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><span style="width:8px;height:8px;border-radius:50%;background:' + s[0] + ';margin-top:6px;flex:none"></span><div><span style="font-size:11.5px;color:var(--muted)">' + esc(x.type) + '</span><div style="font-size:13.5px">' + esc(x.title) + '</div></div></div>'; }).join('');
+}
+function vReview(d){
+  var a = adv(d), r = d.review, li = function(arr){ return (arr || []).length ? '<ul style="margin:6px 0 0 18px;padding:0;line-height:1.7">' + arr.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<div style="color:var(--muted);font-size:13px">—</div>'; };
+  var h = r ? '<div class="panel"><div style="font-size:12px;color:var(--muted)">Weekly business review · written by Gemini · ' + esc(when(r.at)) + '</div><h3 style="font-size:19px;font-weight:750;margin:6px 0 14px">' + esc(r.headline) + '</h3>'
+      + '<div class="grid-2" style="margin-bottom:0"><div><b>What changed</b>' + li(r.changed) + '<div style="height:12px"></div><b>Opportunities</b>' + li(r.opportunities) + '</div><div><b>Risks</b>' + li(r.risks) + '<div style="height:12px"></div><b>Decisions for you</b>' + li(r.decisions) + '</div></div></div>'
+    : '<div class="panel" style="color:var(--muted)">' + (d.keySet ? 'No weekly review yet. Click "Write this week\'s review". It is also written automatically every Monday at 9 am.' : 'Add a Gemini API key in Settings to get the weekly AI review.') + '</div>';
+  h += '<div style="margin:12px 0 16px"><button class="btn primary sm" data-ai-act="weekly"' + (d.keySet ? '' : ' disabled') + '>Write this week\'s review</button></div>';
+  if(!a) return h + needAdv();
+  var q = a.quality;
+  return h + '<div class="grid-2">' + panel('Unusual this week (rules, no AI)', anomalyList(a))
+    + panel('Data quality — what limits accuracy', table(['Check','Now','What to do'], [
+      ['Orders with a confirmed lead / quotation link', '<b>' + q.ordersLinkedPct + '%</b>', 'New orders now require a link or "Direct order"'],
+      ['Orders matched to a lead any way', q.ordersAnyLinkPct + '%', 'Phone / customer matching fills the gap'],
+      ['Lost leads with a usable remark', q.lostWithReasonPct == null ? '—' : q.lostWithReasonPct + '%', 'Write why the lead was lost in the remark'],
+      ['Dispatches without real tracking', q.trackingGaps, 'Enter courier and tracking number'],
+      ['Customers with an e-mail address', q.customersWithEmail + ' of ' + q.customers, 'Needed for automatic customer e-mails'],
+      ['Monthly ad spend entered', q.spendSet ? 'Yes' : 'No', 'Settings → Monthly ad spend']
+    ])) + '</div>';
+}
+function mailPanel(d){
+  var S = d.settings || {}, m = st.mail, q = adv(d) ? adv(d).quality : null;
+  var info = m ? ('Sent so far: <b>' + m.sent + '</b> · errors: ' + m.errors + (m.quota == null ? '' : ' · Google daily quota left: ' + m.quota)) : 'Loading status…';
+  var log = (m && m.last.length) ? table(['When','Order','Status','To','Result'], m.last.slice(0, 8).map(function(r){ return [esc(when(r.ts)), esc(r.orderId), esc(r.status), esc(r.to), r.result === 'sent' ? '<span style="color:var(--good-ink)">sent</span>' : '<span style="color:var(--crit)">' + esc(r.result) + '</span>']; })) : '';
+  return '<div class="panel"><h3 style="font-size:15px;font-weight:700;margin:0 0 6px">Automatic customer e-mail</h3>'
+    + '<div style="font-size:13px;color:var(--text-2);margin-bottom:10px">When an order moves to one of the chosen statuses, the customer gets one e-mail with the order details (checked every 15 minutes). Orders already in those statuses when you switch this on are not mailed.'
+    + (q ? ' <b>' + q.customersWithEmail + ' of ' + q.customers + ' customers have an e-mail address saved</b> — the others are skipped until an e-mail is added to the customer.' : '') + '</div>'
+    + '<div class="form-row two"><div><label>Send automatically</label><select data-ai-set="custEmail"><option value="false"' + (S.custEmail ? '' : ' selected') + '>Off</option><option value="true"' + (S.custEmail ? ' selected' : '') + '>On</option></select></div>'
+    + '<div><label>Statuses that trigger an e-mail</label><input data-ai-set="custEmailStatuses" value="' + esc(S.custEmailStatuses || '') + '" placeholder="Dispatched,Delivered"><div style="font-size:11.5px;color:var(--muted);margin-top:3px">Any of: Confirmed, In Production, Ready, Dispatched, Delivered</div></div></div>'
+    + '<div class="form-row two"><div><label>Sender name</label><input data-ai-set="custEmailFrom" value="' + esc(S.custEmailFrom || '') + '"></div><div><label>Reply-to address (optional)</label><input data-ai-set="custEmailReplyTo" value="' + esc(S.custEmailReplyTo || '') + '" autocomplete="off" name="ai-reply-to" placeholder="sales@yourcompany.com"></div></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn primary sm" data-ai-act="saveSettings">Save</button><button class="btn sm" data-ai-act="mailTest">Send a test e-mail to me</button><span style="font-size:12.5px;color:var(--text-2)">' + info + '</span></div>' + log + '</div>';
+}
+function loadMail(){ api('ai_custmail_status').then(function(r){ st.mail = (r && r.ok) ? r : { sent:0, errors:0, last:[], quota:null }; if(state.view === VIEW && st.tab === 'settings') paintBody(); }); }
+function openDraft(id, kind, lang){
+  lang = lang || 'English';
+  try{ openModal('<div class="modal-head"><h3>Message draft</h3><button class="icon-btn" onclick="closeModal()">✕</button></div><div class="modal-body" id="aiDraftBody"><div style="padding:24px;text-align:center;color:var(--muted)">Writing the draft…</div></div>'); }catch(e){ return; }
+  api('ai_draft', { id:id, kind:kind, lang:lang, channel:'whatsapp' }, 25000).then(function(r){
+    var box = $('aiDraftBody'); if(!box) return;
+    if(!r || !r.ok){ box.innerHTML = '<div style="padding:16px;color:var(--crit)">' + esc(errText(r)) + '</div>'; return; }
+    var num = ''; try{ num = (typeof waNumber === 'function') ? waNumber(r.phone) : ''; }catch(e){}
+    box.innerHTML = '<div style="font-size:12.5px;color:var(--muted);margin-bottom:8px">For <b>' + esc(r.name || r.id) + '</b> (' + esc(r.id) + '). Written by AI from the CRM record — read it before sending. Nothing is sent automatically.</div>'
+      + '<textarea id="aiDraftText" rows="9" style="width:100%">' + esc(r.text) + '</textarea>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center"><button class="btn primary sm" id="aiDraftCopy">Copy</button>' + (num ? '<button class="btn sm" id="aiDraftWa" style="color:#0f8f4c">Open in WhatsApp</button>' : '')
+      + '<span style="margin-left:auto;font-size:12px;color:var(--muted)">Rewrite in</span>' + ['English','Hindi','Hinglish'].map(function(l){ return '<button class="btn sm' + (l === lang ? ' primary' : ' ghost') + '" data-lang="' + l + '">' + l + '</button>'; }).join('') + '</div>';
+    $('aiDraftCopy').addEventListener('click', function(){ var t = $('aiDraftText'); try{ navigator.clipboard.writeText(t.value).then(function(){ say('Copied'); }, function(){ t.select(); document.execCommand('copy'); say('Copied'); }); }catch(e){ t.select(); try{ document.execCommand('copy'); say('Copied'); }catch(e2){} } });
+    if(num) $('aiDraftWa').addEventListener('click', function(){ window.open('https://wa.me/' + num + '?text=' + encodeURIComponent($('aiDraftText').value), '_blank', 'noopener'); });
+    box.querySelectorAll('[data-lang]').forEach(function(b){ b.addEventListener('click', function(){ openDraft(id, kind, b.getAttribute('data-lang')); }); });
+  });
 }
 
 /* ------------------------------------------------------------------ paint */
@@ -286,6 +427,7 @@ function paintBody(){
     else if(t === 'leads') h = vList(d, 'lead'); else if(t === 'quotes') h = vList(d, 'quote'); else if(t === 'orders') h = vList(d, 'order');
     else if(t === 'alerts') h = vAlerts(d); else if(t === 'changes') h = vChanges(); else if(t === 'forecast') h = vForecast(d);
     else if(t === 'ask') h = vAsk(d); else if(t === 'settings') h = vSettings(d);
+    else if(t === 'actions') h = vActions(d); else if(t === 'collect') h = vCollect(d); else if(t === 'marketing') h = vMarketing(d); else if(t === 'customers') h = vCustomers(d); else if(t === 'review') h = vReview(d);
   }catch(e){ h = '<div class="panel">Could not render this screen: ' + esc(e && e.message) + '</div>'; }
   box.innerHTML = h;
   try{ if(t === 'overview') cOverview(d); else if(t === 'sources') cGroups(d, 'src'); else if(t === 'team') cGroups(d, 'team'); }catch(e){}
@@ -296,12 +438,14 @@ function goTab(t){
   var type = t === 'leads' ? 'lead' : t === 'quotes' ? 'quote' : t === 'orders' ? 'order' : '';
   if(type){ st.list = { type:type, category:'', source:'', owner:'', intent:'', q:'', page:0, sort:'priority', dir:'desc' }; paint(); loadList(); return; }
   if(t === 'changes'){ paint(); loadEvents(); return; }
+  if(t === 'settings'){ paint(); loadMail(); return; }
   paint();
 }
+function askHistory(){ var out = [], c = st.chat, i; for(i = 0; i + 1 < c.length; i++){ if(c[i].me && !c[i + 1].me && c[i + 1].text.charAt(0) !== '⚠') out.push({ q:c[i].text, a:c[i + 1].text }); } return out.slice(-3); }
 function ask(q){
   q = String(q || '').trim(); if(q.length < 3 || st.busy) return;
   st.chat.push({ me:true, text:q }); st.busy = 'ask'; paintBody();
-  api('ai_ask', { q:q }, 20000).then(function(r){ st.busy = ''; st.chat.push({ me:false, text:(r && r.ok) ? String(r.answer || '') : '⚠ ' + errText(r) }); if(state.view === VIEW && st.tab === 'ask') paintBody(); });
+  api('ai_ask', { q:q, history:askHistory() }, 20000).then(function(r){ st.busy = ''; st.chat.push({ me:false, text:(r && r.ok) ? String(r.answer || '') : '⚠ ' + errText(r) }); if(state.view === VIEW && st.tab === 'ask') paintBody(); });
 }
 function exportCsv(){
   var L = st.list; say('Preparing export…');
@@ -317,7 +461,7 @@ function exportCsv(){
 /* ------------------------------------------------------------------ events */
 document.addEventListener('click', function(ev){
   if(typeof state === 'undefined' || state.view !== VIEW) return;
-  var b = ev.target.closest && ev.target.closest('[data-ai-tab],[data-ai-act],[data-ai-period],[data-ai-cat],[data-ai-page],[data-ai-alert],[data-ai-ex]');
+  var b = ev.target.closest && ev.target.closest('[data-ai-tab],[data-ai-act],[data-ai-period],[data-ai-cat],[data-ai-page],[data-ai-alert],[data-ai-ex],[data-ai-person],[data-ai-draft]');
   if(!b || b.disabled) return;
   var a;
   if((a = b.getAttribute('data-ai-tab'))) return goTab(a);
@@ -326,6 +470,8 @@ document.addEventListener('click', function(ev){
   if(b.hasAttribute('data-ai-page')){ st.list.page = Math.max(0, st.list.page + num(b.getAttribute('data-ai-page'))); return loadList(); }
   if(b.hasAttribute('data-ai-alert')){ st.alertType = b.getAttribute('data-ai-alert'); return paintBody(); }
   if((a = b.getAttribute('data-ai-ex'))) return ask(a);
+  if(b.hasAttribute('data-ai-person')){ st.person = b.getAttribute('data-ai-person'); return paintBody(); }
+  if((a = b.getAttribute('data-ai-draft'))) return openDraft(a, b.getAttribute('data-kind'));
   a = b.getAttribute('data-ai-act');
   if(a === 'reload'){ st.dash = null; st.err = null; return load(); }
   if(a === 'refresh') return act('ai_run', 'Refreshing');
@@ -336,10 +482,12 @@ document.addEventListener('click', function(ev){
   if(a === 'saveKey'){ var k = ($('aiKeyIn') || {}).value || ''; k = k.trim(); if(k.length < 20){ say('Paste the full key'); return; } $('aiKeyIn').value = ''; return act('ai_key_set', 'Saving key', { key:k }); }
   if(a === 'saveSettings'){
     var s = {}; document.querySelectorAll('[data-ai-set]').forEach(function(el){ s[el.getAttribute('data-ai-set')] = el.value; });
-    return act('ai_settings_set', 'Saving settings', { settings:s }, function(){ say('Settings saved — rebuilding data'); act('ai_run', 'Refreshing'); });
+    return act('ai_settings_set', 'Saving settings', { settings:s }, function(){ say('Settings saved — rebuilding data'); st.mail = null; act('ai_run', 'Refreshing'); });
   }
   if(a === 'ask'){ var q = $('aiAskQ'); if(q){ var v = q.value; q.value = ''; ask(v); } return; }
   if(a === 'csv') return exportCsv();
+  if(a === 'weekly') return act('ai_weekly_now', 'Writing the review');
+  if(a === 'mailTest') return act('ai_custmail_test', 'Sending test e-mail', null, function(r){ say('Test e-mail sent to ' + (r.to || 'you')); paint(); loadMail(); });
 });
 document.addEventListener('change', function(ev){
   if(typeof state === 'undefined' || state.view !== VIEW) return;
@@ -441,8 +589,11 @@ function injectLink(id){
     var o = {}; try{ o = (DB.orders() || []).filter(function(x){ return x.id === id; })[0] || {}; }catch(e){}
     var div = document.createElement('div'); div.className = 'form-row two'; div.id = 'o-link-row';
     div.innerHTML = '<div><label>Linked Quotation <span style="font-weight:500;font-size:10.5px;color:var(--muted)">(optional)</span></label><select id="o-linkq" data-cur="' + esc(o.quoteId || '') + '"></select></div>'
-      + '<div><label>Linked Lead <span style="font-weight:500;font-size:10.5px;color:var(--muted)">(optional — the lead this order came from)</span></label><select id="o-linkl" data-cur="' + esc(o.leadRef || '') + '"></select></div>';
+      + '<div><label>Linked Lead <span style="font-weight:500;font-size:10.5px;color:var(--muted)">(the lead this order came from)</span></label><select id="o-linkl" data-cur="' + esc(o.leadRef || '') + '"></select></div>';
     row.parentNode.insertBefore(div, row);
+    var dd = document.createElement('div'); dd.className = 'form-row'; dd.style.marginTop = '-6px';
+    dd.innerHTML = '<label style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="o-linkdirect" style="width:auto"' + (o.leadSrc === 'direct' ? ' checked' : '') + '> Direct order (no lead or quotation)' + (id ? '' : ' <span style="font-size:10.5px;color:var(--muted)">— one of the three is required for a new order</span>') + '</label>';
+    row.parentNode.insertBefore(dd, row);
     fillLinks(o);
     ['o-linkq','o-linkl'].forEach(function(k){ $(k).addEventListener('change', function(){ this.setAttribute('data-cur', this.value); }); });
     var cust = $('o-cust'); if(cust) cust.addEventListener('change', function(){ fillLinks(o); });
@@ -463,9 +614,15 @@ document.addEventListener('click', function(ev){
   try{
     var row = $('o-link-row'); if(!row) return;
     var b = ev.target.closest && ev.target.closest('button'); if(!b || !/saveOrder\(/.test(b.getAttribute('onclick') || '')) return;
-    var q = $('o-linkq'), l = $('o-linkl'), lo = l.options[l.selectedIndex], known = {};
+    var q = $('o-linkq'), l = $('o-linkl'), lo = l.options[l.selectedIndex], known = {}, dr = $('o-linkdirect');
+    if(!(row.getAttribute('data-oid') || '') && !q.value && !l.value && !(dr && dr.checked)){
+      ev.preventDefault(); ev.stopImmediatePropagation(); pend = null;
+      say('Choose the Linked Lead or Quotation, or tick "Direct order (no lead)"');
+      try{ row.scrollIntoView({ block:'center' }); row.style.outline = '2px solid var(--crit)'; setTimeout(function(){ row.style.outline = ''; }, 2500); }catch(e2){}
+      return;
+    }
     (DB.orders() || []).forEach(function(x){ known[x.id] = 1; });
-    pend = { id: row.getAttribute('data-oid') || '', quoteId: q.value || '', leadRef: l.value || '', leadSrc: (lo && lo.getAttribute('data-src')) || '', known: known, at: Date.now() };
+    pend = { id: row.getAttribute('data-oid') || '', quoteId: q.value || '', leadRef: l.value || '', leadSrc: l.value ? ((lo && lo.getAttribute('data-src')) || '') : ((dr && dr.checked) ? 'direct' : ''), known: known, at: Date.now() };
   }catch(e){ pend = null; }
 }, true);
 (function(){
@@ -480,7 +637,7 @@ document.addEventListener('click', function(ev){
           else { var fresh = v.filter(function(x){ return x && !pend.known[x.id]; }); if(fresh.length === 1) t = fresh[0]; }
           if(t){
             if((t.quoteId || '') !== pend.quoteId) t.quoteId = pend.quoteId;
-            if((t.leadRef || '') !== pend.leadRef){ t.leadRef = pend.leadRef; t.leadSrc = pend.leadRef ? pend.leadSrc : ''; }
+            if((t.leadRef || '') !== pend.leadRef || (t.leadSrc || '') !== pend.leadSrc){ t.leadRef = pend.leadRef; t.leadSrc = pend.leadSrc; }
             pend = null;
           }
         }
