@@ -209,7 +209,17 @@
     + '@media print{body.gp-blocked > *{display:none !important}'
     + 'body.gp-blocked::before{display:block;content:"PDF blocked: this quotation has a negative GP. Fix the rate, discount or parts first.";'
     + 'font:18px/1.5 sans-serif;padding:40px;color:#A32020}}'
-    + '.gp-sectitle{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:4px 0 4px}';
+    + '.gp-sectitle{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:4px 0 4px}'
+    /* searchable dropdown (combo) — model + parts */
+    + '.gp-combo{position:relative;min-width:0}'
+    + '.gp-combo-in{width:100%;box-sizing:border-box}'
+    + '.gp-combo-dd{position:absolute;z-index:60;left:0;right:0;top:calc(100% + 2px);max-height:230px;overflow:auto;'
+    + 'background:var(--card,#fff);border:1px solid var(--line-dark,#C9B68E);border-radius:8px;box-shadow:0 10px 24px rgba(0,0,0,.16)}'
+    + '.gp-combo-op{padding:6px 9px;font-size:12px;cursor:pointer;line-height:1.35}'
+    + '.gp-combo-op.act{font-weight:600}'
+    + '.gp-combo-op:hover,.gp-combo-op.kact{background:rgba(201,182,142,.28)}'
+    + '.gp-combo-emp{padding:7px 9px;font-size:11.5px;color:var(--muted)}'
+    + '.gp-part .gp-combo-in.err,.gp-modelrow .gp-combo-in.err{border-color:var(--err,#A32020);background:#FDF1EE}';
   function injectCardCSS() {
     if (document.getElementById('gp-card-css')) return;
     var st = document.createElement('style'); st.id = 'gp-card-css'; st.textContent = CARD_CSS;
@@ -217,6 +227,118 @@
   }
 
   function ready() { return !!(window.OCGP && window.OCGP.masters()); }
+
+  /* ---- searchable dropdown (combo) ----
+     Native <select> me type karke dhoondna nahi ho paata, isliye model aur
+     PARTS & COST ke sab dropdown ab search-wale combo hain: type karo, list
+     filter hoti hai, click/Enter se chunte ho. Input ki id wahi purani
+     (qb-name-i / qb-part-k-i) hai taaki required (*) ka laal nishaan aur
+     repMissing() waise hi kaam karein. */
+  var COMBO = {};
+  function comboHTML(id, opts, cur, placeholder, pick) {
+    COMBO[id] = { opts: opts, cur: cur, pick: pick };
+    var label = cur || '';
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].v === cur) { label = cur === '' ? '' : opts[i].t; break; }
+    }
+    bindCombos();
+    return '<div class="gp-combo">'
+      + '<input id="' + esc(id) + '" class="gp-combo-in" value="' + esc(label) + '"'
+      + ' placeholder="' + esc(placeholder) + '" autocomplete="off" spellcheck="false">'
+      + '<div class="gp-combo-dd" hidden></div></div>';
+  }
+  var _comboBound = false;
+  function bindCombos() {
+    if (_comboBound) return; _comboBound = true;
+    function wrapOf(t) { return (t && t.closest) ? t.closest('.gp-combo') : null; }
+    function inputOf(w) { return w.querySelector('.gp-combo-in'); }
+    function ddOf(w) { return w.querySelector('.gp-combo-dd'); }
+    function entry(w) { var inp = inputOf(w); return inp ? COMBO[inp.id] : null; }
+    function closeAll() {
+      [].forEach.call(document.querySelectorAll('.gp-combo-dd:not([hidden])'), function (d) { d.hidden = true; });
+    }
+    function labelOf(e) {
+      for (var i = 0; i < e.opts.length; i++) {
+        if (e.opts[i].v === e.cur) return e.cur === '' ? '' : e.opts[i].t;
+      }
+      return e.cur || '';
+    }
+    function show(w, q) {
+      var e = entry(w); if (!e) return;
+      var dd = ddOf(w), qq = norm(q);
+      var hits = e.opts.filter(function (o) {
+        return !qq || norm(o.t).indexOf(qq) >= 0 || norm(o.v).indexOf(qq) >= 0;
+      }).slice(0, 400);
+      dd._hits = hits;
+      dd.innerHTML = hits.length
+        ? hits.map(function (o, x) {
+            return '<div class="gp-combo-op' + (o.v === e.cur && o.v !== '' ? ' act' : '') + '" data-x="' + x + '">' + esc(o.t) + '</div>';
+          }).join('')
+        : '<div class="gp-combo-emp">No match — change the search text</div>';
+      dd.hidden = false;
+    }
+    document.addEventListener('focusin', function (ev) {
+      closeAll();
+      var w = wrapOf(ev.target);
+      if (w && ev.target.classList && ev.target.classList.contains('gp-combo-in')) {
+        try { ev.target.select(); } catch (e) {}
+        show(w, '');
+      }
+    });
+    document.addEventListener('input', function (ev) {
+      var w = wrapOf(ev.target);
+      if (w && ev.target.classList && ev.target.classList.contains('gp-combo-in')) {
+        ev.target.classList.remove('err');
+        show(w, ev.target.value);
+      }
+    });
+    document.addEventListener('mousedown', function (ev) {
+      var op = (ev.target && ev.target.closest) ? ev.target.closest('.gp-combo-op') : null;
+      if (!op) { if (!wrapOf(ev.target)) closeAll(); return; }
+      ev.preventDefault();                       /* input ka focus na chhine */
+      var w = wrapOf(op), e = entry(w), dd = ddOf(w);
+      var o = (dd._hits || [])[+op.getAttribute('data-x')];
+      if (!e || !o) return;
+      e.cur = o.v;
+      inputOf(w).value = (o.v === '' ? '' : o.t);
+      inputOf(w).classList.remove('err');
+      dd.hidden = true;
+      if (e.pick) e.pick(o.v);
+    });
+    document.addEventListener('focusout', function (ev) {
+      var w = wrapOf(ev.target);
+      if (!w) return;
+      setTimeout(function () {
+        if (!w.isConnected) return;
+        if (w.contains(document.activeElement)) return;
+        var e = entry(w); if (!e) return;
+        ddOf(w).hidden = true;
+        inputOf(w).value = labelOf(e);           /* adhoora type kiya to wapas chuna hua */
+      }, 0);
+    });
+    document.addEventListener('keydown', function (ev) {
+      var w = wrapOf(ev.target);
+      if (!w || !ev.target.classList || !ev.target.classList.contains('gp-combo-in')) return;
+      var dd = ddOf(w);
+      if (ev.key === 'Escape') { dd.hidden = true; return; }
+      var ops = dd.hidden ? [] : [].slice.call(dd.querySelectorAll('.gp-combo-op'));
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        var act = dd.querySelector('.gp-combo-op.kact') || ops[0];
+        if (act && !dd.hidden) act.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        return;
+      }
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        if (dd.hidden) { show(w, ev.target.value); return; }
+        var cur = dd.querySelector('.gp-combo-op.kact');
+        var idx = ops.indexOf(cur);
+        var nx = ev.key === 'ArrowDown' ? Math.min(ops.length - 1, idx + 1) : Math.max(0, idx - 1);
+        if (cur) cur.classList.remove('kact');
+        if (ops[nx]) { ops[nx].classList.add('kact'); try { ops[nx].scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+      }
+    });
+  }
 
   /* ---- model + "Not in list" ---- */
   window.ocGPModelHTML = function (i) {
@@ -235,13 +357,12 @@
         + ' oninput="this.classList.remove(\'err\'); updItem(' + i + ',\'name\',this.value)">';
     } else {
       var sel = String(it.gpModel || '');
-      ctrl = '<select id="qb-name-' + i + '" onchange="ocGPPickModel(' + i + ', this.value)">'
-        + '<option value=""' + (sel ? '' : ' selected') + '>— choose model —</option>'
-        + models.map(function (p) {
-            var v = String(p.sku || p.name);
-            return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(p.name) + '</option>';
-          }).join('')
-        + '</select>';
+      ctrl = comboHTML('qb-name-' + i,
+        [{ v: '', t: '— choose model —' }].concat(models.map(function (p) {
+          return { v: String(p.sku || p.name), t: String(p.name || '') };
+        })),
+        sel, 'Type to search model…',
+        function (v) { window.ocGPPickModel(i, v); });
     }
     return '<div class="f"><label>Model name <b>*</b></label><div class="gp-modelrow">' + ctrl + box + '</div></div>'
       + '<div class="f"><label>Order type</label><select onchange="ocGPPickType(' + i + ', this.value)">'
@@ -269,13 +390,11 @@
       var cur = chosen[k] || (std ? std.names[k] : '') || '';
       var rate = cur ? window.OCGP.compRate(window.OCGP.PART_TYPE[k], cur) : 0;
       h += '<div class="gp-part"><label>' + PART_LABEL[k] + ' <b>*</b></label>'
-        + '<select id="qb-part-' + k + '-' + i + '" onchange="this.classList.remove(\'err\'); ocGPPickPart(' + i + ', \'' + k + '\', this.value)">'
-        + '<option value="">' + (list.length ? '— not selected —' : '— none in GP sheet —') + '</option>'
-        + list.map(function (c) {
-            return '<option value="' + esc(c.name) + '"' + (c.name === cur ? ' selected' : '') + '>'
-              + esc(c.name) + ' — ' + inr(c.rate) + '</option>';
-          }).join('')
-        + '</select>'
+        + comboHTML('qb-part-' + k + '-' + i,
+            [{ v: '', t: list.length ? '— not selected —' : '— none in GP sheet —' }]
+              .concat(list.map(function (c) { return { v: c.name, t: c.name + ' — ' + inr(c.rate) }; })),
+            cur, 'Type to search…',
+            (function (kk) { return function (v) { window.ocGPPickPart(i, kk, v); }; })(k))
         + '<span class="gp-rate' + (cur && !rate ? ' zero' : '') + '">'
         + (cur ? inr(rate) + (rate ? '' : ' — rate is 0 in the sheet') : 'no part selected')
         + '</span></div>';
