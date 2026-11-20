@@ -268,8 +268,8 @@
       var list = window.OCGP.partsFor(k);
       var cur = chosen[k] || (std ? std.names[k] : '') || '';
       var rate = cur ? window.OCGP.compRate(window.OCGP.PART_TYPE[k], cur) : 0;
-      h += '<div class="gp-part"><label>' + PART_LABEL[k] + '</label>'
-        + '<select onchange="ocGPPickPart(' + i + ', \'' + k + '\', this.value)">'
+      h += '<div class="gp-part"><label>' + PART_LABEL[k] + ' <b>*</b></label>'
+        + '<select id="qb-part-' + k + '-' + i + '" onchange="this.classList.remove(\'err\'); ocGPPickPart(' + i + ', \'' + k + '\', this.value)">'
         + '<option value="">' + (list.length ? '— not selected —' : '— none in GP sheet —') + '</option>'
         + list.map(function (c) {
             return '<option value="' + esc(c.name) + '"' + (c.name === cur ? ' selected' : '') + '>'
@@ -347,6 +347,29 @@
       + ' · GP ' + inr(lr.gp) + ' (' + window.OCGP.fmt.pct(lr.gpPct) + ')'
       + (loss ? ' — LOSS' : '') + '</div>';
   }
+
+  /* ---- PARTS & COST: sab dropdown zaroori (mandatory) ----
+     repMissing() (quotation-builder.html) isse poochhta hai ki product i ke
+     kaun se part abhi khali hain. Khali = na user ne chuna, na model ke
+     standard parts se bhara. GP sheet connected na ho (dropdown dikhte hi
+     nahi) ya kisi part ki list sheet me khali ho to wo part nahi roka jaata,
+     warna quotation kabhi ban hi nahi paati. */
+  window.ocGPPartsMissing = function (i) {
+    var out = [];
+    try {
+      if (!ready()) return out;
+      var it = S.items[i] || {};
+      var chosen = it.gpParts || {};
+      var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
+      var std = model ? window.OCGP.costOf(model) : null;
+      PART_KEYS.forEach(function (k) {
+        if (!window.OCGP.partsFor(k).length) return;   /* sheet me variants hi nahi */
+        var cur = chosen[k] || (std ? std.names[k] : '') || '';
+        if (!String(cur).trim()) out.push({ key: k, label: PART_LABEL[k] });
+      });
+    } catch (e) {}
+    return out;
+  };
 
   /* ---- handlers ---- */
   window.ocGPPickModel = function (i, sku) {

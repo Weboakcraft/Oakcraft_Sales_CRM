@@ -948,7 +948,7 @@ function renderItemsEditor(){
         <div class="f"><label>Discount %</label><input type="number" min="0" max="100" value="${it.disc||''}" oninput="updItem(${i},'disc',this.value)"></div>
       </div>
       ${(typeof ocGPPartsHTML === 'function') ? ocGPPartsHTML(i) : ''}
-      <div class="f"><label>Delivery timeline</label><input value="${esc(it.del)}" oninput="updItem(${i},'del',this.value)"></div>
+      <div class="f"><label>Delivery timeline <b>*</b></label><input id="qb-del-${i}" value="${esc(it.del)}" oninput="this.classList.remove('err'); updItem(${i},'del',this.value)"></div>
       <div class="photo-drop">
         ${(it.photo || it.thumb) ? `<img src="${it.photo || it.thumb}" alt="">` : `<div class="ph-empty">＋</div>`}
         <input type="file" accept="image/*" onchange="photoUpload(${i},this)">
@@ -1455,8 +1455,10 @@ function repSelect(v){
 }
 /* Quotation tabhi save/download hogi jab saare zaroori (*) field bhare hon:
    representative ka naam + number, client company name, aur har product ka
-   naam, qty aur price. Optional field (address, GSTIN, ship-to, discount)
-   pehle jaise optional hi hain. */
+   naam, qty, price, PARTS & COST ke sab dropdown (armrest / seat mechanism /
+   base / wheels / product fix cost — GP sheet connected ho tab) aur delivery
+   timeline. Optional field (address, GSTIN, ship-to, discount) pehle jaise
+   optional hi hain. */
 function repMissing(){
   const names = [];
   let first = null;
@@ -1483,6 +1485,15 @@ function repMissing(){
       if(!String(it.name || '').trim()) bad(document.getElementById('qb-name-' + i), 'Product ' + n + ': model name');
       if(!(parseFloat(it.qty) > 0))     bad(document.getElementById('qb-qty-' + i),  'Product ' + n + ': qty');
       if(!(parseFloat(it.price) > 0))   bad(document.getElementById('qb-price-' + i),'Product ' + n + ': price');
+      /* PARTS & COST (GP) — Armrest, Seat mechanism, Base, Wheels aur Product
+         Fix Cost sab chune bina quotation nahi banti. GP sheet connected na ho
+         to ye check apne aap skip ho jaata hai (gp-quotation.js sambhalta hai). */
+      if(typeof window.ocGPPartsMissing === 'function'){
+        window.ocGPPartsMissing(i).forEach(function(p){
+          bad(document.getElementById('qb-part-' + p.key + '-' + i), 'Product ' + n + ': ' + p.label);
+        });
+      }
+      if(!String(it.del || '').trim()) bad(document.getElementById('qb-del-' + i), 'Product ' + n + ': delivery timeline');
     });
     /* AMC Charges & Rules — ab OPTIONAL hai: khaali chhodne par save / PDF nahi rukta.
        Jin items ka % bhara hai sirf wahi AMC table me jaate hain; koi % na bhara ho to AMC table PDF me aati hi nahi. */
