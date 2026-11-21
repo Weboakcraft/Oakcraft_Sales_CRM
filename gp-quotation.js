@@ -182,7 +182,14 @@
   /* TO BE ORDERED = chair bahar se fixed cost par aati hai, isliye PARTS & COST
      ke dropdown us line ke liye zaroori nahi (optional) */
   var PARTS_OPTIONAL_TYPES = ['TO BE ORDERED'];
-  function partsOptional(it) { return PARTS_OPTIONAL_TYPES.indexOf(String((it && it.otype) || '')) >= 0; }
+  /* "Not in list" tick karne par product ki category chunni hoti hai. Sirf CHAIR
+     ke parts (armrest / seat mechanism / base / wheels / fix) zaroori hain --
+     sofa, table, almirah, workstation me ye parts hote hi nahi. */
+  var CATEGORIES = ['CHAIR', 'SOFA', 'TABLE', 'ALMIRAH', 'WORKSTATION'];
+  function nonChair(it) { return !!(it && it.gpManual && it.ptype && it.ptype !== 'CHAIR'); }
+  function partsOptional(it) {
+    return PARTS_OPTIONAL_TYPES.indexOf(String((it && it.otype) || '')) >= 0 || nonChair(it);
+  }
   var PART_LABEL = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels', fix: 'Product Fix Cost' };
   var PART_KEYS = ['arm', 'seat', 'base', 'wheels', 'fix'];
 
@@ -368,7 +375,19 @@
         sel, 'Type to search model…',
         function (v) { window.ocGPPickModel(i, v); });
     }
+    var cat = '';
+    if (manual && models.length) {
+      var pt = String(it.ptype || '');
+      cat = '<div class="f"><label>Product category <b>*</b></label>'
+        + '<select id="qb-part-cat-' + i + '" onchange="this.classList.remove(\'err\'); ocGPPickCat(' + i + ', this.value)">'
+        + '<option value=""' + (pt ? '' : ' selected') + '>— select category —</option>'
+        + CATEGORIES.map(function (c) {
+            return '<option' + (pt === c ? ' selected' : '') + '>' + c + '</option>';
+          }).join('')
+        + '</select></div>';
+    }
     return '<div class="f"><label>Model name <b>*</b></label><div class="gp-modelrow">' + ctrl + box + '</div></div>'
+      + cat
       + '<div class="f"><label>Order type</label><select onchange="ocGPPickType(' + i + ', this.value)">'
       + ORDER_TYPES.map(function (t) {
           return '<option' + ((it.otype || ORDER_TYPES[0]) === t ? ' selected' : '') + '>' + t + '</option>';
@@ -390,7 +409,9 @@
     var opt = partsOptional(it);
     var h = '<div class="gp-sectitle">Parts &amp; cost (for GP — not printed on the quotation)</div>'
       + '<div class="gp-livetag' + lv.cls + '">' + lv.txt + '</div>'
-      + (opt ? '<div class="gp-linesum">Order type is TO BE ORDERED — these part fields are optional for this product.</div>' : '')
+      + (opt ? '<div class="gp-linesum">' + (nonChair(it)
+          ? 'Category is ' + esc(it.ptype) + ' — these part fields are optional for this product.'
+          : 'Order type is TO BE ORDERED — these part fields are optional for this product.') + '</div>' : '')
       + '<div class="gp-parts">';
     PART_KEYS.forEach(function (k) {
       var list = window.OCGP.partsFor(k);
@@ -487,7 +508,11 @@
     try {
       if (!ready()) return out;
       var it = S.items[i] || {};
-      if (partsOptional(it)) return out;               /* TO BE ORDERED: parts optional */
+      /* Not in list: category zaroori (dropdown tabhi dikhta hai jab model list ho) */
+      if (it.gpManual && window.OCGP.modelList().length && !String(it.ptype || '').trim()) {
+        out.push({ key: 'cat', label: 'Product category' });
+      }
+      if (partsOptional(it)) return out;               /* TO BE ORDERED / non-chair: parts optional */
       var chosen = it.gpParts || {};
       var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
       var std = model ? window.OCGP.costOf(model) : null;
@@ -521,13 +546,18 @@
     var it = S.items[i]; if (!it) return;
     it.gpManual = !!checked;
     if (checked) { it.gpModel = ''; }
-    else { it.gpParts = {}; }
+    else { it.gpParts = {}; it.ptype = ''; }
     renderItemsEditor(); R();
   };
   window.ocGPPickPart = function (i, key, name) {
     var it = S.items[i]; if (!it) return;
     it.gpParts = it.gpParts || {};
     it.gpParts[key] = name || '';
+    renderItemsEditor(); R();
+  };
+  window.ocGPPickCat = function (i, v) {
+    var it = S.items[i]; if (!it) return;
+    it.ptype = v || '';
     renderItemsEditor(); R();
   };
   window.ocGPPickType = function (i, v) {
