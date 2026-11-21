@@ -179,6 +179,10 @@
      renderItemsEditor() se call hota hai. */
 
   var ORDER_TYPES = ['EXISTING PRODUCT', 'TO BE ORDERED', 'CUSTOMIZED PRODUCT'];
+  /* TO BE ORDERED = chair bahar se fixed cost par aati hai, isliye PARTS & COST
+     ke dropdown us line ke liye zaroori nahi (optional) */
+  var PARTS_OPTIONAL_TYPES = ['TO BE ORDERED'];
+  function partsOptional(it) { return PARTS_OPTIONAL_TYPES.indexOf(String((it && it.otype) || '')) >= 0; }
   var PART_LABEL = { arm: 'Armrest', seat: 'Seat mechanism', base: 'Base', wheels: 'Wheels', fix: 'Product Fix Cost' };
   var PART_KEYS = ['arm', 'seat', 'base', 'wheels', 'fix'];
 
@@ -383,13 +387,16 @@
     var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
     var std = model ? window.OCGP.costOf(model) : null;
     var lv = liveText();
+    var opt = partsOptional(it);
     var h = '<div class="gp-sectitle">Parts &amp; cost (for GP — not printed on the quotation)</div>'
-      + '<div class="gp-livetag' + lv.cls + '">' + lv.txt + '</div><div class="gp-parts">';
+      + '<div class="gp-livetag' + lv.cls + '">' + lv.txt + '</div>'
+      + (opt ? '<div class="gp-linesum">Order type is TO BE ORDERED — these part fields are optional for this product.</div>' : '')
+      + '<div class="gp-parts">';
     PART_KEYS.forEach(function (k) {
       var list = window.OCGP.partsFor(k);
       var cur = chosen[k] || (std ? std.names[k] : '') || '';
       var rate = cur ? window.OCGP.compRate(window.OCGP.PART_TYPE[k], cur) : 0;
-      h += '<div class="gp-part"><label>' + PART_LABEL[k] + ' <b>*</b></label>'
+      h += '<div class="gp-part"><label>' + PART_LABEL[k] + (opt ? '' : ' <b>*</b>') + '</label>'
         + comboHTML('qb-part-' + k + '-' + i,
             [{ v: '', t: list.length ? '— not selected —' : '— none in GP sheet —' }]
               .concat(list.map(function (c) { return { v: c.name, t: c.name + ' — ' + inr(c.rate) }; })),
@@ -468,6 +475,8 @@
   }
 
   /* ---- PARTS & COST: sab dropdown zaroori (mandatory) ----
+     Order type TO BE ORDERED ho to us product ke parts optional hain (chair
+     bahar se fixed cost par aati hai).
      repMissing() (quotation-builder.html) isse poochhta hai ki product i ke
      kaun se part abhi khali hain. Khali = na user ne chuna, na model ke
      standard parts se bhara. GP sheet connected na ho (dropdown dikhte hi
@@ -478,6 +487,7 @@
     try {
       if (!ready()) return out;
       var it = S.items[i] || {};
+      if (partsOptional(it)) return out;               /* TO BE ORDERED: parts optional */
       var chosen = it.gpParts || {};
       var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
       var std = model ? window.OCGP.costOf(model) : null;
@@ -523,7 +533,8 @@
   window.ocGPPickType = function (i, v) {
     var it = S.items[i]; if (!it) return;
     it.otype = v || '';
-    R();
+    /* card dobara banao taaki parts ke * aur laal nishaan order type ke hisaab se badlein */
+    renderItemsEditor(); R();
   };
 
   /* ================= 4. GHATE PAR ROK ================= */
