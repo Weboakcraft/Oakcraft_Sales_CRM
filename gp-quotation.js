@@ -187,6 +187,11 @@
      sofa, table, almirah, workstation me ye parts hote hi nahi. */
   var CATEGORIES = ['CHAIR', 'SOFA', 'TABLE', 'ALMIRAH', 'WORKSTATION'];
   function nonChair(it) { return !!(it && it.gpManual && it.ptype && it.ptype !== 'CHAIR'); }
+  /* false = PARTS & COST ke dropdown (armrest / seat mechanism / base / wheels /
+     product fix cost) aur "Not in list" ki Product category -- koi bhi zaroori
+     nahi; khali chhod kar bhi quotation ban jaati hai. true karte hi purane
+     niyam (CHAIR / TO BE ORDERED wale) wapas chalu ho jaate hain. */
+  var PARTS_REQUIRED = false;
   function partsOptional(it) {
     return PARTS_OPTIONAL_TYPES.indexOf(String((it && it.otype) || '')) >= 0 || nonChair(it);
   }
@@ -378,7 +383,7 @@
     var cat = '';
     if (manual && models.length) {
       var pt = String(it.ptype || '');
-      cat = '<div class="f"><label>Product category <b>*</b></label>'
+      cat = '<div class="f"><label>Product category' + (PARTS_REQUIRED ? ' <b>*</b>' : '') + '</label>'
         + '<select id="qb-part-cat-' + i + '" onchange="this.classList.remove(\'err\'); ocGPPickCat(' + i + ', this.value)">'
         + '<option value=""' + (pt ? '' : ' selected') + '>— select category —</option>'
         + CATEGORIES.map(function (c) {
@@ -406,10 +411,10 @@
     var model = it.gpModel ? window.OCGP.bySku(it.gpModel) : null;
     var std = model ? window.OCGP.costOf(model) : null;
     var lv = liveText();
-    var opt = partsOptional(it);
+    var opt = !PARTS_REQUIRED || partsOptional(it);
     var h = '<div class="gp-sectitle">Parts &amp; cost (for GP — not printed on the quotation)</div>'
       + '<div class="gp-livetag' + lv.cls + '">' + lv.txt + '</div>'
-      + (opt ? '<div class="gp-linesum">' + (nonChair(it)
+      + (PARTS_REQUIRED && opt ? '<div class="gp-linesum">' + (nonChair(it)
           ? 'Category is ' + esc(it.ptype) + ' — these part fields are optional for this product.'
           : 'Order type is TO BE ORDERED — these part fields are optional for this product.') + '</div>' : '')
       + '<div class="gp-parts">';
@@ -507,6 +512,7 @@
     var out = [];
     try {
       if (!ready()) return out;
+      if (!PARTS_REQUIRED) return out;
       var it = S.items[i] || {};
       /* Not in list: category zaroori (dropdown tabhi dikhta hai jab model list ho) */
       if (it.gpManual && window.OCGP.modelList().length && !String(it.ptype || '').trim()) {
