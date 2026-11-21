@@ -2096,7 +2096,7 @@ window.addEventListener('focus', ()=>{
         return { photo: it.photo || '', thumb: it.thumb || '', name: it.name || '', desc: it.desc || '', hsn: it.hsn || '',
                  qty: +it.qty || 0, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
                  gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null,
-                 gpParts: it.gpParts || {}, otype: it.otype || '',
+                 gpParts: it.gpParts || {}, otype: it.otype || '', ptype: it.ptype || '',
                  amcPct: (it.amcPct === null || it.amcPct === undefined || it.amcPct === '') ? null : +it.amcPct };
       })
     };
@@ -2119,7 +2119,7 @@ window.addEventListener('focus', ()=>{
         return { photo: it.photo || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
                  qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '',
                  gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null,
-                 gpParts: it.gpParts || {}, otype: it.otype || '',
+                 gpParts: it.gpParts || {}, otype: it.otype || '', ptype: it.ptype || '',
                  amcPct: (it.amcPct === null || it.amcPct === undefined || it.amcPct === '') ? null : +it.amcPct };
       });
     }
@@ -2147,7 +2147,7 @@ window.addEventListener('focus', ()=>{
         return { photo: it.photo || it.image || null, thumb: it.thumb || null, name: it.name || '', desc: it.desc || '', hsn: it.hsn || '9403',
                  qty: +it.qty || 1, price: +it.price || 0, disc: +it.disc || 0, del: it.del || '10–12 working days',
                  gpModel: it.gpModel || '', gpManual: !!it.gpManual, gpCost: it.gpCost || null,
-                 gpParts: it.gpParts || {}, otype: it.otype || '' };
+                 gpParts: it.gpParts || {}, otype: it.otype || '', ptype: it.ptype || '' };
       });
     } else if(rec.product){
       S.items = [{ photo: null, name: String(rec.product).replace(/\s*\+\d+\s*more$/i, ''), desc: '', hsn: '9403',
@@ -2744,6 +2744,6 @@ window.addEventListener('focus', ()=>{
      Inme kuch badlo to ?v= number bhi badhao, warna purana cached file chalta rahega. -->
 <script src="lib/gp-engine.js?v=3"></script>
 <script src="gp-bridge.js?v=8"></script>
-<script src="gp-quotation.js?v=7"></script>
+<script src="gp-quotation.js?v=8"></script>
 </body>
 </html>
